@@ -1735,6 +1735,26 @@ select {
   line-height: 1.5;
 }
 
+/* 设置里的小开关行（复选框不像文本框那样撑满整行） */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.check-row input {
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  margin: 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+
 .key-row {
   display: flex;
   gap: 8px;

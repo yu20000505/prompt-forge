@@ -1,5 +1,8 @@
 # Prompt Forge
 
+[![CI](https://github.com/yu20000505/prompt-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/yu20000505/prompt-forge/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-6f7f66.svg)](LICENSE)
+
 **一句话进，可出图的提示词出来。**
 
 Prompt Forge 是一个纯本地的小工具：写一句中文，它帮你调大模型生成
@@ -30,7 +33,8 @@ Prompt Forge 负责翻译，然后让你用一句人话继续微调，而不是�
   只改你提到的地方，其余逐字保留，可无限撤回。
 - **两层互不干扰的「置顶」**
   - 本地置顶词：只在浏览器里拼到输出前面，**永远不会发给模型**；
-  - 置顶提示词：你写的一段长期要求，**每次请求都注入系统提示词**。
+  - 置顶提示词：你写的一段长期要求，生成 / 微调 / 角色设定时都会注入系统提示词；
+    随机灵感默认不注入（省 token），需要的话在设置里打开。
 - **随机灵感** —— 让模型现编 6 条场景句，自动避开你刚用过的题材。
 - **本地保存库** —— 结果可存成可读的 `.md` 文件，在界面里检索、改名、重新载入、删除。
 - **七套莫兰迪皮肤** —— 六套低饱和浅色 + 一套深色，配色都经过 WCAG 对比度校验。
@@ -54,7 +58,7 @@ Prompt Forge 负责翻译，然后让你用一句人话继续微调，而不是�
 ### 方式二：直接跑源码
 
 ```bash
-git clone https://github.com/<you>/prompt-forge.git
+git clone https://github.com/yu20000505/prompt-forge.git
 cd prompt-forge
 node src/server.mjs          # Windows 也可以双击 启动.bat
 ```
@@ -91,7 +95,7 @@ npm run build:desktop   # → release-desktop/PromptForge-Desktop.exe （Electro
 
 ```bash
 npm run test:static    # id 引用、prompt 模板、主题对比度，不需要浏览器
-npm test               # 完整 UI 回归：无头 Chrome 里跑 223 条断言
+npm test               # 完整 UI 回归：无头 Chrome 里跑 227 条断言
 ```
 
 UI 套件会用假接口起一个临时实例，验证真实行为：全部皮肤下每个文字节点的对比度、
@@ -104,7 +108,7 @@ PASS  微调结果仍带置顶词（只带一次）
 PASS  保存的是带置顶词的实际版本
 PASS  载入时置顶词没有被二次拼接
 ...
-223 项通过，0 失败
+227 项通过，0 失败
 ```
 
 `docs/` 里的截图由 `node tests/make-screenshots.mjs` 生成，不是手工裁剪。

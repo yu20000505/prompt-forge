@@ -221,8 +221,8 @@ function updateApiPinnedCount() {
     el.style.color = '';
     return;
   }
-  // 太长的时候变个色，提醒它每次请求都要发一遍
-  el.textContent = `· ${n} 字，每次请求都会发送`;
+  // 太长的时候变个色，提醒它每次都要发一遍
+  el.textContent = `· ${n} 字，生成和微调时发送`;
   el.style.color = n > 2000 ? 'var(--warn)' : '';
 }
 
@@ -237,6 +237,7 @@ function applyConfig(cfg, opts = {}) {
   }
   $('#pinEnabled').checked = cfg.pinEnabled !== false;
   $('#pinbox').classList.toggle('off', !$('#pinEnabled').checked);
+  $('#cfgApiPinnedIdea').checked = !!cfg.apiPinnedForIdea;
   $('#modelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
   $('#charModelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
   setStatus(cfg.hasKey, cfg.hasKey ? (cfg.model || '已配置') : '未配置 API Key');
@@ -348,7 +349,7 @@ async function generate() {
       renderRaw(acc);
       showErr('模型返回的不是标准 JSON，已按原文展示。可以点「重新生成」再试一次。');
     } else {
-      renderResult(parsed, { sentence, raw: acc });
+      renderResult(parsed, { sentence, raw: acc, language: $('#language').value });
     }
 
     S.current = {
@@ -447,6 +448,12 @@ function isTagStyle(style) {
   return style === 'sd' || style === 'anime';
 }
 
+// 判断正文实际是中文还是英文。结果徽章要反映「生成时」的语言，
+// 不能读当前下拉框——否则生成后再改下拉框，旧结果的徽章会跟着变。
+function textLanguage(text) {
+  return /[\u3400-\u9fff]/.test(String(text || '')) ? 'zh' : 'en';
+}
+
 function joinPin(pin, body, taggy) {
   const p = String(pin || '').trim();
   let b = String(body || '').trim();
@@ -497,7 +504,8 @@ function renderResult(parsed, meta = {}) {
   if (parsed.params.suggested_model) badges.appendChild(badge(parsed.params.suggested_model, false));
   const st = STYLES.find((x) => x.id === S.style);
   if (st) badges.appendChild(badge(st.label, false));
-  badges.appendChild(badge($('#language').value === 'zh' ? '中文' : '英文', false));
+  const lang = meta.language || S.current?.language || textLanguage(parsed.positive);
+  badges.appendChild(badge(lang === 'zh' ? '中文' : '英文', false));
 
   $('#outPositive').textContent = p.positive || '（无）';
   $('#outNegative').textContent = p.negative || '（无）';
@@ -917,7 +925,7 @@ function loadSavedPrompt(meta, fallbackTitle) {
     sentence: str(meta.sentence),
     style: meta.style || 'sd',
     targetModel: str(meta.targetModel),
-    language: 'en',
+    language: textLanguage(parsed.positive),
     parsed,
     at: Date.now(),
     stack: [parsed],
@@ -935,7 +943,7 @@ function loadSavedPrompt(meta, fallbackTitle) {
 
   switchView('prompt');
   $('#empty').hidden = true;
-  renderResult(parsed, { sentence: meta.sentence });
+  renderResult(parsed, { sentence: meta.sentence, language: textLanguage(parsed.positive) });
   $('#btnCopyAll').disabled = false;
   $('#btnSavePrompt').disabled = false;
   $('#btnRegen').disabled = false;
@@ -1019,6 +1027,7 @@ function pushHistory(item) {
     params: item.parsed.params,
     keywords: item.parsed.keywords,
     targetModel: item.targetModel,
+    language: item.language,
     at: item.at,
   });
   S.history = S.history.slice(0, 60);
@@ -1100,11 +1109,13 @@ function restoreHistoryEntry(h) {
     title: h.title, positive: h.positive, negative: h.negative,
     translation: h.translation, params: h.params || {}, keywords: h.keywords || [],
   };
+  // 旧版本存的历史没有 language 字段，按正文内容兜底判断
+  const lang = h.language || textLanguage(h.positive);
   S.current = {
     sentence: h.sentence,
     style: h.style || 'sd',
     targetModel: h.targetModel || '',
-    language: $('#language').value,
+    language: lang,
     parsed,
     at: h.at,
     stack: [parsed],
@@ -1114,7 +1125,7 @@ function restoreHistoryEntry(h) {
   document.querySelectorAll('#styleChips .chip').forEach((c) => c.classList.toggle('active', c.dataset.id === S.style));
   switchView('prompt');
   $('#empty').hidden = true;
-  renderResult(parsed, { sentence: h.sentence });
+  renderResult(parsed, { sentence: h.sentence, language: lang });
   $('#btnRegen').disabled = false;
   $('#btnCopyAll').disabled = false;
   $('#btnSavePrompt').disabled = false;
@@ -1662,7 +1673,7 @@ async function refine(instructionArg) {
     cur.stack.push(parsed);
     cur.parsed = parsed;
     cur.raw = acc;
-    renderResult(parsed, { sentence: cur.sentence });
+    renderResult(parsed, { sentence: cur.sentence, language: cur.language });
     updateHistoryEntry(cur);
     $('#refineInput').value = '';
     revealResult('#viewPrompt .result');
@@ -1686,7 +1697,7 @@ function undoRefine() {
   if (!cur?.stack || cur.stack.length <= 1) return;
   cur.stack.pop();
   cur.parsed = cur.stack[cur.stack.length - 1];
-  renderResult(cur.parsed, { sentence: cur.sentence });
+  renderResult(cur.parsed, { sentence: cur.sentence, language: cur.language });
   updateHistoryEntry(cur);
   hideErr();
 }
@@ -2019,6 +2030,7 @@ async function openSettings() {
   $('#cfgTemp').value = cfg.temperature ?? 0.85;
   $('#tempVal').textContent = Number(cfg.temperature ?? 0.85).toFixed(2);
   $('#cfgApiPinned').value = cfg.apiPinnedPrompt || '';
+  $('#cfgApiPinnedIdea').checked = !!cfg.apiPinnedForIdea;
   updateApiPinnedCount();
   $('#keyHint').textContent = cfg.hasKey
     ? `已保存：${cfg.keyMask}（出于安全不会回显到输入框，留空即保持原样）`
@@ -2038,6 +2050,7 @@ async function saveSettings() {
       model: $('#cfgModel').value.trim(),
       temperature: Number($('#cfgTemp').value),
       apiPinnedPrompt: $('#cfgApiPinned').value,
+      apiPinnedForIdea: $('#cfgApiPinnedIdea').checked,
     };
     const key = $('#cfgKey').value.trim();
     if (key) patch.apiKey = key;

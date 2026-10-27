@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞（私密报告）
+    url: https://github.com/yu20000505/prompt-forge/security/advisories/new
+    about: 涉及 Key 泄露、目录穿越等问题请不要开公开 issue
+  - name: 使用问题 / 讨论
+    url: https://github.com/yu20000505/prompt-forge/discussions
+    about: 配置、接口兼容、提示词写法等交流

@@ -71,6 +71,8 @@ const DEFAULT_CONFIG = {
   pinEnabled: true,
   // 会真的发给模型的置顶提示词（拼在系统提示词最前面）
   apiPinnedPrompt: '',
+  // 灵感请求只要一句中文，默认不再附带整段置顶规范，省 token
+  apiPinnedForIdea: false,
 };
 
 const MIME = {
@@ -144,6 +146,7 @@ function publicConfig(cfg) {
     pinnedNegative: cfg.pinnedNegative,
     pinEnabled: cfg.pinEnabled,
     apiPinnedPrompt: cfg.apiPinnedPrompt,
+    apiPinnedForIdea: !!cfg.apiPinnedForIdea,
   };
 }
 
@@ -235,6 +238,7 @@ async function resolveUpstream(req, res) {
     baseURL: normalizeBaseURL(body.baseURL || cfg.baseURL),
     temperature: Number(body.temperature ?? cfg.temperature),
     apiPinned: String(cfg.apiPinnedPrompt || ''),
+    apiPinnedForIdea: !!cfg.apiPinnedForIdea,
   };
 }
 
@@ -433,7 +437,11 @@ async function handleIdea(req, res) {
   const ctx = await resolveUpstream(req, res);
   if (!ctx) return;
 
-  const messages = buildIdeaMessages({ avoid: ctx.body.avoid, apiPinned: ctx.apiPinned });
+  // 灵感只是用来起个中文句子，默认不注入置顶规范；想要的话在设置里打开
+  const messages = buildIdeaMessages({
+    avoid: ctx.body.avoid,
+    apiPinned: ctx.apiPinnedForIdea ? ctx.apiPinned : '',
+  });
 
   try {
     const upstream = await fetch(`${ctx.baseURL}/chat/completions`, {
@@ -871,7 +879,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, 400, { error: '请求格式错误' });
       }
       const clean = {};
-      for (const k of ['baseURL', 'model', 'pinnedPositive', 'pinnedNegative', 'pinEnabled', 'apiKey', 'apiPinnedPrompt']) {
+      for (const k of ['baseURL', 'model', 'pinnedPositive', 'pinnedNegative', 'pinEnabled', 'apiKey', 'apiPinnedPrompt', 'apiPinnedForIdea']) {
         if (k in patch) clean[k] = patch[k];
       }
       if ('temperature' in patch) clean.temperature = Number(patch.temperature) || 0.85;

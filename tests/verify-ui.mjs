@@ -336,6 +336,21 @@ async function main() {
   check('参数徽章渲染 >= 3', badgeCount >= 3, `实际 ${badgeCount}`);
   check('参数建议卡片显示', extraShown === true);
 
+  // 徽章要记住生成时的语言：生成完再改下拉框，旧结果不能跟着变
+  const langBadgeFix = await evalJs(`(() => {
+    const read = () => [...document.querySelectorAll('#outBadges .badge')]
+      .map(e => e.textContent).find(t => t === '中文' || t === '英文');
+    const before = read();
+    document.querySelector('#language').value = 'zh';
+    renderResult(S.current.parsed, { sentence: S.current.sentence });
+    const after = read();
+    document.querySelector('#language').value = 'en';
+    renderResult(S.current.parsed, { sentence: S.current.sentence });
+    return { before, after };
+  })()`);
+  check('结果语言徽章不跟随当前下拉框',
+    langBadgeFix.before === '英文' && langBadgeFix.after === '英文', JSON.stringify(langBadgeFix));
+
   const hist = await evalJs(`document.querySelector('#historyCount').textContent`);
   check('历史记录 +1', Number(hist) >= 1, `count=${hist}`);
 
@@ -462,6 +477,8 @@ async function main() {
     (await visible('#cfgApiPinned')) === true, `值="${apiPinnedShown}"`);
   check('已保存的置顶提示词能回显到设置里',
     apiPinnedShown === 'MARKER-固定画风-ABC123', apiPinnedShown);
+  const ideaPinDefault = await evalJs(`document.querySelector('#cfgApiPinnedIdea').checked`);
+  check('灵感请求的置顶开关默认关闭', ideaPinDefault === false);
   const keyPlaceholder = await evalJs(`document.querySelector('#cfgKey').placeholder`);
   check('设置里 Key 显示为已保存占位', /已保存/.test(keyPlaceholder), keyPlaceholder);
 
@@ -1019,20 +1036,24 @@ async function main() {
   await evalJs(`document.querySelector('#btnSettings').click(); true`);
   await sleep(400);
   await evalJs(`document.querySelector('#cfgApiPinned').value = 'EDITED-PIN-999'; true`);
+  await evalJs(`document.querySelector('#cfgApiPinnedIdea').checked = true; true`);
   await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
   await sleep(1000);
   const cfgEdited = await evalJs(`fetch('/api/config').then(r=>r.json())`);
   check('置顶提示词修改后能保存',
     cfgEdited.apiPinnedPrompt === 'EDITED-PIN-999', JSON.stringify(cfgEdited.apiPinnedPrompt));
+  check('灵感置顶开关能保存', cfgEdited.apiPinnedForIdea === true);
 
   await evalJs(`document.querySelector('#btnSettings').click(); true`);
   await sleep(400);
   await evalJs(`document.querySelector('#cfgApiPinned').value = 'MARKER-固定画风-ABC123'; true`);
+  await evalJs(`document.querySelector('#cfgApiPinnedIdea').checked = false; true`);
   await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
   await sleep(1000);
   const cfgBack = await evalJs(`fetch('/api/config').then(r=>r.json())`);
   check('置顶提示词能改回原值',
     cfgBack.apiPinnedPrompt === 'MARKER-固定画风-ABC123', JSON.stringify(cfgBack.apiPinnedPrompt));
+  check('灵感置顶开关能改回关闭', cfgBack.apiPinnedForIdea === false);
   check('保存置顶提示词不会动到 Key', cfgBack.hasKey === true);
 
   // ---------- 12. 控制台错误 ----------

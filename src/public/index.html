@@ -404,6 +404,14 @@
         用来固定模型的行为习惯（比如固定的画风要求、固定的描述规则）。留空则不发送。
       </p>
 
+      <label class="check-row" for="cfgApiPinnedIdea">
+        <input type="checkbox" id="cfgApiPinnedIdea" />
+        <span>随机灵感请求也发送置顶提示词</span>
+      </label>
+      <p class="field-hint">
+        默认关闭：灵感只要一句中文，附带整段规范会白白消耗 token。生成提示词、微调、角色设定始终会发送。
+      </p>
+
       <div class="dialog-err err" id="cfgErr" hidden></div>
 
       <div class="dialog-actions">

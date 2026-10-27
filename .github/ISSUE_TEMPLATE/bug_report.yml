@@ -1,0 +1,71 @@
+name: Bug 报告
+description: 报告一个可以复现的问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请先确认已经看过 README，并且用的是最新版本。
+        涉及 API Key 的内容请先打码，**不要贴出完整的 Key**。
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: package.json 里的 version，或 exe 的文件属性
+      placeholder: 例如 1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: run-mode
+    attributes:
+      label: 运行方式
+      options:
+        - 源码（node src/server.mjs）
+        - PromptForge.exe
+        - PromptForge-Desktop.exe
+        - 其它
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      description: 操作系统、Node 版本（源码运行时）、浏览器
+      placeholder: Windows 11 / Node 20.11 / Chrome 126
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从打开程序开始，一步一步写清楚
+      placeholder: |
+        1. 打开提示词工坊
+        2. 输入「雨夜的霓虹街头」
+        3. 点生成提示词
+        4. ……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 有报错的话把完整报错贴上来；界面问题可以附截图
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我搜索过已有 issue，没有重复
+          required: true
+        - label: 我使用的不是自己改过的代码，或已说明改动
+          required: true
