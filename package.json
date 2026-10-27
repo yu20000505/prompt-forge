@@ -1,7 +1,7 @@
 {
   "name": "prompt-forge",
   "version": "1.0.0",
-  "description": "One sentence in, production-ready image prompts out. Local-first, no dependencies, works with any OpenAI-compatible API.",
+  "description": "一句话生成生图提示词。纯本地、零运行时依赖，支持任意 OpenAI 兼容接口。",
   "private": true,
   "type": "module",
   "main": "src/server.mjs",
