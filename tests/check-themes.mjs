@@ -1,9 +1,10 @@
+import { fileURLToPath } from 'node:url';
 // 检查每套皮肤的 WCAG 对比度，避免"看着还行但其实看不清"。
 // 直接解析 styles.css 里的 token，不依赖浏览器。
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOT = path.dirname(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, '')));
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const css = fs.readFileSync(path.join(ROOT, 'src/public/styles.css'), 'utf8');
 
 function parseBlock(body) {

@@ -1,8 +1,9 @@
+import { fileURLToPath } from 'node:url';
 // 根据对比度要求调整不达标的 token，输出替换表。只做计算和打印，不改文件。
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOT = path.dirname(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, '')));
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const css = fs.readFileSync(path.join(ROOT, 'src/public/styles.css'), 'utf8');
 
 const parseBlock = (body) => {

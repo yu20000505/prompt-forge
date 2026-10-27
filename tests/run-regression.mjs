@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 // 一键回归：起一个「临时配置」的实例 + 假接口，跑完自动清理。
 // 关键点：服务用 PF_CONFIG 指向临时文件，端口也不与日常使用的 43125 冲突，
 // 所以跑测试永远不会碰到用户真正的 config.json。
@@ -8,7 +9,7 @@ import path from 'node:path';
 
 const APP_PORT = Number(process.env.PF_TEST_PORT || 43127);
 const MOCK_PORT = Number(process.env.PF_MOCK_PORT || 43199);
-const ROOT = path.dirname(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, '')));
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CFG = path.join(os.tmpdir(), `pf-test-config-${process.pid}.json`);
 // 保存目录也指向临时位置，别把测试产生的文件写进用户真正的 saved/
 const SAVED = path.join(os.tmpdir(), `pf-test-saved-${process.pid}`);

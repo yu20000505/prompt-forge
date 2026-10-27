@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 // 在真实渲染的页面上自动审计文字对比度：找出「字和它背后的底色太接近」的元素。
 // 换皮肤后眼睛看不到的问题，这一步能抓出来。
 import { spawn } from 'node:child_process';
@@ -7,7 +8,7 @@ const CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Ap
 const APP = process.env.APP_URL || 'http://127.0.0.1:43125/';
 const APP_PORT = new URL(APP).port || '80';
 const DEBUG_PORT = 9336;
-const OUT = path.dirname(new URL(import.meta.url).pathname.replace(/^\//, ''));
+const OUT = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const chrome = spawn(CHROME, [

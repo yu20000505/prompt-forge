@@ -1,10 +1,11 @@
+import { fileURLToPath } from 'node:url';
 // 把 Prompt Forge 打包成单个 exe（Node SEA + esbuild 打包成 CJS）
 // 用法：node build/build-exe.mjs
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOT = path.dirname(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, '')));
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const BUILD = path.join(ROOT, 'build');
 const OUT_DIR = path.join(ROOT, 'release');
 const EXE_NAME = 'PromptForge.exe';

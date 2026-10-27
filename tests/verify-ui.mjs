@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 // 通过 CDP 驱动无头 Chrome 验证前端，包括置顶词拼接行为。开发期工具。
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -7,7 +8,7 @@ const CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Ap
 const PORT = 9333;
 const APP = process.env.APP_URL || 'http://127.0.0.1:43125/';
 const APP_PORT = new URL(APP).port || '80';
-const OUT_DIR = path.dirname(new URL(import.meta.url).pathname.replace(/^\//, ''));
+const OUT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SAVED_DIR = process.env.PF_SAVED_DIR || '';
 
 // 保存目录里的 md 文件（本进程直接读盘，验证「真的写到了本地」）

@@ -1,9 +1,10 @@
+import { fileURLToPath } from 'node:url';
 // 检查 app.js 里引用的 #id 在 index.html 里是否真的存在。
 // 这次就是漏删了一个绑定，导致 bind() 抛异常、后面所有绑定都没执行。
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOT = path.dirname(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, '')));
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const html = fs.readFileSync(path.join(ROOT, 'src/public/index.html'), 'utf8');
 const js = fs.readFileSync(path.join(ROOT, 'src/public/app.js'), 'utf8');
 const css = fs.readFileSync(path.join(ROOT, 'src/public/styles.css'), 'utf8');

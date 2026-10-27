@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 // 生成 README 用的截图：起一个临时实例（假接口），用无头 Chrome 走一遍真实流程后截图。
 // 用法：node tests/make-screenshots.mjs
 import { spawn } from 'node:child_process';
@@ -5,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const ROOT = path.dirname(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, '')));
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const OUT = path.join(ROOT, 'docs', 'screenshots');
 const APP_PORT = Number(process.env.PF_SHOT_PORT || 43140);
 const MOCK_PORT = Number(process.env.PF_MOCK_PORT || 43199);

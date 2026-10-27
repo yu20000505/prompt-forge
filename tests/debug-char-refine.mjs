@@ -1,10 +1,11 @@
+import { fileURLToPath } from 'node:url';
 // 直接打 /api/characters/refine，看服务端到底返回什么。开发期排查用。
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const ROOT = path.dirname(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, '')));
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CFG = path.join(os.tmpdir(), `pf-dbg-${process.pid}.json`);
 const APP = 43160;
 const MOCK = 43199;

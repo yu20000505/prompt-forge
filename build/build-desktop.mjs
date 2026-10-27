@@ -1,10 +1,11 @@
+import { fileURLToPath } from 'node:url';
 // 打包桌面版（Electron）：单文件 exe，有独立窗口，不开浏览器。
 // 用法：node build/build-desktop.mjs
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOT = path.dirname(path.dirname(new URL(import.meta.url).pathname.replace(/^\//, '')));
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const APP_DIR = path.join(ROOT, 'build', 'electron');
 const OUT_DIR = path.join(ROOT, 'release-desktop');
 
