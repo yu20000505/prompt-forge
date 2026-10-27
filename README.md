@@ -111,7 +111,7 @@ CI 里配置 `WINDOWS_PFX_BASE64` 和 `WINDOWS_PFX_PASSWORD` 两个 Secret，打
 
 ```bash
 npm run test:static    # id 引用、prompt 模板、主题对比度，不需要浏览器
-npm test               # 完整 UI 回归：无头 Chrome 里跑 237 条断言
+npm test               # 完整 UI 回归：无头 Chrome 里跑 238 条断言
 ```
 
 UI 套件会用假接口起一个临时实例，验证真实行为：全部皮肤下每个文字节点的对比度、
@@ -124,7 +124,7 @@ PASS  微调结果仍带置顶词（只带一次）
 PASS  保存的是带置顶词的实际版本
 PASS  载入时置顶词没有被二次拼接
 ...
-237 项通过，0 失败
+238 项通过，0 失败
 ```
 
 `docs/` 里的截图由 `node tests/make-screenshots.mjs` 生成，不是手工裁剪。

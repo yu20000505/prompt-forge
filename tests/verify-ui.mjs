@@ -984,6 +984,24 @@ async function main() {
     `${Math.round((Date.now() - trashMtime) / 1000)}s 前`);
   check('删除提示条带撤销按钮',
     (await evalJs(`!!document.querySelector('#toast .toast-undo')`)) === true);
+  // 提示条默认 pointer-events:none，撤销按钮必须真的可见、可点（看计算样式和盒子）
+  const undoBtn = await evalJs(`(() => {
+    const b = document.querySelector('#toast .toast-undo');
+    const toast = document.querySelector('#toast');
+    if (!b || !toast) return null;
+    const r = b.getBoundingClientRect();
+    return {
+      w: r.width,
+      h: r.height,
+      display: getComputedStyle(b).display,
+      pointerEvents: getComputedStyle(toast).pointerEvents,
+      opacity: getComputedStyle(toast).opacity,
+    };
+  })()`);
+  check('撤销按钮真的可见且可点',
+    !!undoBtn && undoBtn.w > 0 && undoBtn.h > 0 && undoBtn.display !== 'none'
+      && undoBtn.pointerEvents === 'auto' && Number(undoBtn.opacity) > 0,
+    JSON.stringify(undoBtn));
 
   // 撤销删除：文件应该从回收站搬回来
   await evalJs(`document.querySelector('#toast .toast-undo').click(); true`);

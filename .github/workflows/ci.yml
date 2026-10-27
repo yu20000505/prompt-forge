@@ -22,6 +22,8 @@ jobs:
           node --check src/server.mjs
           node --check src/styles.mjs
           node --check src/public/app.js
+          node --check build/sign.mjs
+          node build/sign.mjs --help > /dev/null
 
       - name: Static checks (ids / prompt templates / theme contrast)
         run: |
