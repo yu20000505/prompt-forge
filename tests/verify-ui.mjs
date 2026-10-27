@@ -1264,6 +1264,42 @@ async function main() {
   const histAfterSeg = Number(await evalJs(`document.querySelector('#historyCount').textContent`));
   check('细分生成也进历史', histAfterSeg === histBeforeSeg + 1, `${histBeforeSeg} -> ${histAfterSeg}`);
 
+  // 细分标签微调
+  check('细分结果出现微调区', (await visible('#segRefineBar')) === true);
+  check('细分撤回按钮初始不可用',
+    (await evalJs(`document.querySelector('#btnSegUndoRefine').disabled`)) === true);
+  check('细分微调控件已启用',
+    (await evalJs(`document.querySelector('#btnSegRefine').disabled`)) === false
+      && (await evalJs(`document.querySelector('#segRefineInput').disabled`)) === false
+      && (await evalJs(`document.querySelectorAll('#segRefineChips button:disabled').length`)) === 0);
+  await evalJs(`(() => {
+    const b = [...document.querySelectorAll('#segRefineChips button')].find((x) => x.textContent === '更华丽');
+    b.click();
+    return true;
+  })()`);
+  let segRefined = false;
+  for (let i = 0; i < 80; i++) {
+    const t = await evalJs(`document.querySelectorAll('#segCards .card-body')[0].textContent`);
+    if (t.includes('ornate')) { segRefined = true; break; }
+    await sleep(200);
+  }
+  const segRefinedTags = await evalJs(`document.querySelectorAll('#segCards .card-body')[0].textContent`);
+  check('细分微调后标签发生变化',
+    segRefined && segRefinedTags !== segTags, segRefinedTags.slice(0, 50));
+  const segRefineStatus = await evalJs(`document.querySelector('#segRefineStatus').textContent`);
+  check('细分微调次数已显示', /已微调 1 次/.test(segRefineStatus), segRefineStatus);
+  check('细分微调不新增历史',
+    Number(await evalJs(`document.querySelector('#historyCount').textContent`)) === histAfterSeg);
+  const histSegItem = await evalJs(`JSON.parse(localStorage.getItem('prompt-forge-history-v1') || '[]').find(h => h.kind === 'segment')`);
+  check('细分微调同步更新历史', /ornate/.test(histSegItem?.tags || ''), (histSegItem?.tags || '').slice(0, 40));
+
+  await evalJs(`document.querySelector('#btnSegUndoRefine').click(); true`);
+  await sleep(500);
+  const segTagsUndo = await evalJs(`document.querySelectorAll('#segCards .card-body')[0].textContent`);
+  check('细分撤回能回到微调前', segTagsUndo === segTags, segTagsUndo.slice(0, 40));
+  const histSegUndo = await evalJs(`JSON.parse(localStorage.getItem('prompt-forge-history-v1') || '[]').find(h => h.kind === 'segment')`);
+  check('细分撤回也更新历史', !/ornate/.test(histSegUndo?.tags || ''), (histSegUndo?.tags || '').slice(0, 40));
+
   // 从历史恢复细分结果
   await evalJs(`document.querySelector('#btnHistory').click(); true`);
   await sleep(400);

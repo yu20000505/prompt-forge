@@ -12,6 +12,7 @@ import {
   buildCharacterMessages,
   buildCharacterRefineMessages,
   buildSegmentMessages,
+  buildSegmentRefineMessages,
   SEGMENT_LIST,
 } from './styles.mjs';
 
@@ -586,6 +587,36 @@ async function handleSegment(req, res) {
   return proxyChatStream(req, res, { ...ctx, messages, maxTokens: 1800 });
 }
 
+// 细分标签的微调：只改用户提到的部分，其余 tag 原样保留
+async function handleSegmentRefine(req, res) {
+  const ctx = await resolveUpstream(req, res);
+  if (!ctx) return;
+
+  const instruction = String(ctx.body.instruction || '').trim();
+  if (!instruction) return json(res, 400, { error: '请先写一句要改什么' });
+
+  const prev = ctx.body.previous && typeof ctx.body.previous === 'object' ? ctx.body.previous : {};
+  const tags = String(prev.tags || '').trim();
+  if (!tags) return json(res, 400, { error: '没有可以微调的标签' });
+
+  const segmentType = SEGMENT_LIST.some((t) => t.id === ctx.body.segmentType)
+    ? ctx.body.segmentType
+    : 'outfit';
+
+  const messages = buildSegmentRefineMessages({
+    previous: {
+      tags,
+      translation: String(prev.translation || ''),
+    },
+    instruction,
+    segmentType,
+    targetModel: ctx.body.targetModel,
+    apiPinned: ctx.apiPinned,
+  });
+
+  return proxyChatStream(req, res, { ...ctx, messages, maxTokens: 1800 });
+}
+
 // ---------- 保存到本地 ----------
 function stampNow(d = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
@@ -1031,6 +1062,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/characters' && req.method === 'POST') return await handleCharacters(req, res);
     if (pathname === '/api/characters/refine' && req.method === 'POST') return await handleCharacterRefine(req, res);
     if (pathname === '/api/segment' && req.method === 'POST') return await handleSegment(req, res);
+    if (pathname === '/api/segment/refine' && req.method === 'POST') return await handleSegmentRefine(req, res);
     if (pathname === '/api/models' && req.method === 'GET') return await handleModels(req, res);
     if (pathname === '/api/save' && req.method === 'POST') return await handleSave(req, res);
     if (pathname === '/api/saved' && req.method === 'GET') return await handleListSaved(req, res);

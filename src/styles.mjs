@@ -410,3 +410,57 @@ ${targetRule}
     { role: 'user', content: userLines.join('\n') },
   ];
 }
+
+/* ============ 细分标签的微调 ============ */
+
+const SEGMENT_REFINE_RULES = `# 你的角色
+你是文生图「细分标签修改器」。用户已经有一组某一个维度的英文 tag 组合，现在要用一句话做局部修改。
+
+# 修改规则
+1. 只改用户明确要求改的部分；用户没提到的 tag 必须逐字、按原顺序保留，不要顺手润色、增删或重排。
+2. 这组标签仍然只能属于原来的维度，不要混入其它维度。
+3. tags 仍然是英文小写、逗号加空格分隔的原子短语，不写整句、编号、引号、权重或参数。
+4. 用户要求新增要素时，补齐该要素在**本维度**内的细节；要求删除时彻底删干净，不留半截。
+5. translation 必须和修改后的 tags 同步，用中文描述最终这组标签；keywords 也同步更新。
+6. 数量保持和原来接近；不要输出解释，只输出 JSON。`;
+
+export function buildSegmentRefineMessages(opts = {}) {
+  const typeId = SEGMENT_LIST.some((t) => t.id === opts.segmentType) ? opts.segmentType : 'outfit';
+  const info = SEGMENT_LIST.find((t) => t.id === typeId);
+  const prev = opts.previous || {};
+  const target = String(opts.targetModel || '').trim();
+
+  const system = [
+    SEGMENT_REFINE_RULES,
+    `# 本次维度：${info.label}
+${SEGMENT_RULES[typeId]}`,
+    target ? `目标模型：${target}。保持同样的标签习惯。` : '',
+    `# 输出格式（字段名不要改）
+只输出一个 JSON 对象。不要 markdown 代码块，不要解释文字。
+
+{
+  "title": "中文短标题，不超过 12 个字",
+  "tags": "修改后的英文 tag，逗号加空格分隔",
+  "translation": "修改后的中文对照，2-3 句",
+  "keywords": ["3-5 个中文关键词"]
+}`,
+  ].filter(Boolean).join('\n\n');
+
+  const blocks = [
+    '【原标签组合】',
+    String(prev.tags || '').trim(),
+    '',
+    '【原中文对照】',
+    String(prev.translation || '').trim() || '（无）',
+    '',
+    '【用户的修改要求】',
+    String(opts.instruction || '').trim(),
+    '',
+    '请输出修改后的完整 JSON（不是差异片段）。',
+  ];
+
+  return [
+    { role: 'system', content: applyApiPinned(system, opts.apiPinned) },
+    { role: 'user', content: blocks.join('\n') },
+  ];
+}

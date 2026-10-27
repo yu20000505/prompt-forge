@@ -5,6 +5,7 @@ import {
   buildIdeaMessages,
   buildCharacterMessages,
   buildSegmentMessages,
+  buildSegmentRefineMessages,
   SEGMENT_LIST,
 } from '../src/styles.mjs';
 
@@ -55,6 +56,22 @@ check('细分标签 7 种类型都能构造',
     sentence: 'x', segmentType: t.id,
   })[0].content.includes(t.label)));
 
+// ---------- 细分标签的微调 ----------
+const segRef = buildSegmentRefineMessages({
+  previous: { tags: 'black lace dress, silver buckles', translation: '黑色蕾丝长裙' },
+  instruction: '更华丽',
+  segmentType: 'outfit',
+  targetModel: 'SDXL',
+  apiPinned: PIN,
+});
+const segRefSys = segRef[0].content;
+check('细分微调要 tags 字段', segRefSys.includes('"tags"'));
+check('细分微调要求未提到的 tag 逐字保留', segRefSys.includes('逐字'));
+check('细分微调锁定当前维度', segRefSys.includes('本次维度：服饰穿搭'));
+check('细分微调带目标模型', segRefSys.includes('SDXL'));
+check('细分微调的用户消息含原标签与要求',
+  segRef[1].content.includes('black lace dress') && segRef[1].content.includes('更华丽'));
+
 // ---------- 置顶提示词注入 ----------
 const gens = [
   ['generate', buildMessages({ sentence: '猫', style: 'sd', apiPinned: PIN })],
@@ -62,6 +79,7 @@ const gens = [
   ['characters', c],
   ['idea', buildIdeaMessages({ apiPinned: PIN })],
   ['segment', buildSegmentMessages({ sentence: '银发少女', segmentType: 'outfit', apiPinned: PIN })],
+  ['segmentRefine', buildSegmentRefineMessages({ previous: { tags: 'a' }, instruction: 'b', apiPinned: PIN })],
 ];
 for (const [name, msgs] of gens) {
   const sys = msgs[0].content;

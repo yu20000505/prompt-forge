@@ -401,6 +401,21 @@
 
           <div id="segCards" hidden></div>
 
+          <div class="refine" id="segRefineBar" hidden>
+            <div class="refine-head">
+              <span class="refine-title">✎ 微调这组标签</span>
+              <span class="dim small" id="segRefineStatus"></span>
+              <span class="grow"></span>
+              <button class="btn tiny ghost" id="btnSegUndoRefine" disabled>↩ 撤回</button>
+            </div>
+            <div class="refine-row">
+              <input id="segRefineInput" placeholder="一句话说明要改什么，例如：更华丽 / 去掉配饰 / 换成冬季"
+                autocomplete="off" />
+              <button class="btn primary" id="btnSegRefine">微调</button>
+            </div>
+            <div class="quick-chips" id="segRefineChips"></div>
+          </div>
+
           <p class="seg-note dim small" id="segNote" hidden>
             细分标签只包含所选类型，不拼置顶词；可以多次生成后自由组合。
           </p>

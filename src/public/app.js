@@ -23,6 +23,11 @@ const SEG_TYPES = [
 // 后端改了但没重启时，/api/segment 会 404；给一个能照做的提示，而不是裸的 not found
 const STALE_SERVER_MSG = '检测到服务端还是旧进程：没有 /api/segment。请关闭运行 Prompt Forge 的命令行窗口后重新运行 node src/server.mjs，再刷新本页；exe 版需要重新打包。';
 
+const SEG_REFINE_CHIPS = [
+  '更华丽', '更日常', '去掉配饰', '换成冬季', '更赛博朋克',
+  '颜色更暗', '材质更具体', '精简一些', '更写实', '细节更多',
+];
+
 // 本地兜底词库：只在接口不可用（没配 Key / 连不上）时用
 const IDEAS = [
   '雨夜的霓虹街头，一位赛博朋克女剑客回头看向镜头',
@@ -70,6 +75,7 @@ const S = {
   segMeta: null,
   segText: '',
   segSentence: '',
+  segStack: [],
   serverStale: false,
   lib: [],
   libDir: '',
@@ -106,6 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderRefineChips();
   renderCharRefineChips();
   renderSegTypeChips();
+  renderSegRefineChips();
   renderThemeSwatches();
   bind();
   loadHistory();
@@ -151,6 +158,22 @@ function renderSegTypeChips() {
 
 function segTypeLabel(id) {
   return (SEG_TYPES.find((t) => t.id === id) || SEG_TYPES[0]).label;
+}
+
+function renderSegRefineChips() {
+  const box = $('#segRefineChips');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const text of SEG_REFINE_CHIPS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = text;
+    b.addEventListener('click', () => {
+      $('#segRefineInput').value = text;
+      refineSegment(text);
+    });
+    box.appendChild(b);
+  }
 }
 
 /* ============ 操作体验小工具 ============ */
@@ -1174,11 +1197,13 @@ function loadSavedSegment(meta, fallbackTitle) {
 
   S.segData = d;
   S.segSentence = str(meta.sentence);
+  S.segStack = [d];
   S.segMeta = {
     sentence: S.segSentence,
     type,
     targetModel: str(meta.targetModel),
     at: Date.now(),
+    historyAt: null,
   };
   S.segText = d.tags;
 
@@ -1359,7 +1384,8 @@ function restoreHistoryEntry(h) {
     document.querySelectorAll('#segTypeChips .chip').forEach((c) => c.classList.toggle('active', c.dataset.id === type));
     S.segData = d;
     S.segSentence = h.sentence || '';
-    S.segMeta = { sentence: S.segSentence, type, targetModel: h.targetModel || '', at: h.at };
+    S.segStack = [d];
+    S.segMeta = { sentence: S.segSentence, type, targetModel: h.targetModel || '', at: h.at, historyAt: h.at };
     S.segText = d.tags;
     if (S.segSentence) {
       $('#segSentence').value = S.segSentence;
@@ -1870,6 +1896,7 @@ async function generateSegment() {
   $('#btnSegGenerateText').textContent = '生成中…';
   $('#segEmpty').hidden = true;
   $('#segCards').hidden = true;
+  $('#segRefineBar').hidden = true;
   $('#segStream').hidden = false;
   $('#segStreamText').textContent = '';
   $('#segStreamLabel').textContent = '正在生成…（按 Esc 取消）';
@@ -1946,14 +1973,17 @@ async function generateSegment() {
 
     S.segData = parsed;
     S.segSentence = sentence;
+    S.segStack = [parsed];
     S.segMeta = {
       sentence,
       type: S.segType,
       targetModel: $('#segTarget').value,
       at: Date.now(),
+      historyAt: null,
     };
     renderSegment(parsed);
     pushSegmentHistory();
+    S.segMeta.historyAt = S.segMeta.at;
     revealResult('#viewSegment .result');
   } catch (err) {
     $('#segStream').hidden = true;
@@ -1977,6 +2007,7 @@ async function generateSegment() {
     $('#btnSegRegen').disabled = !S.segData;
     $('#btnSegCopyAll').disabled = !S.segData;
     $('#btnSegSave').disabled = !S.segData;
+    updateSegRefineUi();
   }
 }
 
@@ -2021,11 +2052,13 @@ function renderSegment(d) {
   }
 
   $('#segNote').hidden = false;
+  $('#segRefineBar').hidden = false;
   S.segData = d;
   S.segText = d.tags;
   $('#btnSegSave').disabled = false;
   $('#btnSegCopyAll').disabled = false;
   $('#btnSegRegen').disabled = false;
+  updateSegRefineUi();
 }
 
 function segmentMarkdown() {
@@ -2058,6 +2091,146 @@ function pushSegmentHistory() {
   });
   S.history = S.history.slice(0, 60);
   saveHistory();
+}
+
+// 微调不新增历史，而是就地更新同一次细分生成的那条
+function updateSegmentHistoryEntry() {
+  const at = S.segMeta?.historyAt;
+  if (!at) return;
+  const h = S.history.find((x) => x.kind === 'segment' && x.at === at);
+  if (!h) return;
+  const d = S.segData || {};
+  h.title = d.title || h.title;
+  h.tags = d.tags || h.tags;
+  h.translation = d.translation || '';
+  h.keywords = d.keywords || [];
+  saveHistory();
+}
+
+function updateSegRefineUi() {
+  const n = Math.max(0, (S.segStack || []).length - 1);
+  if (!S.segBusy) {
+    $('#segRefineStatus').textContent = n > 0 ? `已微调 ${n} 次` : '';
+  }
+  $('#btnSegUndoRefine').disabled = n <= 0 || S.segBusy;
+  $('#btnSegRefine').disabled = S.segBusy;
+  $('#segRefineInput').disabled = S.segBusy;
+  $('#segRefineChips').querySelectorAll('button').forEach((b) => { b.disabled = S.segBusy; });
+}
+
+async function refineSegment(instructionArg) {
+  if (S.segBusy) return;
+  const instruction = String(instructionArg ?? $('#segRefineInput').value).trim();
+  if (!instruction) {
+    showSegErr('先写一句要改什么，比如「更华丽」');
+    $('#segRefineInput').focus();
+    return;
+  }
+  const cur = S.segData;
+  if (!cur?.tags) {
+    showSegErr('还没有可以微调的标签，先生成一条');
+    return;
+  }
+
+  hideSegErr();
+  S.segBusy = true;
+  const btn = $('#btnSegRefine');
+  const oldLabel = btn.textContent;
+  btn.textContent = '微调中…';
+  $('#segRefineStatus').textContent = '微调中…';
+  $('#btnSegGenerate').disabled = true;
+  $('#btnSegRegen').disabled = true;
+  updateSegRefineUi();
+
+  S.segAbort = new AbortController();
+  let acc = '';
+  let gotError = null;
+
+  try {
+    const res = await fetch('/api/segment/refine', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        instruction,
+        previous: { tags: cur.tags, translation: cur.translation },
+        segmentType: S.segMeta?.type || S.segType,
+        targetModel: S.segMeta?.targetModel || $('#segTarget').value,
+      }),
+      signal: S.segAbort.signal,
+    });
+
+    if (!res.ok) {
+      if (res.status === 404) throw new Error(STALE_SERVER_MSG);
+      const e = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(e.error || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line.startsWith('data:')) continue;
+        let evt;
+        try {
+          evt = JSON.parse(line.slice(5).trim());
+        } catch {
+          continue;
+        }
+        if (evt.type === 'delta') {
+          acc += evt.text;
+          $('#segRefineStatus').textContent = `微调中… ${acc.length} 字`;
+        } else if (evt.type === 'error') {
+          gotError = evt.message;
+        }
+      }
+    }
+
+    if (gotError) throw new Error(gotError);
+    if (!acc.trim()) throw new Error('模型没有返回内容，再试一次');
+
+    const parsed = normalizeSegment(parseJsonLoose(acc));
+    if (!parsed) throw new Error('模型返回的不是标准 JSON，再试一次或换个模型');
+
+    S.segStack.push(parsed);
+    S.segData = parsed;
+    renderSegment(parsed);
+    updateSegmentHistoryEntry();
+    $('#segRefineInput').value = '';
+    revealResult('#viewSegment .result');
+    $('#segRefineInput').focus();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      showSegErr('已取消本次微调');
+    } else {
+      showSegErr(err.message || String(err), () => refineSegment(instruction));
+    }
+  } finally {
+    S.segBusy = false;
+    S.segAbort = null;
+    btn.textContent = oldLabel;
+    $('#btnSegGenerate').disabled = false;
+    $('#btnSegRegen').disabled = !S.segData;
+    updateSegRefineUi();
+  }
+}
+
+function undoSegmentRefine() {
+  const stack = S.segStack || [];
+  if (stack.length <= 1) return;
+  stack.pop();
+  const d = stack[stack.length - 1];
+  S.segData = d;
+  renderSegment(d);
+  updateSegmentHistoryEntry();
+  hideSegErr();
 }
 
 /* ============ 微调 ============ */
@@ -2387,6 +2560,16 @@ function bind() {
       keywords: d.keywords || [],
     }, $('#btnSegSave'));
   });
+
+  /* 细分标签的微调 */
+  $('#btnSegRefine').addEventListener('click', () => refineSegment());
+  $('#segRefineInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      refineSegment();
+    }
+  });
+  $('#btnSegUndoRefine').addEventListener('click', undoSegmentRefine);
 
   $('#btnClear').addEventListener('click', () => {
     $('#sentence').value = '';

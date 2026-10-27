@@ -57,6 +57,15 @@ const SEG_SAMPLE = {
   keywords: ['黑蕾丝', '束身长裙', '银搭扣', '哥特'],
 };
 
+// 细分标签微调后的版本
+const SEG_REFINED = {
+  ...SEG_SAMPLE,
+  title: '黑蕾丝哥特长裙 · 更华丽',
+  tags: 'ornate black lace corset dress, gold thread embroidery, sheer puff sleeves, tarnished silver buckles, layered velvet skirt, thigh-high leather boots, cameo choker, worn lace gloves, floor-length hem',
+  translation: '在原有黑色蕾丝束身长裙基础上增加了金色刺绣，整体更华丽；其余蕾丝、天鹅绒裙摆、皮靴和颈链保持不变。',
+  keywords: ['黑蕾丝', '金线刺绣', '华丽', '哥特'],
+};
+
 // 灵感接口返回的内容（一次 6 条）
 const MOCK_IDEAS = [
   '凌晨四点的便利店门口，一个值夜班的人蹲在台阶上吃关东煮',
@@ -85,7 +94,8 @@ function pickSample(payload) {
   const user = String(messages[1]?.content || '');
   const pinned = extractApiPinned(sys);
 
-  // 细分标签：只按当前维度返回一组 tag
+  // 细分标签：微调优先于首次生成
+  if (sys.includes('细分标签修改器')) return SEG_REFINED;
   if (sys.includes('细分标签工程师')) return SEG_SAMPLE;
 
   // 角色提示词的微调（注意要排在角色设定之前，前者的系统提示词里也含「多角色同框」）
