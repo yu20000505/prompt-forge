@@ -6,8 +6,10 @@
 **One sentence in. A production-ready image prompt out.**
 
 Prompt Forge is a local-first desktop tool that turns a single plain-language sentence into
-prompts you can paste straight into Stable Diffusion, NovelAI, Midjourney, Flux or DALL·E —
-including character sheets with an English prompt and a Chinese translation side by side.
+prompts you can paste straight into Stable Diffusion, NovelAI, Midjourney, Flux or DALL·E.
+It also builds character sheets with an English prompt and a Chinese translation, plus seven
+segment-tag groups (outfit, character look, scene, pose, props, lighting, style) you can combine
+freely. Every result can be refined with one sentence, undone, and saved to a local library.
 
 No accounts, no telemetry, no cloud sync. It talks directly to whatever
 **OpenAI-compatible API** you configure, and your key never leaves your machine.

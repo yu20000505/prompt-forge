@@ -6,8 +6,9 @@
 **一句话进，可出图的提示词出来。**
 
 Prompt Forge 是一个纯本地的小工具：写一句中文，它帮你调大模型生成
-Stable Diffusion / NovelAI / Midjourney / Flux / DALL·E 能直接用的提示词，
-还能产出「英文提示词 + 中文对照」的角色设定。
+Stable Diffusion / NovelAI / Midjourney / Flux / DALL·E 能直接用的提示词；
+还能产出「英文提示词 + 中文对照」的角色设定，以及服饰、人物、场景等七类可自由拼装的细分 tag。
+生成结果都能用一句话微调、无限撤回，并保存到本地库。
 
 不需要注册、不上传数据，直连你自己配置的 **OpenAI 兼容接口**，Key 只存在本机。
 

@@ -1,7 +1,7 @@
 {
   "name": "prompt-forge",
   "version": "1.0.0",
-  "description": "一句话生成生图提示词。纯本地、零运行时依赖，支持任意 OpenAI 兼容接口。",
+  "description": "一句话生成生图提示词。五种风格、角色设定与七类细分标签，可微调撤回、本地保存；纯本地、零运行时依赖。",
   "private": true,
   "type": "module",
   "main": "src/server.mjs",
