@@ -583,19 +583,56 @@ async function copyText(text, btn) {
 
 /* ============ 保存到本地 ============ */
 let toastTimer = null;
+let toastHideTimer = null;
 
-function toast(msg, isErr) {
+function hideToast() {
   const el = $('#toast');
+  clearTimeout(toastTimer);
+  clearTimeout(toastHideTimer);
+  el.classList.remove('show', 'with-action');
+  toastHideTimer = setTimeout(() => {
+    el.hidden = true;
+    el.textContent = '';
+  }, 200);
+}
+
+function showToast(msg, isErr, ms, onUndo) {
+  const el = $('#toast');
+  clearTimeout(toastTimer);
+  clearTimeout(toastHideTimer);
+
   el.textContent = msg;
   el.classList.toggle('err', !!isErr);
+  el.classList.toggle('with-action', typeof onUndo === 'function');
+  if (typeof onUndo === 'function') {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn tiny toast-undo';
+    b.textContent = '撤销';
+    b.addEventListener('click', async () => {
+      hideToast();
+      try {
+        await onUndo();
+      } catch (err) {
+        toast(`撤销失败：${err.message || err}`, true);
+      }
+    });
+    el.appendChild(b);
+  }
+
   el.hidden = false;
   void el.offsetWidth;   // 强制 reflow，让过渡生效
   el.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    el.classList.remove('show');
-    setTimeout(() => { el.hidden = true; }, 200);
-  }, 2800);
+  toastTimer = setTimeout(hideToast, ms);
+}
+
+function toast(msg, isErr) {
+  showToast(msg, isErr, 2800, null);
+}
+
+// 删除类操作给 8 秒反悔时间
+function toastUndo(msg, onUndo) {
+  showToast(msg, false, 8000, onUndo);
 }
 
 function promptMarkdown() {
@@ -981,7 +1018,7 @@ function loadSavedCharacter(meta, fallbackTitle) {
 }
 
 async function deleteSavedEntry(it) {
-  if (!confirm(`删除「${it.title}」？\n对应的文件会被真的删掉，无法恢复。`)) return;
+  if (!confirm(`删除「${it.title}」？\n文件会先移到回收站，提示条上可以撤销。`)) return;
   try {
     const r = await fetch('/api/saved/delete', {
       method: 'POST',
@@ -990,8 +1027,21 @@ async function deleteSavedEntry(it) {
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-    toast('已删除');
+
     await loadLibrary();
+    refreshLibraryCount();
+    toastUndo(`已删除「${it.title}」（${j.retentionDays || 7} 天内可撤销）`, async () => {
+      const rr = await fetch('/api/saved/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trash: j.trash, original: j.original }),
+      });
+      const jj = await rr.json().catch(() => ({}));
+      if (!rr.ok) throw new Error(jj.error || `HTTP ${rr.status}`);
+      await loadLibrary();
+      refreshLibraryCount();
+      toast(`已恢复「${it.title}」`);
+    });
   } catch (err) {
     toast(`删除失败：${err.message}`, true);
   }
@@ -1099,9 +1149,17 @@ function renderHistory() {
 }
 
 function deleteHistoryEntry(at) {
-  S.history = S.history.filter((h) => h.at !== at);
+  const idx = S.history.findIndex((h) => h.at === at);
+  if (idx < 0) return;
+  const removed = S.history[idx];
+  S.history.splice(idx, 1);
   saveHistory();
-  toast('已从历史中删除');
+  toastUndo(`已删除历史「${removed.title || '未命名'}」`, () => {
+    // 放回原来的位置，时间线不会乱
+    S.history.splice(Math.min(idx, S.history.length), 0, removed);
+    saveHistory();
+    toast('已恢复这条历史记录');
+  });
 }
 
 function restoreHistoryEntry(h) {
@@ -1921,9 +1979,16 @@ function bind() {
   $('#btnCloseDrawer').addEventListener('click', closeDrawer);
   $('#drawerMask').addEventListener('click', closeDrawer);
   $('#btnClearHistory').addEventListener('click', () => {
+    if (!S.history.length) return;
     if (!confirm('清空全部历史记录？')) return;
+    const backup = S.history.slice();
     S.history = [];
     saveHistory();
+    toastUndo(`已清空 ${backup.length} 条历史记录`, () => {
+      S.history = backup;
+      saveHistory();
+      toast('历史记录已恢复');
+    });
   });
 
   document.addEventListener('keydown', (e) => {

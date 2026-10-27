@@ -58,6 +58,10 @@ const CONFIG_TMP = `${CONFIG_PATH}.tmp`;
 const SAVED_DIR = process.env.PF_SAVED
   ? path.resolve(process.env.PF_SAVED)
   : path.join(DATA_DIR, 'saved');
+// 删除先进回收站，给用户一个反悔的机会；过期或超过上限再真删
+const TRASH_DIR = path.join(SAVED_DIR, '.trash');
+const TRASH_RETENTION_DAYS = 7;
+const TRASH_MAX_FILES = 100;
 const HOST = '127.0.0.1';
 const BASE_PORT = Number(process.env.PORT || process.argv[2] || 43125);
 
@@ -567,6 +571,49 @@ function resolveSavedFile(name) {
   return full;
 }
 
+function resolveTrashFile(name) {
+  const base = path.basename(String(name || ''));
+  if (!base || !base.endsWith('.md')) return null;
+  const full = path.join(TRASH_DIR, base);
+  if (path.dirname(path.resolve(full)) !== path.resolve(TRASH_DIR)) return null;
+  return full;
+}
+
+// 回收站只保留最近 7 天、最多 100 个文件，不然会越攒越多
+async function purgeTrash() {
+  let names;
+  try {
+    names = await fsp.readdir(TRASH_DIR);
+  } catch {
+    return;
+  }
+
+  const now = Date.now();
+  const alive = [];
+  for (const name of names) {
+    if (!name.endsWith('.md')) continue;
+    const full = path.join(TRASH_DIR, name);
+    try {
+      const stat = await fsp.stat(full);
+      if (!stat.isFile()) continue;
+      if (now - stat.mtimeMs > TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000) {
+        await fsp.unlink(full);
+        continue;
+      }
+      alive.push({ full, mtime: stat.mtimeMs });
+    } catch {
+      /* 单个文件删不掉/读不到，跳过 */
+    }
+  }
+
+  if (alive.length > TRASH_MAX_FILES) {
+    alive.sort((a, b) => a.mtime - b.mtime);
+    for (const item of alive.slice(0, alive.length - TRASH_MAX_FILES)) {
+      await fsp.unlink(item.full).catch(() => {});
+    }
+  }
+}
+
 // 按 `## 小标题` 切分正文，用于给没有元数据的 .md（手写的、旧版本的）兜底
 function sectionsOf(body) {
   const out = {};
@@ -754,10 +801,63 @@ async function handleDeleteSaved(req, res) {
   const full = resolveSavedFile(body.file);
   if (!full) return json(res, 400, { error: '文件名不合法' });
   try {
-    await fsp.unlink(full);
-    return json(res, 200, { ok: true, dir: SAVED_DIR });
+    await fsp.mkdir(TRASH_DIR, { recursive: true });
+    await purgeTrash();
+
+    // 回收站里重名时加序号，恢复时前端会把原名一起带回来
+    const original = path.basename(full);
+    let trash = original;
+    let n = 1;
+    while (fs.existsSync(path.join(TRASH_DIR, trash))) {
+      trash = original.replace(/\.md$/, `-${n++}.md`);
+    }
+
+    await fsp.rename(full, path.join(TRASH_DIR, trash));
+    // rename 会保留原文件的修改时间，这里改成「删除时间」，
+    // 否则一个很久以前保存的文件一进回收站就会被当成过期清掉。
+    const now = new Date();
+    await fsp.utimes(path.join(TRASH_DIR, trash), now, now).catch(() => {});
+
+    return json(res, 200, {
+      ok: true,
+      dir: SAVED_DIR,
+      trash,
+      original,
+      retentionDays: TRASH_RETENTION_DAYS,
+    });
   } catch (err) {
     return json(res, 500, { error: `删除失败：${err?.message || err}` });
+  }
+}
+
+// 撤销删除：把文件从回收站搬回保存目录；同名文件已存在就加序号，不覆盖
+async function handleRestoreSaved(req, res) {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return json(res, 400, { error: '请求格式错误' });
+  }
+
+  const src = resolveTrashFile(body.trash);
+  if (!src) return json(res, 400, { error: '文件名不合法' });
+  if (!fs.existsSync(src)) return json(res, 404, { error: '撤销已过期，文件已被清理' });
+
+  try {
+    await fsp.mkdir(SAVED_DIR, { recursive: true });
+    const wanted = path.basename(String(body.original || ''));
+    const original = wanted.endsWith('.md') ? wanted : path.basename(src);
+
+    let target = path.join(SAVED_DIR, original);
+    let n = 1;
+    while (fs.existsSync(target)) {
+      target = path.join(SAVED_DIR, original.replace(/\.md$/, `-${n++}.md`));
+    }
+
+    await fsp.rename(src, target);
+    return json(res, 200, { ok: true, file: path.basename(target), dir: SAVED_DIR });
+  } catch (err) {
+    return json(res, 500, { error: `撤销失败：${err?.message || err}` });
   }
 }
 
@@ -866,6 +966,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/saved/item' && req.method === 'GET') return await handleSavedItem(req, res);
     if (pathname === '/api/saved/rename' && req.method === 'POST') return await handleRenameSaved(req, res);
     if (pathname === '/api/saved/delete' && req.method === 'POST') return await handleDeleteSaved(req, res);
+    if (pathname === '/api/saved/restore' && req.method === 'POST') return await handleRestoreSaved(req, res);
     if (pathname === '/api/saved/open' && req.method === 'POST') return await handleOpenSaved(req, res);
 
     if (pathname === '/api/config' && req.method === 'GET') {
@@ -942,6 +1043,8 @@ function listen(port, attempt = 0) {
 
 // 起服务；Electron 里也会调用它（quiet + noOpen）
 export async function startServer(port = BASE_PORT, opts = {}) {
+  // 启动时顺手清理过期/超量的回收站文件
+  await purgeTrash().catch(() => {});
   const actual = await listen(port);
   const url = `http://${HOST}:${actual}`;
 

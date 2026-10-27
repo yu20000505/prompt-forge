@@ -28,6 +28,15 @@ function readSaved(name) {
   }
 }
 
+// 回收站里的 md 文件（软删除后应该出现在这里）
+function trashedFiles() {
+  try {
+    return fs.readdirSync(path.join(SAVED_DIR, '.trash')).filter((f) => f.endsWith('.md')).sort();
+  } catch {
+    return [];
+  }
+}
+
 const profile = path.join(OUT_DIR, 'chrome-profile');
 const chrome = spawn(CHROME, [
   '--headless=new',
@@ -599,6 +608,26 @@ async function main() {
   const histBadge = await evalJs(`document.querySelector('#historyCount').textContent`);
   check('历史计数同步减少', Number(histBadge) === histAfterDel, `badge=${histBadge}`);
 
+  // 历史删除可撤销
+  check('历史删除出现撤销按钮',
+    (await evalJs(`!!document.querySelector('#toast .toast-undo')`)) === true);
+  await evalJs(`document.querySelector('#toast .toast-undo').click(); true`);
+  await sleep(500);
+  const histAfterUndo = await evalJs(`document.querySelectorAll('.hist-item').length`);
+  check('撤销删除能恢复历史', histAfterUndo === histItems, `${histAfterDel} -> ${histAfterUndo}`);
+  const histBadgeUndo = await evalJs(`document.querySelector('#historyCount').textContent`);
+  check('撤销后历史计数恢复', Number(histBadgeUndo) === histItems, `badge=${histBadgeUndo}`);
+
+  // 清空全部也能撤销（先接管 confirm，无头浏览器里原生弹窗会卡住）
+  await evalJs(`window.confirm = () => true; document.querySelector('#btnClearHistory').click(); true`);
+  await sleep(450);
+  check('清空历史后列表为空',
+    (await evalJs(`document.querySelectorAll('.hist-item').length`)) === 0);
+  await evalJs(`document.querySelector('#toast .toast-undo').click(); true`);
+  await sleep(500);
+  const histAfterClearUndo = await evalJs(`document.querySelectorAll('.hist-item').length`);
+  check('撤销清空能恢复全部历史', histAfterClearUndo === histItems, `恢复到 ${histAfterClearUndo} 条`);
+
   shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(path.join(OUT_DIR, 'shot-history.png'), Buffer.from(shot.data, 'base64'));
 
@@ -945,7 +974,23 @@ async function main() {
   const libAfter = await evalJs(`document.querySelectorAll('#libList .lib-item').length`);
   check('能删除保存项', libAfter === libBefore - 1, `${libBefore} -> ${libAfter}`);
   const filesAfterDelete = savedFiles();
-  check('删除时真的删掉了磁盘文件', filesAfterDelete.length === libAfter, `磁盘 ${filesAfterDelete.length} / 列表 ${libAfter}`);
+  check('删除时移出了保存目录', filesAfterDelete.length === libAfter, `磁盘 ${filesAfterDelete.length} / 列表 ${libAfter}`);
+  const trashAfterDelete = trashedFiles();
+  check('删除的文件进了回收站', trashAfterDelete.length === 1, trashAfterDelete.join(' | '));
+  const trashMtime = trashAfterDelete.length
+    ? fs.statSync(path.join(SAVED_DIR, '.trash', trashAfterDelete[0])).mtimeMs
+    : 0;
+  check('回收站时间戳记的是删除时间', Date.now() - trashMtime < 60 * 1000,
+    `${Math.round((Date.now() - trashMtime) / 1000)}s 前`);
+  check('删除提示条带撤销按钮',
+    (await evalJs(`!!document.querySelector('#toast .toast-undo')`)) === true);
+
+  // 撤销删除：文件应该从回收站搬回来
+  await evalJs(`document.querySelector('#toast .toast-undo').click(); true`);
+  await sleep(1400);
+  const libAfterUndo = await evalJs(`document.querySelectorAll('#libList .lib-item').length`);
+  check('撤销删除能恢复条目', libAfterUndo === libBefore, `${libAfter} -> ${libAfterUndo}`);
+  check('撤销后回收站清空', trashedFiles().length === 0, `剩 ${trashedFiles().length} 个`);
 
   await evalJs(`document.querySelector('#btnLibClose').click(); true`);
   await sleep(400);

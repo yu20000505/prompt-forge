@@ -1447,6 +1447,18 @@ select {
   color: var(--danger-soft);
 }
 
+/* 带「撤销」的提示条：只有这一种允许点击，避免挡住下面的界面 */
+.toast.with-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.toast.with-action .toast-undo {
+  flex: none;
+}
+
 /* ---------- 抽屉 ---------- */
 .drawer-mask {
   position: fixed;
