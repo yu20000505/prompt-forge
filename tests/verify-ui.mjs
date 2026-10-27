@@ -1204,6 +1204,20 @@ async function main() {
     document.querySelector('#segDetail').value = 'standard';
     return true;
   })()`);
+
+  // 生成中可以取消，不能让界面永远停在「正在生成」
+  await evalJs(`document.querySelector('#btnSegGenerate').click(); true`);
+  await sleep(80);
+  await evalJs(`document.querySelector('#btnSegCancel').click(); true`);
+  await sleep(800);
+  const cancelMsg = await evalJs(`document.querySelector('#segErr').hidden ? '' : document.querySelector('#segErr').textContent`);
+  check('细分生成可以中途取消', /已取消/.test(cancelMsg), cancelMsg);
+  check('取消后按钮和状态都恢复',
+    (await evalJs(`document.querySelector('#btnSegGenerate').disabled`)) === false
+      && (await evalJs(`document.querySelector('#btnSegCancel').hidden`)) === true
+      && (await evalJs(`S.segBusy`)) === false);
+  await evalJs(`hideSegErr(); true`);
+
   const histBeforeSeg = Number(await evalJs(`document.querySelector('#historyCount').textContent`));
   await evalJs(`document.querySelector('#btnSegGenerate').click(); true`);
   let segDone = false;

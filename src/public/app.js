@@ -1867,12 +1867,19 @@ async function generateSegment() {
   $('#segCards').hidden = true;
   $('#segStream').hidden = false;
   $('#segStreamText').textContent = '';
-  $('#segStreamLabel').textContent = '正在生成…';
+  $('#segStreamLabel').textContent = '正在生成…（按 Esc 取消）';
+  $('#btnSegCancel').hidden = false;
   $('#btnSegRegen').disabled = true;
   $('#btnSegCopyAll').disabled = true;
   $('#btnSegSave').disabled = true;
 
   S.segAbort = new AbortController();
+  // 服务端 120 秒没数据会自己中止；这里再兜一层，防止网络层完全卡死
+  let timedOut = false;
+  const watchdog = setTimeout(() => {
+    timedOut = true;
+    if (S.segAbort) S.segAbort.abort();
+  }, 180000);
   let acc = '';
   let gotError = null;
 
@@ -1919,7 +1926,7 @@ async function generateSegment() {
           acc += evt.text;
           $('#segStreamText').textContent = acc;
           $('#segStreamText').scrollTop = $('#segStreamText').scrollHeight;
-          $('#segStreamLabel').textContent = `正在生成… ${acc.length} 字`;
+          $('#segStreamLabel').textContent = `正在生成… ${acc.length} 字（Esc 取消）`;
         } else if (evt.type === 'error') {
           gotError = evt.message;
         }
@@ -1946,12 +1953,18 @@ async function generateSegment() {
   } catch (err) {
     $('#segStream').hidden = true;
     if (err.name === 'AbortError') {
-      showSegErr('已取消本次生成');
+      if (timedOut) {
+        showSegErr('生成超过 3 分钟仍未完成，已自动中止。请重试，或在设置里换一个模型。', generateSegment);
+      } else {
+        showSegErr('已取消本次生成');
+      }
     } else {
       showSegErr(err.message || String(err), generateSegment);
       if (!S.segData) $('#segEmpty').hidden = false;
     }
   } finally {
+    clearTimeout(watchdog);
+    $('#btnSegCancel').hidden = true;
     S.segBusy = false;
     S.segAbort = null;
     btn.disabled = false;
@@ -2337,6 +2350,9 @@ function bind() {
     }
   });
   $('#btnSegGenerate').addEventListener('click', generateSegment);
+  $('#btnSegCancel').addEventListener('click', () => {
+    if (S.segAbort) S.segAbort.abort();
+  });
   $('#btnSegRegen').addEventListener('click', () => {
     if (S.segSentence) {
       $('#segSentence').value = S.segSentence;

@@ -1137,6 +1137,10 @@ select {
   flex: none;
 }
 
+.stream-cancel {
+  margin-left: auto;
+}
+
 .dot {
   width: 6px;
   height: 6px;

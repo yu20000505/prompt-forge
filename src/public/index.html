@@ -392,7 +392,10 @@
           </div>
 
           <div class="stream" id="segStream" hidden>
-            <div class="stream-head"><span class="dot"></span><span id="segStreamLabel">正在生成…</span></div>
+            <div class="stream-head">
+              <span class="dot"></span><span id="segStreamLabel">正在生成…</span>
+              <button class="btn tiny ghost stream-cancel" id="btnSegCancel" type="button" hidden>取消</button>
+            </div>
             <pre id="segStreamText"></pre>
           </div>
 

@@ -66,6 +66,8 @@ const TRASH_RETENTION_DAYS = 7;
 const TRASH_MAX_FILES = 100;
 const HOST = '127.0.0.1';
 const BASE_PORT = Number(process.env.PORT || process.argv[2] || 43125);
+// 上游流式接口超过这个时间没有任何数据，就判定为卡死并中止；测试可用环境变量调小
+const STREAM_IDLE_MS = Math.max(5000, Number(process.env.PF_STREAM_IDLE_MS) || 120000);
 
 const DEFAULT_CONFIG = {
   baseURL: 'https://api.deepseek.com',
@@ -269,6 +271,25 @@ async function proxyChatStream(req, res, { messages, baseURL, apiKey, model, tem
     if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(obj)}\n\n`);
   };
 
+  // 上游可能一直不返回数据（中转站、长思考模型、连接被挂住）。
+  // 没有这个计时器，前端就会永远停在「正在生成」。
+  let idleTimer = null;
+  let timedOut = false;
+  const clearIdle = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+  };
+  const armIdle = () => {
+    clearIdle();
+    idleTimer = setTimeout(() => {
+      timedOut = true;
+      ac.abort();
+    }, STREAM_IDLE_MS);
+  };
+  armIdle();
+
   try {
     const upstream = await fetch(`${baseURL}/chat/completions`, {
       method: 'POST',
@@ -286,6 +307,7 @@ async function proxyChatStream(req, res, { messages, baseURL, apiKey, model, tem
       }),
       signal: ac.signal,
     });
+    armIdle();
 
     if (!upstream.ok) {
       const text = await upstream.text().catch(() => '');
@@ -320,6 +342,7 @@ async function proxyChatStream(req, res, { messages, baseURL, apiKey, model, tem
 
     for (;;) {
       const { done, value } = await reader.read();
+      armIdle();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
 
@@ -345,6 +368,13 @@ async function proxyChatStream(req, res, { messages, baseURL, apiKey, model, tem
     send({ type: 'done' });
     res.end();
   } catch (err) {
+    if (timedOut) {
+      const secs = Math.round(STREAM_IDLE_MS / 1000);
+      console.warn(`  ! 上游 ${secs} 秒没有返回数据，已中止（model=${model}）`);
+      send({ type: 'error', message: `接口 ${secs} 秒没有返回任何数据，已自动中止。请重试，或在设置里换一个模型。` });
+      if (!res.writableEnded) res.end();
+      return;
+    }
     if (ac.signal.aborted) {
       if (!res.writableEnded) res.end();
       return;
@@ -354,6 +384,8 @@ async function proxyChatStream(req, res, { messages, baseURL, apiKey, model, tem
       : err?.message || String(err);
     send({ type: 'error', message: msg });
     res.end();
+  } finally {
+    clearIdle();
   }
 }
 
