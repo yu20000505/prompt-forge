@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prompt Forge · 一句话生成生图提示词</title>
+  <script>
+    // 尽早套上皮肤，避免刷新时先闪一下默认配色
+    try {
+      var savedTheme = localStorage.getItem('pf-theme');
+      if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+    } catch (e) { /* 隐私模式等取不到就算了 */ }
+  </script>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+
+<body>
+  <div class="glow glow-a"></div>
+  <div class="glow glow-b"></div>
+
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">✦</div>
+        <div class="brand-text">
+          <h1>Prompt Forge</h1>
+          <p>一句话 → 生图提示词</p>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span class="status" id="status"><i></i><span id="statusText">未配置</span></span>
+        <div class="theme-wrap">
+          <button class="btn ghost" id="btnTheme" aria-haspopup="dialog" aria-expanded="false" aria-controls="themePop">
+            🎨 皮肤
+          </button>
+          <div class="theme-pop" id="themePop" role="dialog" aria-label="选择皮肤" hidden>
+            <div class="theme-pop-title">选择皮肤</div>
+            <div class="theme-swatches" id="themeSwatches"></div>
+          </div>
+        </div>
+        <button class="btn ghost" id="btnSettings">设置</button>
+      </div>
+    </header>
+
+    <nav class="tabs" id="mainTabs">
+      <button class="tab active" data-view="prompt" type="button">提示词工坊</button>
+      <button class="tab" data-view="character" type="button">角色设定</button>
+    </nav>
+
+    <!-- ============ 提示词工坊 ============ -->
+    <main class="grid" id="viewPrompt">
+      <section class="panel composer">
+        <div class="panel-title">
+          <h2>输入</h2>
+          <span class="dim" id="modelBadge">—</span>
+        </div>
+
+        <label class="field-label" for="sentence">一句话描述画面</label>
+        <textarea id="sentence" rows="4"
+          placeholder="例如：雨夜的霓虹街头，一位赛博朋克女剑客回头看向镜头"></textarea>
+        <div class="row-between">
+          <div class="mini-actions">
+            <button class="btn tiny" id="btnRandom">🎲 随机灵感</button>
+            <button class="btn tiny" id="btnClear">清空</button>
+          </div>
+          <span class="counter" id="counter">0 字</span>
+        </div>
+
+        <div class="idea-bar" id="ideaBar" hidden>
+          <div class="idea-head">
+            <span id="ideaHint">模型现编 · 点一条填进输入框</span>
+            <button class="btn tiny ghost" id="btnIdeaClose" type="button">收起</button>
+          </div>
+          <div class="idea-chips" id="ideaChips"></div>
+        </div>
+
+        <div class="field-label">提示词风格</div>
+        <div class="chips" id="styleChips"></div>
+
+        <div class="opts">
+          <div class="opt">
+            <label for="targetModel">目标模型</label>
+            <div class="combo compact" id="targetCombo">
+              <input id="targetModel" placeholder="通用" autocomplete="off" role="combobox"
+                aria-expanded="false" aria-controls="targetModelList" aria-autocomplete="list" spellcheck="false" />
+              <button class="combo-toggle" type="button" id="btnToggleTarget" aria-label="展开目标模型列表"
+                tabindex="-1">▾</button>
+              <div class="combo-list" id="targetModelList" role="listbox" hidden></div>
+            </div>
+          </div>
+          <div class="opt">
+            <label for="language">提示词语言</label>
+            <select id="language">
+              <option value="en">英文（推荐）</option>
+              <option value="zh">中文</option>
+            </select>
+          </div>
+          <div class="opt">
+            <label for="detail">详细程度</label>
+            <select id="detail">
+              <option value="short">精简</option>
+              <option value="standard" selected>标准</option>
+              <option value="rich">丰富</option>
+            </select>
+          </div>
+        </div>
+
+        <input id="extra" class="extra-input" placeholder="附加要求（可选）：比如 竖构图、胶片颗粒、不要出现人物…"
+          autocomplete="off" />
+
+        <div class="pinbox" id="pinbox">
+          <div class="pinbox-head">
+            <label class="switch" title="启用/停用置顶词">
+              <input type="checkbox" id="pinEnabled" checked />
+              <span class="track"><span class="knob"></span></span>
+            </label>
+            <strong>置顶词</strong>
+            <span class="pin-hint">原样拼在最前面 · 不经过模型</span>
+          </div>
+          <div class="pinbox-body" id="pinboxBody">
+            <div class="pin-col">
+              <label for="pinPositive">置顶正向词</label>
+              <textarea id="pinPositive" rows="3"
+                placeholder="会原样加在正向提示词最前面，你的固定前缀/画风触发词都放这里"></textarea>
+            </div>
+            <div class="pin-col">
+              <label for="pinNegative">置顶负向词</label>
+              <textarea id="pinNegative" rows="3" placeholder="会原样加在负向提示词最前面"></textarea>
+            </div>
+            <p class="pin-note">置顶词只做拼接，服务端和你配置的接口都看不到也不会改写它。</p>
+          </div>
+        </div>
+
+        <button class="btn primary big" id="btnGenerate">
+          <span id="btnGenerateText">生成提示词</span>
+          <kbd>Ctrl ↵</kbd>
+        </button>
+        <div class="err" id="err" hidden></div>
+      </section>
+
+      <section class="panel result">
+        <div class="panel-title">
+          <h2>生成结果</h2>
+          <div class="result-tools">
+            <button class="btn tiny" id="btnCopyAll" disabled>复制全部</button>
+            <button class="btn tiny" id="btnSavePrompt" disabled>💾 保存</button>
+            <button class="btn tiny" id="btnRegen" disabled>↻ 重新生成</button>
+          </div>
+        </div>
+
+        <div class="result-body">
+          <div class="empty" id="empty">
+            <div class="empty-icon">◇</div>
+            <p>左边写一句话，点「生成提示词」</p>
+            <p class="dim small">支持 DeepSeek / OpenAI / Kimi / 硅基流动 / 中转站 / Ollama 等所有 OpenAI 兼容接口</p>
+          </div>
+
+          <div class="stream" id="stream" hidden>
+            <div class="stream-head"><span class="dot"></span><span id="streamLabel">正在生成…</span></div>
+            <pre id="streamText"></pre>
+          </div>
+
+          <div class="cards" id="cards" hidden>
+            <div class="result-title-row">
+              <h3 id="outTitle"></h3>
+              <div class="badges" id="outBadges"></div>
+            </div>
+
+            <div class="card" data-kind="positive">
+              <div class="card-head">
+                <span>正向提示词 <em class="tag" id="pinBadgeP" hidden>含置顶词</em></span>
+                <button class="btn tiny copy" data-copy="positive">复制</button>
+              </div>
+              <div class="card-body mono" id="outPositive"></div>
+            </div>
+
+            <div class="card" data-kind="negative">
+              <div class="card-head">
+                <span>负向提示词 <em class="tag warn" id="pinBadgeN" hidden>含置顶词</em></span>
+                <button class="btn tiny copy" data-copy="negative">复制</button>
+              </div>
+              <div class="card-body mono" id="outNegative"></div>
+            </div>
+
+            <div class="card" data-kind="translation">
+              <div class="card-head"><span>画面解读</span></div>
+              <div class="card-body" id="outTranslation"></div>
+            </div>
+
+            <div class="card" id="cardExtra" data-kind="extra" hidden>
+              <div class="card-head">
+                <span>参数建议</span>
+                <button class="btn tiny copy" data-copy="extra">复制</button>
+              </div>
+              <div class="card-body mono" id="outExtra"></div>
+            </div>
+
+            <div class="keywords" id="outKeywords"></div>
+          </div>
+
+          <div class="refine" id="refineBar" hidden>
+            <div class="refine-head">
+              <span class="refine-title">✎ 微调这条提示词</span>
+              <span class="dim small" id="refineStatus"></span>
+              <span class="grow"></span>
+              <button class="btn tiny ghost" id="btnUndoRefine" disabled>↩ 撤回</button>
+            </div>
+            <div class="refine-row">
+              <input id="refineInput" placeholder="一句话说明要改什么，例如：改成竖构图 / 去掉人物 / 加一点雨"
+                autocomplete="off" />
+              <button class="btn primary" id="btnRefine">微调</button>
+            </div>
+            <div class="quick-chips" id="refineChips"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ============ 角色设定 ============ -->
+    <main class="grid" id="viewCharacter" hidden>
+      <section class="panel composer">
+        <div class="panel-title">
+          <h2>角色设定</h2>
+          <span class="dim" id="charModelBadge">—</span>
+        </div>
+
+        <label class="field-label" for="charSentence">一句话描述这组角色</label>
+        <textarea id="charSentence" rows="4"
+          placeholder="例如：三个流浪乐手在地铁站出口表演，傍晚刚下过雨，有人停下来看"></textarea>
+        <div class="row-between">
+          <div class="mini-actions">
+            <button class="btn tiny" id="btnCharIdea">🎲 随机灵感</button>
+            <button class="btn tiny" id="btnCharClear">清空</button>
+          </div>
+          <span class="counter" id="charCounter">0 字</span>
+        </div>
+
+        <div class="idea-bar" id="charIdeaBar" hidden>
+          <div class="idea-head">
+            <span id="charIdeaHint">模型现编 · 点一条填进输入框</span>
+            <button class="btn tiny ghost" id="btnCharIdeaClose" type="button">收起</button>
+          </div>
+          <div class="idea-chips" id="charIdeaChips"></div>
+        </div>
+
+        <div class="opts">
+          <div class="opt">
+            <label for="charCount">角色数量</label>
+            <select id="charCount">
+              <option value="auto" selected>自动判断</option>
+              <option value="1">1 个</option>
+              <option value="2">2 个</option>
+              <option value="3">3 个</option>
+              <option value="4">4 个</option>
+            </select>
+          </div>
+          <div class="opt">
+            <label for="charAspect">画幅</label>
+            <select id="charAspect">
+              <option value="auto" selected>自动判断</option>
+              <option value="1:1">1:1 正方形</option>
+              <option value="3:4">3:4 竖构图</option>
+              <option value="2:3">2:3 竖构图</option>
+              <option value="16:9">16:9 横构图</option>
+              <option value="9:16">9:16 竖屏</option>
+            </select>
+          </div>
+        </div>
+
+        <input id="charExtra" class="extra-input"
+          placeholder="附加要求（可选）：比如 三个都是女性、统一穿工装、要 16:9 横构图" autocomplete="off" />
+
+        <button class="btn primary big" id="btnCharGenerate">
+          <span id="btnCharGenerateText">生成角色设定</span>
+          <kbd>Ctrl ↵</kbd>
+        </button>
+        <div class="err" id="charErr" hidden></div>
+      </section>
+
+      <section class="panel result">
+        <div class="panel-title">
+          <h2>角色提示词</h2>
+          <div class="result-tools">
+            <button class="btn tiny" id="btnCharCopyAll" disabled>复制英文</button>
+            <button class="btn tiny" id="btnCharSave" disabled>💾 保存</button>
+            <button class="btn tiny" id="btnCharRegen" disabled>↻ 重新生成</button>
+          </div>
+        </div>
+
+        <div class="result-body">
+          <div class="empty" id="charEmpty">
+            <div class="empty-icon">◈</div>
+            <p>写一句话，直接产出可出图的整段英文提示词 + 中文对照</p>
+            <p class="dim small">把角色、服装、场景、动作、镜头揉进一段里，粘上去就能用</p>
+          </div>
+
+          <div class="stream" id="charStream" hidden>
+            <div class="stream-head"><span class="dot"></span><span id="charStreamLabel">正在生成…</span></div>
+            <pre id="charStreamText"></pre>
+          </div>
+
+          <div id="charCards" hidden></div>
+
+          <div class="refine" id="charRefineBar" hidden>
+            <div class="refine-head">
+              <span class="refine-title">✎ 微调这段提示词</span>
+              <span class="dim small" id="charRefineStatus"></span>
+              <span class="grow"></span>
+              <button class="btn tiny ghost" id="btnCharUndoRefine" disabled>↩ 撤回</button>
+            </div>
+            <div class="refine-row">
+              <input id="charRefineInput" placeholder="一句话说明要改什么，例如：改成夜景 / 去掉一个角色 / 换成室内"
+                autocomplete="off" />
+              <button class="btn primary" id="btnCharRefine">微调</button>
+            </div>
+            <div class="quick-chips" id="charRefineChips"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span class="dim small">Ctrl+Enter 生成 · Ctrl+1 / Ctrl+2 切页签 · Ctrl+S 保存结果</span>
+      <div class="foot-right">
+        <button class="btn tiny ghost" id="btnLibrary">📚 保存库 <span id="libBtnCount">0</span></button>
+        <button class="btn tiny ghost" id="btnOpenSaved">📁 打开目录</button>
+        <button class="btn tiny ghost" id="btnHistory">历史记录 <span id="historyCount">0</span></button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ============ 保存库抽屉 ============ -->
+  <div class="drawer-mask" id="libMask" hidden></div>
+  <aside class="drawer" id="libDrawer" hidden role="dialog" aria-modal="true" aria-label="保存库">
+    <div class="drawer-head">
+      <h3>保存库 <span class="dim small" id="libCount"></span></h3>
+      <div>
+        <button class="btn tiny ghost" id="btnLibFolder">打开目录</button>
+        <button class="btn tiny ghost" id="btnLibClose">关闭</button>
+      </div>
+    </div>
+    <div class="lib-search">
+      <input id="libFilter" placeholder="搜索标题或内容…" autocomplete="off" />
+    </div>
+    <div class="drawer-body" id="libList"></div>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- ============ 历史抽屉 ============ -->
+  <div class="drawer-mask" id="drawerMask" hidden></div>
+  <aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-label="历史记录">
+    <div class="drawer-head">
+      <h3>历史记录</h3>
+      <div>
+        <button class="btn tiny ghost" id="btnClearHistory">清空</button>
+        <button class="btn tiny ghost" id="btnCloseDrawer">关闭</button>
+      </div>
+    </div>
+    <div class="lib-search">
+      <input id="histFilter" placeholder="搜索历史记录…" autocomplete="off" />
+    </div>
+    <div class="drawer-body" id="historyList"></div>
+  </aside>
+
+  <!-- ============ 设置 ============ -->
+  <dialog class="settings" id="settings">
+    <form id="settingsForm" method="dialog">
+      <h3>接口设置</h3>
+      <p class="dim small">填任意 OpenAI 兼容服务的地址与 Key，配置保存在本地 config.json。</p>
+
+      <label for="cfgBase">BaseURL</label>
+      <input id="cfgBase" placeholder="https://api.deepseek.com" autocomplete="off" />
+      <p class="field-hint">只写到域名或 /v1 为止。例：https://api.openai.com 或 https://api.deepseek.com/v1</p>
+
+      <label for="cfgKey">API Key</label>
+      <div class="key-row">
+        <input id="cfgKey" type="password" placeholder="sk-..." autocomplete="off" />
+        <button class="btn tiny ghost" type="button" id="btnShowKey">显示</button>
+      </div>
+      <p class="field-hint" id="keyHint"></p>
+
+      <label for="cfgModel">模型名称</label>
+      <div class="combo" id="modelCombo">
+        <input id="cfgModel" placeholder="deepseek-chat" autocomplete="off" role="combobox"
+          aria-expanded="false" aria-controls="modelList" aria-autocomplete="list" spellcheck="false" />
+        <button class="combo-toggle" type="button" id="btnToggleModels" aria-label="展开模型列表" tabindex="-1">▾</button>
+        <div class="combo-list" id="modelList" role="listbox" hidden></div>
+      </div>
+      <div class="combo-actions">
+        <button class="btn tiny ghost" type="button" id="btnLoadModels">拉取列表</button>
+        <span class="field-hint" id="modelHint">可以直接手填，也可以点右侧箭头从列表里选</span>
+      </div>
+
+      <label for="cfgTemp">创造性 <span class="dim" id="tempVal">0.85</span></label>
+      <input id="cfgTemp" type="range" min="0" max="1.5" step="0.05" value="0.85" />
+
+      <label for="cfgApiPinned">置顶提示词（会发送给 API）<span class="dim small" id="apiPinnedCount"></span></label>
+      <textarea id="cfgApiPinned" rows="4" spellcheck="false"
+        placeholder="这里填的内容会加到系统提示词最前面，随每一次请求一起发给模型"></textarea>
+      <p class="field-hint">
+        和输入区的「置顶词」不是一回事：那个只在本地拼到输出里、不会出网；这个是真的发给模型的，
+        用来固定模型的行为习惯（比如固定的画风要求、固定的描述规则）。留空则不发送。
+      </p>
+
+      <div class="dialog-err err" id="cfgErr" hidden></div>
+
+      <div class="dialog-actions">
+        <button class="btn ghost" type="button" id="btnTest">测试连接</button>
+        <span class="grow"></span>
+        <button class="btn ghost" type="button" id="btnCancelSettings">取消</button>
+        <button class="btn primary" type="button" id="btnSaveSettings">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,31 @@
+{
+  "name": "prompt-forge",
+  "version": "1.0.0",
+  "description": "One sentence in, production-ready image prompts out. Local-first, no dependencies, works with any OpenAI-compatible API.",
+  "private": true,
+  "type": "module",
+  "main": "src/server.mjs",
+  "license": "MIT",
+  "keywords": [
+    "image-prompt",
+    "prompt-engineering",
+    "text-to-image",
+    "stable-diffusion",
+    "novelai",
+    "midjourney",
+    "llm",
+    "openai-compatible"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node tests/run-regression.mjs",
+    "test:static": "node tests/check-ids.mjs && node tests/check-prompts.mjs && node tests/check-themes.mjs && node tests/check-ideas.mjs",
+    "test:contrast": "node tests/check-contrast-dom.mjs",
+    "build:exe": "node build/build-exe.mjs",
+    "build:desktop": "node build/build-desktop.mjs",
+    "build:all": "node build/build-exe.mjs && node build/build-desktop.mjs"
+  }
+}

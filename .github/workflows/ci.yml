@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Static checks + server smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Syntax check
+        run: |
+          node --check src/server.mjs
+          node --check src/styles.mjs
+          node --check src/public/app.js
+
+      - name: Static checks (ids / prompt templates / theme contrast)
+        run: |
+          node tests/check-ids.mjs
+          node tests/check-prompts.mjs
+          node tests/check-themes.mjs
+          node tests/check-ideas.mjs
+
+      - name: Server smoke test
+        env:
+          NO_OPEN: '1'
+        run: |
+          node src/server.mjs 43200 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:43200/ > /dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          echo "--- index ---"
+          curl -fsS http://127.0.0.1:43200/ | head -c 200
+          echo
+          echo "--- config ---"
+          curl -fsS http://127.0.0.1:43200/api/config
+          echo
+          echo "--- assets ---"
+          curl -fsS -o /dev/null -w "styles.css %{http_code}\n" http://127.0.0.1:43200/styles.css
+          curl -fsS -o /dev/null -w "app.js %{http_code}\n" http://127.0.0.1:43200/app.js

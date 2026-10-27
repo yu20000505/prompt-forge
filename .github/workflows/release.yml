@@ -1,0 +1,65 @@
+name: Release
+
+# 打一个 v* 标签就会自动打包两种产物并发布到 Releases
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows binaries
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+        continue-on-error: true
+
+      - name: Sanity check
+        run: |
+          node tests/check-ids.mjs
+          node tests/check-prompts.mjs
+          node tests/check-themes.mjs
+
+      - name: Build single-file exe (Node SEA)
+        run: node build/build-exe.mjs
+
+      - name: Build desktop app (Electron)
+        run: node build/build-desktop.mjs
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: |
+            release/PromptForge.exe
+            release-desktop/PromptForge-Desktop.exe
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/PromptForge.exe
+            release-desktop/PromptForge-Desktop.exe
+          generate_release_notes: true
+          body: |
+            ## 下载哪个？
+
+            | 文件 | 说明 |
+            | --- | --- |
+            | `PromptForge-Desktop.exe` | **推荐**。独立窗口的桌面版，不开浏览器、没有命令行窗口。 |
+            | `PromptForge.exe` | 单文件命令行版，启动后自动用系统浏览器打开。 |
+
+            两个都不需要安装 Node.js。exe 未签名，首次运行 Windows 可能提示「未知发布者」，
+            点「更多信息 → 仍要运行」即可。
+
+            数据保存在 `%APPDATA%\PromptForge`（`config.json`、`saved/`）。

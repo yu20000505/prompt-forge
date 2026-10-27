@@ -1,0 +1,39 @@
+{
+  "name": "prompt-forge-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Prompt Forge 桌面版 —— 一句话生成生图提示词",
+  "author": "Prompt Forge",
+  "main": "main.cjs",
+  "devDependencies": {
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "app.promptforge.desktop",
+    "productName": "PromptForge",
+    "directories": {
+      "output": "../../release-desktop"
+    },
+    "files": [
+      "main.cjs",
+      "server.cjs",
+      "public/**"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "PromptForge-Desktop.exe",
+      "requestExecutionLevel": "user"
+    }
+  }
+}

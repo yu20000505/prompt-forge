@@ -1,0 +1,28 @@
+# 本地数据（含 API Key，绝对不要提交）
+config.json
+config.json.*
+saved/
+
+# 依赖与构建产物
+node_modules/
+release/
+release-desktop/
+build/node_modules/
+build/electron/node_modules/
+build/electron/public/
+build/electron/server.cjs
+build/*.cjs
+build/*.blob
+build/sea-config.json
+build/package.json
+build/package-lock.json
+
+tests/chrome-profile/
+tests/shot-*.png
+build/electron/package-lock.json
+_build/
+
+# 杂项
+*.log
+.DS_Store
+Thumbs.db
