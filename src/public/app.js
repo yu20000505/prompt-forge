@@ -108,7 +108,7 @@ const TARGET_PRESETS = [
 
 /* ============ 启动 ============ */
 document.addEventListener('DOMContentLoaded', () => {
-  renderStyleChips();
+  renderStyleOptions();
   renderRefineChips();
   renderCharRefineChips();
   renderSegTypeChips();
@@ -121,21 +121,21 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshLibraryCount();
 });
 
-function renderStyleChips() {
-  const box = $('#styleChips');
-  box.innerHTML = '';
+function renderStyleOptions() {
+  const sel = $('#styleSelect');
+  if (!sel) return;
+  if (!STYLES.some((x) => x.id === S.style)) S.style = 'sd';
+  sel.innerHTML = '';
   for (const st of STYLES) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'chip' + (st.id === S.style ? ' active' : '');
-    b.dataset.id = st.id;
-    b.innerHTML = `<b>${st.label}</b><small>${st.desc}</small>`;
-    b.addEventListener('click', () => {
-      S.style = st.id;
-      box.querySelectorAll('.chip').forEach((c) => c.classList.toggle('active', c.dataset.id === st.id));
-    });
-    box.appendChild(b);
+    const o = document.createElement('option');
+    o.value = st.id;
+    o.textContent = `${st.label} — ${st.desc}`;
+    sel.appendChild(o);
   }
+  sel.value = S.style;
+  sel.addEventListener('change', () => {
+    S.style = sel.value;
+  });
 }
 
 function renderSegTypeChips() {
@@ -1131,10 +1131,8 @@ function loadSavedPrompt(meta, fallbackTitle) {
     historyAt: null,
     pinsBaked: true,   // 保存时置顶词已经拼进去了，别再拼一次
   };
-  if (S.style !== (meta.style || 'sd')) {
-    S.style = meta.style || 'sd';
-    document.querySelectorAll('#styleChips .chip').forEach((c) => c.classList.toggle('active', c.dataset.id === S.style));
-  }
+  S.style = STYLES.some((x) => x.id === meta.style) ? meta.style : 'sd';
+  $('#styleSelect').value = S.style;
   if (meta.sentence) {
     $('#sentence').value = meta.sentence;
     refreshCounter();
@@ -1416,8 +1414,8 @@ function restoreHistoryEntry(h) {
     stack: [parsed],
     historyAt: h.at,
   };
-  S.style = h.style || 'sd';
-  document.querySelectorAll('#styleChips .chip').forEach((c) => c.classList.toggle('active', c.dataset.id === S.style));
+  S.style = STYLES.some((x) => x.id === h.style) ? h.style : 'sd';
+  $('#styleSelect').value = S.style;
   switchView('prompt');
   $('#empty').hidden = true;
   renderResult(parsed, { sentence: h.sentence, language: lang });

@@ -130,7 +130,7 @@ async function main() {
   };
 
   for (let i = 0; i < 60; i++) {
-    if (await js(`!!document.querySelector('#styleChips .chip')`)) break;
+    if (await js(`!!document.querySelector('#styleSelect option')`)) break;
     await sleep(200);
   }
   await sleep(400);

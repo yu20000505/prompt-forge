@@ -499,6 +499,12 @@ select {
   grid-template-columns: 1fr 1fr;
 }
 
+/* 提示词风格 / 目标模型 / 语言 / 详细程度：2×2 排布 */
+.opts.four {
+  grid-template-columns: 1fr 1fr;
+  margin-top: 14px;
+}
+
 .seg-note {
   margin: 14px 2px 0;
 }
@@ -1900,7 +1906,9 @@ select {
 }
 
 @media (max-width: 560px) {
-  .opts {
+  .opts,
+  .opts.two,
+  .opts.four {
     grid-template-columns: 1fr;
   }
 

@@ -136,14 +136,15 @@ async function main() {
 
   // 等页面脚本就绪
   for (let i = 0; i < 60; i++) {
-    const ready = await evalJs(`!!document.querySelector('#styleChips .chip')`).catch(() => false);
+    const ready = await evalJs(`!!document.querySelector('#styleSelect option')`).catch(() => false);
     if (ready) break;
     await sleep(200);
   }
 
   // ---------- 1. 基础结构 ----------
-  const chipCount = await evalJs(`document.querySelectorAll('#styleChips .chip').length`);
-  check('风格 chip 渲染出 5 个', chipCount === 5, `实际 ${chipCount}`);
+  const styleOptions = await evalJs(`[...document.querySelectorAll('#styleSelect option')].map(o => o.value)`);
+  check('风格下拉有 5 个选项',
+    styleOptions.length === 5 && styleOptions.includes('anime'), JSON.stringify(styleOptions));
   const tabLabels = await evalJs(`[...document.querySelectorAll('#mainTabs .tab')].map(t => t.textContent)`);
   check('页签包含提示词 / 角色 / 细分三个模式',
     tabLabels.length === 3 && tabLabels.some((t) => t.includes('细分提示词')), JSON.stringify(tabLabels));
@@ -194,7 +195,7 @@ async function main() {
   check('没有额外的侧栏容器（回到两栏）', noSidePanel === true);
 
   const inComposer = await evalJs(`(() => {
-    const ids = ['styleChips','targetModel','language','detail','extra','pinbox'];
+    const ids = ['styleSelect','targetModel','language','detail','extra','pinbox'];
     return ids.map((id) => ({ id, ok: !!document.querySelector('#viewPrompt .composer #' + id) }));
   })()`);
   const notInComposer = inComposer.filter((x) => !x.ok).map((x) => x.id);
@@ -471,7 +472,7 @@ async function main() {
   await cdp.send('Page.reload', { ignoreCache: false });
   await sleep(1500);
   for (let i = 0; i < 40; i++) {
-    const ok = await evalJs(`!!document.querySelector('#styleChips .chip')`).catch(() => false);
+    const ok = await evalJs(`!!document.querySelector('#styleSelect option')`).catch(() => false);
     if (ok) break;
     await sleep(200);
   }
@@ -484,9 +485,14 @@ async function main() {
   check('刷新后结果区回到空状态', posAfterReload.trim() === '', JSON.stringify(posAfterReload));
 
   // ---------- 6. 风格切换 ----------
-  await evalJs(`document.querySelectorAll('#styleChips .chip')[1].click(); true`);
-  const activeStyle = await evalJs(`document.querySelector('#styleChips .chip.active b').textContent`);
-  check('可以切换到 NovelAI 风格', /NovelAI/.test(activeStyle), activeStyle);
+  await evalJs(`(() => {
+    const s = document.querySelector('#styleSelect');
+    s.value = 'anime';
+    s.dispatchEvent(new Event('change', {bubbles:true}));
+    return true;
+  })()`);
+  const activeStyle = await evalJs(`document.querySelector('#styleSelect').value`);
+  check('可以切换到 NovelAI 风格', activeStyle === 'anime', activeStyle);
 
   // ---------- 7. 设置弹窗 ----------
   await evalJs(`document.querySelector('#btnSettings').click(); true`);
@@ -1130,7 +1136,7 @@ async function main() {
       pinNeg: r('#pinNegative'),
       genBtn: r('#btnGenerate'),
       sentence: r('#sentence'),
-      chips: r('#styleChips'),
+      styleSel: r('#styleSelect'),
       overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     };
   })()`;
@@ -1151,6 +1157,7 @@ async function main() {
     m.genBtn.x >= m.composer.x - 1 && m.genBtn.r <= m.composer.r + 1,
     `btn.x=` + Math.round(m.genBtn.x) + ` composer=` + Math.round(m.composer.x) + `..` + Math.round(m.composer.r));
   check('生成按钮宽度撑满输入卡', Math.abs(m.genBtn.w - m.composer.w) < 45, `btn=${Math.round(m.genBtn.w)} panel=${Math.round(m.composer.w)}`);
+  check('风格下拉宽度正常', m.styleSel.w > 120, `w=${Math.round(m.styleSel.w)}`);
 
   // 窄屏溢出
   // 样式表冒烟：几个关键规则真的生效了
@@ -1159,7 +1166,8 @@ async function main() {
     return {
       panelRadius: g('.panel', 'borderRadius'),
       primaryBg: g('.btn.primary', 'backgroundImage'),
-      chipActive: g('#styleChips .chip.active', 'backgroundImage'),
+      styleBorder: g('#styleSelect', 'borderTopWidth'),
+      styleBg: g('#styleSelect', 'backgroundColor'),
       drawerW: g('#libDrawer', 'width'),
       cardBorder: g('.card', 'borderTopWidth'),
       toastPad: g('#toast', 'paddingTop'),
@@ -1168,7 +1176,9 @@ async function main() {
   })()`);
   check('面板圆角生效', cssSmoke.panelRadius === '14px', cssSmoke.panelRadius);
   check('主按钮渐变生效', /gradient/.test(cssSmoke.primaryBg), cssSmoke.primaryBg.slice(0, 30));
-  check('风格 chip 选中态有底色', /gradient/.test(cssSmoke.chipActive), String(cssSmoke.chipActive).slice(0, 40));
+  check('风格下拉使用主题样式',
+    cssSmoke.styleBorder === '1px' && cssSmoke.styleBg !== 'rgba(0, 0, 0, 0)',
+    `${cssSmoke.styleBorder} / ${cssSmoke.styleBg}`);
   check('抽屉宽度生效', /px$/.test(cssSmoke.drawerW) && cssSmoke.drawerW !== '0px', cssSmoke.drawerW);
   check('卡片有描边', cssSmoke.cardBorder === '1px', cssSmoke.cardBorder);
   check('提示条有内边距', cssSmoke.toastPad === '10px', cssSmoke.toastPad);
