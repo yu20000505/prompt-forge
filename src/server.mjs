@@ -153,6 +153,8 @@ function publicConfig(cfg) {
     pinEnabled: cfg.pinEnabled,
     apiPinnedPrompt: cfg.apiPinnedPrompt,
     apiPinnedForIdea: !!cfg.apiPinnedForIdea,
+    // 前端用它判断后端是不是旧进程（改了 server.mjs 但没重启时很常见）
+    features: { segment: true },
   };
 }
 

@@ -20,6 +20,9 @@ const SEG_TYPES = [
   { id: 'style', label: '画风质感', desc: '媒介 / 镜头 / 画质' },
 ];
 
+// 后端改了但没重启时，/api/segment 会 404；给一个能照做的提示，而不是裸的 not found
+const STALE_SERVER_MSG = '检测到服务端还是旧进程：没有 /api/segment。请关闭运行 Prompt Forge 的命令行窗口后重新运行 node src/server.mjs，再刷新本页；exe 版需要重新打包。';
+
 // 本地兜底词库：只在接口不可用（没配 Key / 连不上）时用
 const IDEAS = [
   '雨夜的霓虹街头，一位赛博朋克女剑客回头看向镜头',
@@ -67,6 +70,7 @@ const S = {
   segMeta: null,
   segText: '',
   segSentence: '',
+  serverStale: false,
   lib: [],
   libDir: '',
   libEditing: null,
@@ -282,6 +286,9 @@ function applyConfig(cfg, opts = {}) {
   $('#modelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
   $('#charModelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
   $('#segModelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
+  // 旧进程没有 features.segment；先记下来，进细分页时直接提示重启
+  S.serverStale = !(cfg.features && cfg.features.segment);
+  if (S.serverStale && S.view === 'segment') showSegErr(STALE_SERVER_MSG);
   setStatus(cfg.hasKey, cfg.hasKey ? (cfg.model || '已配置') : '未配置 API Key');
 }
 
@@ -1486,6 +1493,8 @@ function switchView(view) {
     t.classList.toggle('active', t.dataset.view === view);
   });
 
+  if (view === 'segment' && S.serverStale) showSegErr(STALE_SERVER_MSG);
+
 }
 
 function showCharErr(msg, retry) {
@@ -1838,6 +1847,10 @@ function countTags(tags) {
 
 async function generateSegment() {
   if (S.segBusy) return;
+  if (S.serverStale) {
+    showSegErr(STALE_SERVER_MSG);
+    return;
+  }
   const sentence = $('#segSentence').value.trim();
   if (!sentence) {
     showSegErr('先写一句话描述要生成的对象');
@@ -1878,6 +1891,7 @@ async function generateSegment() {
     });
 
     if (!res.ok) {
+      if (res.status === 404) throw new Error(STALE_SERVER_MSG);
       const e = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
       throw new Error(e.error || `HTTP ${res.status}`);
     }

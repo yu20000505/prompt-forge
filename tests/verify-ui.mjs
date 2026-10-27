@@ -259,6 +259,16 @@ async function main() {
   const statusText = await evalJs(`document.querySelector('#statusText').textContent`);
   check('状态栏显示已配置 Key', /已配置|deepseek|mock/i.test(statusText), statusText);
 
+  const serverFeatures = await evalJs(`fetch('/api/config').then(r=>r.json()).then(j=>j.features)`);
+  check('服务端声明细分接口可用', serverFeatures?.segment === true, JSON.stringify(serverFeatures));
+
+  // 模拟前端拿到了新页面、后端还是旧进程的情况
+  await evalJs(`S.serverStale = true; switchView('segment'); true`);
+  await sleep(200);
+  const staleMsg = await evalJs(`document.querySelector('#segErr').hidden ? '' : document.querySelector('#segErr').textContent`);
+  check('旧服务端会提示重启', /旧进程/.test(staleMsg), staleMsg);
+  await evalJs(`S.serverStale = false; hideSegErr(); switchView('prompt'); true`);
+
   const cfgBase = await evalJs(`fetch('/api/config').then(r=>r.json()).then(j=>j.baseURL)`);
   log(`      当前 BaseURL: ${cfgBase}`);
 

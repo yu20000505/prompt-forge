@@ -71,6 +71,9 @@ node src/server.mjs          # Windows 也可以双击 启动.bat
 
 需要 Node.js 20+，运行时不需要装任何依赖。
 
+> 改了 `src/server.mjs` / `src/styles.mjs` 之后要重启服务；只刷新浏览器不会替换后端代码。
+> 如果界面提示「服务端还是旧进程」，关掉命令行窗口重新运行即可。
+
 打开 <http://127.0.0.1:43125>，点右上角「设置」填三样：
 
 | 项目 | 例子 |
@@ -116,7 +119,7 @@ CI 里配置 `WINDOWS_PFX_BASE64` 和 `WINDOWS_PFX_PASSWORD` 两个 Secret，打
 
 ```bash
 npm run test:static    # id 引用、prompt 模板、主题对比度，不需要浏览器
-npm test               # 完整 UI 回归：无头 Chrome 里跑 264 条断言
+npm test               # 完整 UI 回归：无头 Chrome 里跑 266 条断言
 ```
 
 UI 套件会用假接口起一个临时实例，验证真实行为：全部皮肤下每个文字节点的对比度、
@@ -129,7 +132,7 @@ PASS  微调结果仍带置顶词（只带一次）
 PASS  保存的是带置顶词的实际版本
 PASS  载入时置顶词没有被二次拼接
 ...
-264 项通过，0 失败
+266 项通过，0 失败
 ```
 
 `docs/` 里的截图由 `node tests/make-screenshots.mjs` 生成，不是手工裁剪。
