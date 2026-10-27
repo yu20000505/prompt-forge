@@ -195,12 +195,17 @@ async function main() {
   check('没有额外的侧栏容器（回到两栏）', noSidePanel === true);
 
   const inComposer = await evalJs(`(() => {
-    const ids = ['styleSelect','targetModel','language','detail','extra','pinbox'];
-    return ids.map((id) => ({ id, ok: !!document.querySelector('#viewPrompt .composer #' + id) }));
+    const ids = ['styleSelect','targetModel','language','detail'];
+    const bar = document.querySelector('#globalOpts');
+    const inBar = ids.every((id) => !!bar && !!bar.querySelector('#' + id));
+    const outsideViews = ids.every((id) => !document.querySelector('#viewPrompt #' + id)
+      && !document.querySelector('#viewCharacter #' + id)
+      && !document.querySelector('#viewSegment #' + id));
+    const local = ['extra','pinbox'].every((id) => !!document.querySelector('#viewPrompt .composer #' + id));
+    return { inBar, outsideViews, local };
   })()`);
-  const notInComposer = inComposer.filter((x) => !x.ok).map((x) => x.id);
-  check('风格/模型/语言/详细度/附加要求/置顶词都在输入卡里',
-    notInComposer.length === 0, notInComposer.length ? `缺：${notInComposer.join(',')}` : '全部在输入卡内');
+  check('四个通用设置在三栏之外共用，附加要求/置顶词仍在输入卡里',
+    inComposer.inBar && inComposer.outsideViews && inComposer.local, JSON.stringify(inComposer));
 
   const gridCols = await evalJs(`getComputedStyle(document.querySelector('#viewPrompt')).gridTemplateColumns`);
   check('输入卡与结果卡左右分栏', gridCols.split(' ').length === 2, gridCols);
@@ -693,7 +698,8 @@ async function main() {
   check('Ctrl+3 切到细分提示词视图',
     (await visible('#viewSegment')) === true
       && (await visible('#viewPrompt')) === false
-      && (await visible('#viewCharacter')) === false);
+      && (await visible('#viewCharacter')) === false
+      && (await visible('#globalOpts')) === true);
   const segTypeCount = await evalJs(`document.querySelectorAll('#segTypeChips .chip').length`);
   check('细分页有 7 类标签可选', segTypeCount === 7, `实际 ${segTypeCount}`);
   const segDefaultType = await evalJs(`document.querySelector('#segTypeChips .chip.active b').textContent`);
@@ -1222,8 +1228,8 @@ async function main() {
     const s = document.querySelector('#segSentence');
     s.value = '银发吸血鬼贵族少女，穿黑色蕾丝长裙';
     s.dispatchEvent(new Event('input', {bubbles:true}));
-    document.querySelector('#segTarget').value = 'SDXL';
-    document.querySelector('#segDetail').value = 'standard';
+    document.querySelector('#targetModel').value = 'SDXL';
+    document.querySelector('#detail').value = 'standard';
     return true;
   })()`);
 

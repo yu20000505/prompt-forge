@@ -180,9 +180,28 @@ export function buildIdeaMessages(opts = {}) {
 
 /* ============ 角色设定：直接产出一整段可出图的英文提示词 + 中文对照 ============ */
 
+// 全局「提示词风格」在角色设定里的落点是整体画风，而不是输出格式
+const STYLE_TONE = {
+  sd: '照片级写实、电影感光影，避免动漫或插画化',
+  anime: '日系动漫 / 插画，线条干净，赛璐璐或厚涂上色',
+  mj: '电影感概念艺术，戏剧化光影与构图',
+  photo: '纪实摄影，真实皮肤纹理与自然光线',
+  natural: '自然真实，避免过度风格化',
+};
+
+const CHARACTER_LENGTH = {
+  short: '80-120',
+  standard: '120-200',
+  rich: '200-300',
+};
+
 export function buildCharacterMessages(opts = {}) {
   const count = String(opts.count || 'auto');
   const aspect = String(opts.aspect || 'auto');
+  const style = STYLE_TONE[opts.style] ? opts.style : 'sd';
+  const detail = CHARACTER_LENGTH[opts.detail] ? opts.detail : 'standard';
+  const range = CHARACTER_LENGTH[detail];
+  const target = String(opts.targetModel || '').trim();
 
   const countRule = count === 'auto'
     ? '角色数量：根据用户的描述自行判断人数（1-4 个比较合适，人多就挑主要的写）。'
@@ -206,7 +225,7 @@ export function buildCharacterMessages(opts = {}) {
 5. 动作要写清身体朝向、手在做什么、表情，以及角色之间的视线或身体互动。
 6. 镜头要有景别、机位角度、焦段与景深、构图方式。
 7. 结尾加画质词：highly detailed, sharp focus, 8k, cinematic lighting, professional composition
-8. 长度控制在 120-200 个英文单词，信息密度要高，不要重复啰嗦。
+8. 长度控制在 ${range} 个英文单词，信息密度要高，不要重复啰嗦。
 9. 不要写负面词，不要写 --ar 这类参数。
 
 # 中文对照 prompt_zh 怎么写
@@ -216,6 +235,8 @@ export function buildCharacterMessages(opts = {}) {
 # 其它要求
 - ${countRule}
 - ${aspectRule}
+- 整体画风：${STYLE_TONE[style]}。
+${target ? `- 目标模型：${target}。按该模型的语法习惯和长度偏好输出。` : ''}
 - title：中文短标题，不超过 12 字。
 - 只输出一个 JSON 对象，不要 markdown 代码块，不要任何解释文字。
 
@@ -256,8 +277,15 @@ const CHAR_REFINE_RULES = `# 你的角色
 
 export function buildCharacterRefineMessages(opts = {}) {
   const prev = opts.previous || {};
+  const style = STYLE_TONE[opts.style] ? opts.style : 'sd';
+  const detail = CHARACTER_LENGTH[opts.detail] ? opts.detail : 'standard';
+  const range = CHARACTER_LENGTH[detail];
+  const target = String(opts.targetModel || '').trim();
+
   const system = [
-    CHAR_REFINE_RULES,
+    CHAR_REFINE_RULES.replace('120-200', range),
+    `整体画风：${STYLE_TONE[style]}。`,
+    target ? `目标模型：${target}。保持该模型的语法习惯。` : '',
     `# 输出格式（字段名不要改）
 {
   "title": "中文短标题",
@@ -265,7 +293,7 @@ export function buildCharacterRefineMessages(opts = {}) {
   "prompt_zh": "修改后的整段中文对照",
   "aspect_ratio": "16:9"
 }`,
-  ].join('\n\n');
+  ].filter(Boolean).join('\n\n');
 
   const blocks = [
     '【原英文提示词】',
@@ -337,6 +365,14 @@ export function buildRefineMessages(opts = {}) {
 
 /* ============ 细分标签：只生成服饰 / 人物 / 场景等某一个维度的 tag ============ */
 
+const SEGMENT_STYLE_RULE = {
+  sd: 'SD 描述性短语，具体名词加修饰，不要写成整句',
+  anime: 'danbooru 小写标签，单词或短词组',
+  mj: '逗号分隔的英文短语，不要写参数',
+  photo: '摄影术语与描述性短语',
+  natural: '自然语言短语，但仍用逗号分隔',
+};
+
 const SEGMENT_RULES = {
   outfit: `- 覆盖上衣、下装、外套、裙装、鞋帽、袜子、手套、首饰、包袋等穿着与配饰。
 - 每个 tag 至少带出材质、颜色、版型、穿法或磨损痕迹中的一项。
@@ -368,6 +404,7 @@ export function buildSegmentMessages(opts = {}) {
   const info = SEGMENT_LIST.find((t) => t.id === typeId);
   const detail = String(opts.detail || 'standard');
   const countRule = detail === 'short' ? '8-12 个' : detail === 'rich' ? '20-32 个' : '12-20 个';
+  const style = SEGMENT_STYLE_RULE[opts.style] ? opts.style : 'sd';
   const target = String(opts.targetModel || '').trim();
 
   const targetRule = target
@@ -388,6 +425,7 @@ ${SEGMENT_RULES[typeId]}
 4. 不要输出权重语法、--ar 参数、负面词或解释性文字。
 5. 数量：${countRule}，宁可精准也不要凑数；不要重复或同义堆叠。
 6. 除非本次类型就是「画风质感」，否则不要加 masterpiece / best quality / 8k / highres 这类空泛画质词。
+7. 输出风格倾向：${SEGMENT_STYLE_RULE[style]}。
 ${targetRule}
 
 # 输出格式（强制）
@@ -428,12 +466,14 @@ export function buildSegmentRefineMessages(opts = {}) {
   const typeId = SEGMENT_LIST.some((t) => t.id === opts.segmentType) ? opts.segmentType : 'outfit';
   const info = SEGMENT_LIST.find((t) => t.id === typeId);
   const prev = opts.previous || {};
+  const style = SEGMENT_STYLE_RULE[opts.style] ? opts.style : 'sd';
   const target = String(opts.targetModel || '').trim();
 
   const system = [
     SEGMENT_REFINE_RULES,
     `# 本次维度：${info.label}
 ${SEGMENT_RULES[typeId]}`,
+    `整体标签风格：${SEGMENT_STYLE_RULE[style]}。`,
     target ? `目标模型：${target}。保持同样的标签习惯。` : '',
     `# 输出格式（字段名不要改）
 只输出一个 JSON 对象。不要 markdown 代码块，不要解释文字。

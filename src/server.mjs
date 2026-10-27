@@ -532,6 +532,9 @@ async function handleCharacters(req, res) {
     extra: ctx.body.extra,
     count: ctx.body.count,
     aspect: ctx.body.aspect,
+    style: ctx.body.style,
+    targetModel: ctx.body.targetModel,
+    detail: ctx.body.detail,
     apiPinned: ctx.apiPinned,
   });
 
@@ -557,6 +560,9 @@ async function handleCharacterRefine(req, res) {
       aspect: String(prev.aspect || ''),
     },
     instruction,
+    style: ctx.body.style,
+    targetModel: ctx.body.targetModel,
+    detail: ctx.body.detail,
     apiPinned: ctx.apiPinned,
   });
 
@@ -580,6 +586,7 @@ async function handleSegment(req, res) {
     segmentType,
     targetModel: ctx.body.targetModel,
     detail: ctx.body.detail,
+    style: ctx.body.style,
     extra: ctx.body.extra,
     apiPinned: ctx.apiPinned,
   });
@@ -611,6 +618,7 @@ async function handleSegmentRefine(req, res) {
     instruction,
     segmentType,
     targetModel: ctx.body.targetModel,
+    style: ctx.body.style,
     apiPinned: ctx.apiPinned,
   });
 

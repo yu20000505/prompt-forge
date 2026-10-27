@@ -49,6 +49,46 @@
       <button class="tab" data-view="segment" type="button">细分提示词</button>
     </nav>
 
+    <!-- ============ 通用设置（三栏之外） ============ -->
+    <section class="global-opts" id="globalOpts" aria-label="通用生成设置">
+      <div class="global-head">
+        <span class="global-title">通用设置</span>
+        <span class="dim small">三种模式共用</span>
+      </div>
+      <div class="global-grid">
+        <div class="opt">
+          <label for="styleSelect">提示词风格</label>
+          <select id="styleSelect"></select>
+        </div>
+        <div class="opt">
+          <label for="targetModel">目标模型</label>
+          <div class="combo compact" id="targetCombo">
+            <input id="targetModel" placeholder="通用" autocomplete="off" role="combobox"
+              aria-expanded="false" aria-controls="targetModelList" aria-autocomplete="list" spellcheck="false" />
+            <button class="combo-toggle" type="button" id="btnToggleTarget" aria-label="展开目标模型列表"
+              tabindex="-1">▾</button>
+            <div class="combo-list" id="targetModelList" role="listbox" hidden></div>
+          </div>
+        </div>
+        <div class="opt">
+          <label for="language">提示词语言</label>
+          <select id="language">
+            <option value="en">英文（推荐）</option>
+            <option value="zh">中文</option>
+          </select>
+        </div>
+        <div class="opt">
+          <label for="detail">详细程度</label>
+          <select id="detail">
+            <option value="short">精简</option>
+            <option value="standard" selected>标准</option>
+            <option value="rich">丰富</option>
+          </select>
+        </div>
+      </div>
+      <p class="global-note">提示词语言只影响提示词工坊；角色设定固定「英文提示词 + 中文对照」，细分标签固定英文 tag。</p>
+    </section>
+
     <!-- ============ 提示词工坊 ============ -->
     <main class="grid" id="viewPrompt">
       <section class="panel composer">
@@ -74,38 +114,6 @@
             <button class="btn tiny ghost" id="btnIdeaClose" type="button">收起</button>
           </div>
           <div class="idea-chips" id="ideaChips"></div>
-        </div>
-
-        <div class="opts four">
-          <div class="opt">
-            <label for="styleSelect">提示词风格</label>
-            <select id="styleSelect"></select>
-          </div>
-          <div class="opt">
-            <label for="targetModel">目标模型</label>
-            <div class="combo compact" id="targetCombo">
-              <input id="targetModel" placeholder="通用" autocomplete="off" role="combobox"
-                aria-expanded="false" aria-controls="targetModelList" aria-autocomplete="list" spellcheck="false" />
-              <button class="combo-toggle" type="button" id="btnToggleTarget" aria-label="展开目标模型列表"
-                tabindex="-1">▾</button>
-              <div class="combo-list" id="targetModelList" role="listbox" hidden></div>
-            </div>
-          </div>
-          <div class="opt">
-            <label for="language">提示词语言</label>
-            <select id="language">
-              <option value="en">英文（推荐）</option>
-              <option value="zh">中文</option>
-            </select>
-          </div>
-          <div class="opt">
-            <label for="detail">详细程度</label>
-            <select id="detail">
-              <option value="short">精简</option>
-              <option value="standard" selected>标准</option>
-              <option value="rich">丰富</option>
-            </select>
-          </div>
         </div>
 
         <input id="extra" class="extra-input" placeholder="附加要求（可选）：比如 竖构图、胶片颗粒、不要出现人物…"
@@ -246,7 +254,7 @@
           <div class="idea-chips" id="charIdeaChips"></div>
         </div>
 
-        <div class="opts">
+        <div class="opts two">
           <div class="opt">
             <label for="charCount">角色数量</label>
             <select id="charCount">
@@ -342,28 +350,6 @@
 
         <div class="field-label">只生成哪一类标签</div>
         <div class="chips" id="segTypeChips"></div>
-
-        <div class="opts two">
-          <div class="opt">
-            <label for="segTarget">目标模型</label>
-            <select id="segTarget">
-              <option value="通用" selected>通用</option>
-              <option value="SDXL">SDXL</option>
-              <option value="Stable Diffusion 1.5">Stable Diffusion 1.5</option>
-              <option value="Flux.1">Flux.1</option>
-              <option value="NovelAI V4">NovelAI V4</option>
-              <option value="Midjourney v6.1">Midjourney v6.1</option>
-            </select>
-          </div>
-          <div class="opt">
-            <label for="segDetail">标签数量</label>
-            <select id="segDetail">
-              <option value="short">精简</option>
-              <option value="standard" selected>标准</option>
-              <option value="rich">丰富</option>
-            </select>
-          </div>
-        </div>
 
         <input id="segExtra" class="extra-input"
           placeholder="附加要求（可选）：比如 只写秋冬、不要配饰、偏赛博朋克" autocomplete="off" />

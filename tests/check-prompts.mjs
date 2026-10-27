@@ -4,6 +4,7 @@ import {
   buildRefineMessages,
   buildIdeaMessages,
   buildCharacterMessages,
+  buildCharacterRefineMessages,
   buildSegmentMessages,
   buildSegmentRefineMessages,
   SEGMENT_LIST,
@@ -33,6 +34,18 @@ check('角色设定的用户消息含原句', c[1].content.includes('三个流�
 check('角色设定含附加要求位', buildCharacterMessages({ sentence: 'x', extra: '全女性' })[1].content.includes('全女性'));
 check('画幅 auto 时不给硬约束', !buildCharacterMessages({ sentence: 'x' })[0].content.includes('必须是'));
 
+const charRich = buildCharacterMessages({
+  sentence: 'x', detail: 'rich', style: 'anime', targetModel: 'NovelAI V4',
+});
+check('角色设定详细程度映射到字数', charRich[0].content.includes('200-300'));
+check('角色设定带画风与目标模型',
+  charRich[0].content.includes('日系动漫') && charRich[0].content.includes('NovelAI V4'));
+const charRefShort = buildCharacterRefineMessages({
+  previous: { prompt_en: 'a cat' }, instruction: '更写实', style: 'photo', detail: 'short',
+});
+check('角色微调也带画风与详细程度',
+  charRefShort[0].content.includes('80-120') && charRefShort[0].content.includes('纪实摄影'));
+
 // ---------- 细分标签（只生成一个维度的 tag） ----------
 const seg = buildSegmentMessages({
   sentence: '银发吸血鬼少女',
@@ -55,6 +68,8 @@ check('细分标签 7 种类型都能构造',
   SEGMENT_LIST.length === 7 && SEGMENT_LIST.every((t) => buildSegmentMessages({
     sentence: 'x', segmentType: t.id,
   })[0].content.includes(t.label)));
+check('细分标签带整体风格倾向',
+  buildSegmentMessages({ sentence: 'x', style: 'anime' })[0].content.includes('danbooru 小写标签'));
 
 // ---------- 细分标签的微调 ----------
 const segRef = buildSegmentRefineMessages({
@@ -71,6 +86,10 @@ check('细分微调锁定当前维度', segRefSys.includes('本次维度：服�
 check('细分微调带目标模型', segRefSys.includes('SDXL'));
 check('细分微调的用户消息含原标签与要求',
   segRef[1].content.includes('black lace dress') && segRef[1].content.includes('更华丽'));
+check('细分微调带整体风格倾向',
+  buildSegmentRefineMessages({
+    previous: { tags: 'a' }, instruction: 'b', style: 'photo',
+  })[0].content.includes('摄影术语'));
 
 // ---------- 置顶提示词注入 ----------
 const gens = [

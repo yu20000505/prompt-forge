@@ -1133,6 +1133,7 @@ function loadSavedPrompt(meta, fallbackTitle) {
   };
   S.style = STYLES.some((x) => x.id === meta.style) ? meta.style : 'sd';
   $('#styleSelect').value = S.style;
+  if (meta.targetModel) $('#targetModel').value = meta.targetModel;
   if (meta.sentence) {
     $('#sentence').value = meta.sentence;
     refreshCounter();
@@ -1193,6 +1194,9 @@ function loadSavedSegment(meta, fallbackTitle) {
   S.segType = type;
   document.querySelectorAll('#segTypeChips .chip').forEach((c) => c.classList.toggle('active', c.dataset.id === type));
 
+  const savedStyle = STYLES.some((x) => x.id === meta.style) ? meta.style : S.style;
+  S.style = savedStyle;
+  $('#styleSelect').value = savedStyle;
   S.segData = d;
   S.segSentence = str(meta.sentence);
   S.segStack = [d];
@@ -1200,6 +1204,7 @@ function loadSavedSegment(meta, fallbackTitle) {
     sentence: S.segSentence,
     type,
     targetModel: str(meta.targetModel),
+    style: savedStyle,
     at: Date.now(),
     historyAt: null,
   };
@@ -1209,8 +1214,8 @@ function loadSavedSegment(meta, fallbackTitle) {
     $('#segSentence').value = S.segSentence;
     refreshCounter();
   }
-  if (meta.targetModel && [...$('#segTarget').options].some((o) => o.value === meta.targetModel)) {
-    $('#segTarget').value = meta.targetModel;
+  if (meta.targetModel) {
+    $('#targetModel').value = meta.targetModel;
   }
 
   switchView('segment');
@@ -1380,18 +1385,26 @@ function restoreHistoryEntry(h) {
     const type = SEG_TYPES.some((t) => t.id === h.segmentType) ? h.segmentType : 'outfit';
     S.segType = type;
     document.querySelectorAll('#segTypeChips .chip').forEach((c) => c.classList.toggle('active', c.dataset.id === type));
+    const savedStyle = STYLES.some((x) => x.id === h.style) ? h.style : S.style;
+    S.style = savedStyle;
+    $('#styleSelect').value = savedStyle;
     S.segData = d;
     S.segSentence = h.sentence || '';
     S.segStack = [d];
-    S.segMeta = { sentence: S.segSentence, type, targetModel: h.targetModel || '', at: h.at, historyAt: h.at };
+    S.segMeta = {
+      sentence: S.segSentence,
+      type,
+      targetModel: h.targetModel || '',
+      style: savedStyle,
+      at: h.at,
+      historyAt: h.at,
+    };
     S.segText = d.tags;
     if (S.segSentence) {
       $('#segSentence').value = S.segSentence;
       refreshCounter();
     }
-    if (h.targetModel && [...$('#segTarget').options].some((o) => o.value === h.targetModel)) {
-      $('#segTarget').value = h.targetModel;
-    }
+    if (h.targetModel) $('#targetModel').value = h.targetModel;
     switchView('segment');
     renderSegment(d);
     closeDrawer();
@@ -1669,6 +1682,9 @@ async function refineCharacter(instructionArg) {
       body: JSON.stringify({
         instruction,
         previous: { prompt_en: cur.en, prompt_zh: cur.zh, aspect: cur.aspect },
+        style: S.style,
+        targetModel: $('#targetModel').value.trim(),
+        detail: $('#detail').value,
       }),
       signal: S.charAbort.signal,
     });
@@ -1772,6 +1788,9 @@ async function generateCharacters() {
         extra: $('#charExtra').value.trim(),
         count: $('#charCount').value,
         aspect: $('#charAspect').value,
+        style: S.style,
+        targetModel: $('#targetModel').value.trim(),
+        detail: $('#detail').value,
       }),
       signal: S.charAbort.signal,
     });
@@ -1920,8 +1939,9 @@ async function generateSegment() {
       body: JSON.stringify({
         sentence,
         segmentType: S.segType,
-        targetModel: $('#segTarget').value,
-        detail: $('#segDetail').value,
+        targetModel: $('#targetModel').value.trim(),
+        detail: $('#detail').value,
+        style: S.style,
         extra: $('#segExtra').value.trim(),
       }),
       signal: S.segAbort.signal,
@@ -1975,7 +1995,8 @@ async function generateSegment() {
     S.segMeta = {
       sentence,
       type: S.segType,
-      targetModel: $('#segTarget').value,
+      targetModel: $('#targetModel').value.trim(),
+      style: S.style,
       at: Date.now(),
       historyAt: null,
     };
@@ -2017,7 +2038,7 @@ function renderSegment(d) {
   $('#segStream').hidden = true;
   wrap.hidden = false;
 
-  const meta = S.segMeta || { type: S.segType, targetModel: $('#segTarget').value };
+  const meta = S.segMeta || { type: S.segType, targetModel: $('#targetModel').value.trim(), style: S.style };
   const type = SEG_TYPES.some((t) => t.id === meta.type) ? meta.type : 'outfit';
 
   const head = document.createElement('div');
@@ -2065,6 +2086,8 @@ function segmentMarkdown() {
   const lines = [];
   if (meta.sentence) lines.push(`> 原始描述：${meta.sentence}`);
   lines.push(`> 细分类型：${segTypeLabel(meta.type)}`);
+  const style = STYLES.find((x) => x.id === meta.style);
+  if (style) lines.push(`> 提示词风格：${style.label}`);
   if (meta.targetModel && meta.targetModel !== '通用') lines.push(`> 目标模型：${meta.targetModel}`);
 
   lines.push('', '## 标签组合', '', d.tags || '');
@@ -2081,6 +2104,7 @@ function pushSegmentHistory() {
     sentence: meta.sentence || S.segSentence || '',
     segmentType: meta.type || S.segType,
     targetModel: meta.targetModel || '',
+    style: meta.style || S.style,
     title: d.title || '细分标签',
     tags: d.tags || '',
     translation: d.translation || '',
@@ -2102,6 +2126,7 @@ function updateSegmentHistoryEntry() {
   h.tags = d.tags || h.tags;
   h.translation = d.translation || '';
   h.keywords = d.keywords || [];
+  h.style = S.segMeta?.style || h.style;
   saveHistory();
 }
 
@@ -2152,7 +2177,8 @@ async function refineSegment(instructionArg) {
         instruction,
         previous: { tags: cur.tags, translation: cur.translation },
         segmentType: S.segMeta?.type || S.segType,
-        targetModel: S.segMeta?.targetModel || $('#segTarget').value,
+        targetModel: S.segMeta?.targetModel || $('#targetModel').value.trim(),
+        style: S.segMeta?.style || S.style,
       }),
       signal: S.segAbort.signal,
     });
@@ -2553,6 +2579,7 @@ function bind() {
       sentence: meta.sentence || S.segSentence || '',
       segmentType: meta.type || S.segType,
       targetModel: meta.targetModel || '',
+      style: meta.style || S.style,
       tags: d.tags || '',
       translation: d.translation || '',
       keywords: d.keywords || [],
