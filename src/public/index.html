@@ -46,6 +46,7 @@
     <nav class="tabs" id="mainTabs">
       <button class="tab active" data-view="prompt" type="button">提示词工坊</button>
       <button class="tab" data-view="character" type="button">角色设定</button>
+      <button class="tab" data-view="segment" type="button">细分提示词</button>
     </nav>
 
     <!-- ============ 提示词工坊 ============ -->
@@ -320,8 +321,92 @@
       </section>
     </main>
 
+    <!-- ============ 细分提示词 ============ -->
+    <main class="grid" id="viewSegment" hidden>
+      <section class="panel composer">
+        <div class="panel-title">
+          <h2>细分提示词生成</h2>
+          <span class="dim" id="segModelBadge">—</span>
+        </div>
+
+        <label class="field-label" for="segSentence">一句话描述对象</label>
+        <textarea id="segSentence" rows="4"
+          placeholder="例如：银发吸血鬼贵族少女，穿黑色蕾丝长裙，站在哥特教堂里"></textarea>
+        <div class="row-between">
+          <div class="mini-actions">
+            <button class="btn tiny" id="btnSegClear">清空</button>
+          </div>
+          <span class="counter" id="segCounter">0 字</span>
+        </div>
+
+        <div class="field-label">只生成哪一类标签</div>
+        <div class="chips" id="segTypeChips"></div>
+
+        <div class="opts two">
+          <div class="opt">
+            <label for="segTarget">目标模型</label>
+            <select id="segTarget">
+              <option value="通用" selected>通用</option>
+              <option value="SDXL">SDXL</option>
+              <option value="Stable Diffusion 1.5">Stable Diffusion 1.5</option>
+              <option value="Flux.1">Flux.1</option>
+              <option value="NovelAI V4">NovelAI V4</option>
+              <option value="Midjourney v6.1">Midjourney v6.1</option>
+            </select>
+          </div>
+          <div class="opt">
+            <label for="segDetail">标签数量</label>
+            <select id="segDetail">
+              <option value="short">精简</option>
+              <option value="standard" selected>标准</option>
+              <option value="rich">丰富</option>
+            </select>
+          </div>
+        </div>
+
+        <input id="segExtra" class="extra-input"
+          placeholder="附加要求（可选）：比如 只写秋冬、不要配饰、偏赛博朋克" autocomplete="off" />
+
+        <button class="btn primary big" id="btnSegGenerate">
+          <span id="btnSegGenerateText">生成标签组合</span>
+          <kbd>Ctrl ↵</kbd>
+        </button>
+        <div class="err" id="segErr" hidden></div>
+      </section>
+
+      <section class="panel result">
+        <div class="panel-title">
+          <h2>标签结果</h2>
+          <div class="result-tools">
+            <button class="btn tiny" id="btnSegCopyAll" disabled>复制标签</button>
+            <button class="btn tiny" id="btnSegSave" disabled>💾 保存</button>
+            <button class="btn tiny" id="btnSegRegen" disabled>↻ 重新生成</button>
+          </div>
+        </div>
+
+        <div class="result-body">
+          <div class="empty" id="segEmpty">
+            <div class="empty-icon">◫</div>
+            <p>选一个类型，写一句话，单独生成这一类的 tag</p>
+            <p class="dim small">服饰、人物、场景、动作、道具、光影、画风分开生成，复制后自由拼进完整提示词</p>
+          </div>
+
+          <div class="stream" id="segStream" hidden>
+            <div class="stream-head"><span class="dot"></span><span id="segStreamLabel">正在生成…</span></div>
+            <pre id="segStreamText"></pre>
+          </div>
+
+          <div id="segCards" hidden></div>
+
+          <p class="seg-note dim small" id="segNote" hidden>
+            细分标签只包含所选类型，不拼置顶词；可以多次生成后自由组合。
+          </p>
+        </div>
+      </section>
+    </main>
+
     <footer class="foot">
-      <span class="dim small">Ctrl+Enter 生成 · Ctrl+1 / Ctrl+2 切页签 · Ctrl+S 保存结果</span>
+      <span class="dim small">Ctrl+Enter 生成 · Ctrl+1 / 2 / 3 切页签 · Ctrl+S 保存结果</span>
       <div class="foot-right">
         <button class="btn tiny ghost" id="btnLibrary">📚 保存库 <span id="libBtnCount">0</span></button>
         <button class="btn tiny ghost" id="btnOpenSaved">📁 打开目录</button>

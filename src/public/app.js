@@ -9,6 +9,17 @@ const STYLES = [
   { id: 'natural', label: '自然语言', desc: 'Flux / DALL·E' },
 ];
 
+// 细分标签类型，和 src/styles.mjs 里的 SEGMENT_LIST 保持一致
+const SEG_TYPES = [
+  { id: 'outfit', label: '服饰穿搭', desc: '衣服 / 材质 / 配饰' },
+  { id: 'character', label: '人物形象', desc: '脸 / 发型 / 体型' },
+  { id: 'scene', label: '场景环境', desc: '地点 / 天气 / 背景' },
+  { id: 'pose', label: '动作表情', desc: '姿态 / 手势 / 神情' },
+  { id: 'props', label: '道具物件', desc: '手持 / 陈设 / 关键物' },
+  { id: 'lighting', label: '光影氛围', desc: '光线 / 色调 / 空气感' },
+  { id: 'style', label: '画风质感', desc: '媒介 / 镜头 / 画质' },
+];
+
 // 本地兜底词库：只在接口不可用（没配 Key / 连不上）时用
 const IDEAS = [
   '雨夜的霓虹街头，一位赛博朋克女剑客回头看向镜头',
@@ -49,6 +60,13 @@ const S = {
   charText: '',
   charSentence: '',
   charStack: [],
+  segType: 'outfit',
+  segBusy: false,
+  segAbort: null,
+  segData: null,
+  segMeta: null,
+  segText: '',
+  segSentence: '',
   lib: [],
   libDir: '',
   libEditing: null,
@@ -83,6 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderStyleChips();
   renderRefineChips();
   renderCharRefineChips();
+  renderSegTypeChips();
   renderThemeSwatches();
   bind();
   loadHistory();
@@ -106,6 +125,28 @@ function renderStyleChips() {
     });
     box.appendChild(b);
   }
+}
+
+function renderSegTypeChips() {
+  const box = $('#segTypeChips');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const t of SEG_TYPES) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip' + (t.id === S.segType ? ' active' : '');
+    b.dataset.id = t.id;
+    b.innerHTML = `<b>${t.label}</b><small>${t.desc}</small>`;
+    b.addEventListener('click', () => {
+      S.segType = t.id;
+      box.querySelectorAll('.chip').forEach((c) => c.classList.toggle('active', c.dataset.id === t.id));
+    });
+    box.appendChild(b);
+  }
+}
+
+function segTypeLabel(id) {
+  return (SEG_TYPES.find((t) => t.id === id) || SEG_TYPES[0]).label;
 }
 
 /* ============ 操作体验小工具 ============ */
@@ -240,6 +281,7 @@ function applyConfig(cfg, opts = {}) {
   $('#cfgApiPinnedIdea').checked = !!cfg.apiPinnedForIdea;
   $('#modelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
   $('#charModelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
+  $('#segModelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
   setStatus(cfg.hasKey, cfg.hasKey ? (cfg.model || '已配置') : '未配置 API Key');
 }
 
@@ -796,7 +838,8 @@ function libraryItemEl(it) {
   top.className = 'lib-top';
 
   const kind = document.createElement('span');
-  kind.className = 'lib-kind' + (it.kind === '角色设定' ? ' character' : '');
+  kind.className = 'lib-kind'
+    + (it.kind === '角色设定' ? ' character' : it.kind === '细分提示词' ? ' segment' : '');
   kind.textContent = it.kind;
   top.appendChild(kind);
 
@@ -864,9 +907,14 @@ function libraryItemEl(it) {
     mkBtn('复制', async (b) => {
       const loaded = await fetchSavedMeta(it);
       if (!loaded) return;
-      const text = loaded.meta?.kind === 'character'
-        ? [loaded.meta.prompt_en, loaded.meta.prompt_zh].filter(Boolean).join('\n\n')
-        : [loaded.meta?.positive, loaded.meta?.negative].filter(Boolean).join('\n\n');
+      let text;
+      if (loaded.meta?.kind === 'character') {
+        text = [loaded.meta.prompt_en, loaded.meta.prompt_zh].filter(Boolean).join('\n\n');
+      } else if (loaded.meta?.kind === 'segment') {
+        text = loaded.meta.tags || it.summary;
+      } else {
+        text = [loaded.meta?.positive, loaded.meta?.negative].filter(Boolean).join('\n\n');
+      }
       copyText(text || it.summary, b);
     });
     mkBtn('重命名', () => {
@@ -941,6 +989,7 @@ async function openSavedEntry(it) {
   const meta = loaded.meta && typeof loaded.meta === 'object' ? loaded.meta : {};
 
   if (it.kind === '角色设定') loadSavedCharacter(meta, loaded.title);
+  else if (it.kind === '细分提示词') loadSavedSegment(meta, loaded.title);
   else loadSavedPrompt(meta, loaded.title);
 }
 
@@ -1013,6 +1062,49 @@ function loadSavedCharacter(meta, fallbackTitle) {
   $('#btnCharSave').disabled = false;
   $('#btnCharCopyAll').disabled = false;
   $('#btnCharRegen').disabled = false;
+  closeLibrary();
+  toast(`已载入：${d.title || fallbackTitle}`);
+}
+
+function loadSavedSegment(meta, fallbackTitle) {
+  const d = normalizeSegment({
+    title: meta.title || fallbackTitle,
+    tags: meta.tags,
+    translation: meta.translation,
+    keywords: meta.keywords,
+  });
+  if (!d) {
+    toast('这个文件里没有可载入的细分标签', true);
+    return;
+  }
+
+  const type = SEG_TYPES.some((t) => t.id === meta.segmentType) ? meta.segmentType : 'outfit';
+  S.segType = type;
+  document.querySelectorAll('#segTypeChips .chip').forEach((c) => c.classList.toggle('active', c.dataset.id === type));
+
+  S.segData = d;
+  S.segSentence = str(meta.sentence);
+  S.segMeta = {
+    sentence: S.segSentence,
+    type,
+    targetModel: str(meta.targetModel),
+    at: Date.now(),
+  };
+  S.segText = d.tags;
+
+  if (S.segSentence) {
+    $('#segSentence').value = S.segSentence;
+    refreshCounter();
+  }
+  if (meta.targetModel && [...$('#segTarget').options].some((o) => o.value === meta.targetModel)) {
+    $('#segTarget').value = meta.targetModel;
+  }
+
+  switchView('segment');
+  renderSegment(d);
+  $('#btnSegSave').disabled = false;
+  $('#btnSegCopyAll').disabled = false;
+  $('#btnSegRegen').disabled = false;
   closeLibrary();
   toast(`已载入：${d.title || fallbackTitle}`);
 }
@@ -1090,7 +1182,7 @@ function renderHistory() {
   const q = ($('#histFilter')?.value || '').trim().toLowerCase();
   const all = S.history || [];
   const list = q
-    ? all.filter((h) => `${h.title || ''} ${h.sentence || ''} ${h.positive || ''}`.toLowerCase().includes(q))
+    ? all.filter((h) => `${h.title || ''} ${h.sentence || ''} ${h.positive || ''} ${h.tags || ''}`.toLowerCase().includes(q))
     : all;
 
   box.innerHTML = '';
@@ -1140,7 +1232,7 @@ function renderHistory() {
 
     const prompt = document.createElement('div');
     prompt.className = 'h-prompt';
-    prompt.textContent = h.positive || '';
+    prompt.textContent = h.kind === 'segment' ? (h.tags || '') : (h.positive || '');
     d.appendChild(prompt);
 
     d.addEventListener('click', () => restoreHistoryEntry(h));
@@ -1163,6 +1255,35 @@ function deleteHistoryEntry(at) {
 }
 
 function restoreHistoryEntry(h) {
+  // 细分标签有自己的一套状态，直接恢复回细分页面
+  if (h.kind === 'segment') {
+    const d = normalizeSegment({
+      title: h.title, tags: h.tags, translation: h.translation, keywords: h.keywords,
+    });
+    if (!d) {
+      toast('这条历史缺少标签内容', true);
+      return;
+    }
+    const type = SEG_TYPES.some((t) => t.id === h.segmentType) ? h.segmentType : 'outfit';
+    S.segType = type;
+    document.querySelectorAll('#segTypeChips .chip').forEach((c) => c.classList.toggle('active', c.dataset.id === type));
+    S.segData = d;
+    S.segSentence = h.sentence || '';
+    S.segMeta = { sentence: S.segSentence, type, targetModel: h.targetModel || '', at: h.at };
+    S.segText = d.tags;
+    if (S.segSentence) {
+      $('#segSentence').value = S.segSentence;
+      refreshCounter();
+    }
+    if (h.targetModel && [...$('#segTarget').options].some((o) => o.value === h.targetModel)) {
+      $('#segTarget').value = h.targetModel;
+    }
+    switchView('segment');
+    renderSegment(d);
+    closeDrawer();
+    return;
+  }
+
   const parsed = {
     title: h.title, positive: h.positive, negative: h.negative,
     translation: h.translation, params: h.params || {}, keywords: h.keywords || [],
@@ -1281,6 +1402,7 @@ function switchView(view) {
   S.view = view;
   $('#viewPrompt').hidden = view !== 'prompt';
   $('#viewCharacter').hidden = view !== 'character';
+  $('#viewSegment').hidden = view !== 'segment';
   document.querySelectorAll('#mainTabs .tab').forEach((t) => {
     t.classList.toggle('active', t.dataset.view === view);
   });
@@ -1610,6 +1732,223 @@ async function generateCharacters() {
   }
 }
 
+/* ============ 细分提示词（单独生成某一维度的 tag 组合） ============ */
+function showSegErr(msg, retry) {
+  renderErr($('#segErr'), msg, retry);
+}
+
+function hideSegErr() {
+  $('#segErr').hidden = true;
+}
+
+function normalizeSegment(o) {
+  if (!o || typeof o !== 'object') return null;
+  const tags = str(o.tags || o.tag || o.positive || o.prompt);
+  if (!tags) return null;
+  return {
+    title: str(o.title),
+    tags,
+    translation: str(o.translation || o.description_zh || o.zh),
+    keywords: Array.isArray(o.keywords) ? o.keywords.map(str).filter(Boolean).slice(0, 8) : [],
+  };
+}
+
+function countTags(tags) {
+  return String(tags || '').split(/[,，]/).map((s) => s.trim()).filter(Boolean).length;
+}
+
+async function generateSegment() {
+  if (S.segBusy) return;
+  const sentence = $('#segSentence').value.trim();
+  if (!sentence) {
+    showSegErr('先写一句话描述要生成的对象');
+    $('#segSentence').focus();
+    return;
+  }
+  hideSegErr();
+
+  S.segBusy = true;
+  const btn = $('#btnSegGenerate');
+  btn.disabled = true;
+  $('#btnSegGenerateText').textContent = '生成中…';
+  $('#segEmpty').hidden = true;
+  $('#segCards').hidden = true;
+  $('#segStream').hidden = false;
+  $('#segStreamText').textContent = '';
+  $('#segStreamLabel').textContent = '正在生成…';
+  $('#btnSegRegen').disabled = true;
+  $('#btnSegCopyAll').disabled = true;
+  $('#btnSegSave').disabled = true;
+
+  S.segAbort = new AbortController();
+  let acc = '';
+  let gotError = null;
+
+  try {
+    const res = await fetch('/api/segment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sentence,
+        segmentType: S.segType,
+        targetModel: $('#segTarget').value,
+        detail: $('#segDetail').value,
+        extra: $('#segExtra').value.trim(),
+      }),
+      signal: S.segAbort.signal,
+    });
+
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(e.error || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line.startsWith('data:')) continue;
+        let evt;
+        try {
+          evt = JSON.parse(line.slice(5).trim());
+        } catch {
+          continue;
+        }
+        if (evt.type === 'delta') {
+          acc += evt.text;
+          $('#segStreamText').textContent = acc;
+          $('#segStreamText').scrollTop = $('#segStreamText').scrollHeight;
+          $('#segStreamLabel').textContent = `正在生成… ${acc.length} 字`;
+        } else if (evt.type === 'error') {
+          gotError = evt.message;
+        }
+      }
+    }
+
+    if (gotError) throw new Error(gotError);
+    if (!acc.trim()) throw new Error('模型没有返回内容，再试一次');
+
+    const parsed = normalizeSegment(parseJsonLoose(acc));
+    if (!parsed) throw new Error('模型返回的不是标准 JSON，再试一次或换个模型');
+
+    S.segData = parsed;
+    S.segSentence = sentence;
+    S.segMeta = {
+      sentence,
+      type: S.segType,
+      targetModel: $('#segTarget').value,
+      at: Date.now(),
+    };
+    renderSegment(parsed);
+    pushSegmentHistory();
+    revealResult('#viewSegment .result');
+  } catch (err) {
+    $('#segStream').hidden = true;
+    if (err.name === 'AbortError') {
+      showSegErr('已取消本次生成');
+    } else {
+      showSegErr(err.message || String(err), generateSegment);
+      if (!S.segData) $('#segEmpty').hidden = false;
+    }
+  } finally {
+    S.segBusy = false;
+    S.segAbort = null;
+    btn.disabled = false;
+    $('#btnSegGenerateText').textContent = '生成标签组合';
+    $('#btnSegRegen').disabled = !S.segData;
+    $('#btnSegCopyAll').disabled = !S.segData;
+    $('#btnSegSave').disabled = !S.segData;
+  }
+}
+
+function renderSegment(d) {
+  hideSegErr();
+  const wrap = $('#segCards');
+  wrap.innerHTML = '';
+  $('#segEmpty').hidden = true;
+  $('#segStream').hidden = true;
+  wrap.hidden = false;
+
+  const meta = S.segMeta || { type: S.segType, targetModel: $('#segTarget').value };
+  const type = SEG_TYPES.some((t) => t.id === meta.type) ? meta.type : 'outfit';
+
+  const head = document.createElement('div');
+  head.className = 'result-title-row';
+  const h3 = document.createElement('h3');
+  h3.textContent = d.title || '细分标签';
+  head.appendChild(h3);
+
+  const badges = document.createElement('div');
+  badges.className = 'badges';
+  badges.appendChild(badge(segTypeLabel(type), true));
+  badges.appendChild(badge(`${countTags(d.tags)} 个标签`, false));
+  if (meta.targetModel && meta.targetModel !== '通用') badges.appendChild(badge(meta.targetModel, false));
+  head.appendChild(badges);
+  wrap.appendChild(head);
+
+  wrap.appendChild(promptCard('标签组合（可直接粘贴）', d.tags, true));
+  if (d.translation) wrap.appendChild(promptCard('中文对照', d.translation, false));
+
+  if (d.keywords.length) {
+    const kw = document.createElement('div');
+    kw.className = 'keywords';
+    for (const k of d.keywords) {
+      const s = document.createElement('span');
+      s.className = 'kw';
+      s.textContent = k;
+      kw.appendChild(s);
+    }
+    wrap.appendChild(kw);
+  }
+
+  $('#segNote').hidden = false;
+  S.segData = d;
+  S.segText = d.tags;
+  $('#btnSegSave').disabled = false;
+  $('#btnSegCopyAll').disabled = false;
+  $('#btnSegRegen').disabled = false;
+}
+
+function segmentMarkdown() {
+  const d = S.segData || {};
+  const meta = S.segMeta || {};
+  const lines = [];
+  if (meta.sentence) lines.push(`> 原始描述：${meta.sentence}`);
+  lines.push(`> 细分类型：${segTypeLabel(meta.type)}`);
+  if (meta.targetModel && meta.targetModel !== '通用') lines.push(`> 目标模型：${meta.targetModel}`);
+
+  lines.push('', '## 标签组合', '', d.tags || '');
+  if (d.translation) lines.push('', '## 中文对照', '', d.translation);
+  return lines.join('\n').trim();
+}
+
+// 细分结果也进历史，和完整提示词混排；恢复时按 kind 回到对应的界面
+function pushSegmentHistory() {
+  const d = S.segData || {};
+  const meta = S.segMeta || {};
+  S.history.unshift({
+    kind: 'segment',
+    sentence: meta.sentence || S.segSentence || '',
+    segmentType: meta.type || S.segType,
+    targetModel: meta.targetModel || '',
+    title: d.title || '细分标签',
+    tags: d.tags || '',
+    translation: d.translation || '',
+    keywords: d.keywords || [],
+    at: meta.at || Date.now(),
+  });
+  S.history = S.history.slice(0, 60);
+  saveHistory();
+}
+
 /* ============ 微调 ============ */
 const REFINE_CHIPS = [
   '更暗一点', '更亮一点', '改成竖构图', '改成横构图', '去掉人物',
@@ -1805,6 +2144,8 @@ function refreshCounter() {
   $('#counter').textContent = `${n} 字`;
   const cn = $('#charSentence').value.length;
   $('#charCounter').textContent = `${cn} 字`;
+  const sn = $('#segSentence').value.length;
+  $('#segCounter').textContent = `${sn} 字`;
 }
 
 function openDrawer() {
@@ -1893,6 +2234,45 @@ function bind() {
     }
   });
   $('#btnCharUndoRefine').addEventListener('click', undoCharRefine);
+
+  /* ---------- 细分提示词 ---------- */
+  $('#segSentence').addEventListener('input', refreshCounter);
+  $('#segSentence').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      generateSegment();
+    }
+  });
+  $('#btnSegGenerate').addEventListener('click', generateSegment);
+  $('#btnSegRegen').addEventListener('click', () => {
+    if (S.segSentence) {
+      $('#segSentence').value = S.segSentence;
+      refreshCounter();
+    }
+    generateSegment();
+  });
+  $('#btnSegClear').addEventListener('click', () => {
+    $('#segSentence').value = '';
+    $('#segExtra').value = '';
+    refreshCounter();
+    hideSegErr();
+    $('#segSentence').focus();
+  });
+  $('#btnSegCopyAll').addEventListener('click', (e) => {
+    copyText(S.segText || '', e.currentTarget);
+  });
+  $('#btnSegSave').addEventListener('click', () => {
+    const d = S.segData || {};
+    const meta = S.segMeta || {};
+    saveToLocal('segment', d.title || meta.sentence || S.segSentence || '细分提示词', segmentMarkdown(), {
+      sentence: meta.sentence || S.segSentence || '',
+      segmentType: meta.type || S.segType,
+      targetModel: meta.targetModel || '',
+      tags: d.tags || '',
+      translation: d.translation || '',
+      keywords: d.keywords || [],
+    }, $('#btnSegSave'));
+  });
 
   $('#btnClear').addEventListener('click', () => {
     $('#sentence').value = '';
@@ -1992,10 +2372,11 @@ function bind() {
   });
 
   document.addEventListener('keydown', (e) => {
-    // Ctrl/⌘ + 1 / 2 切页签
-    if ((e.ctrlKey || e.metaKey) && (e.key === '1' || e.key === '2')) {
+    // Ctrl/⌘ + 1 / 2 / 3 切页签
+    const views = { 1: 'prompt', 2: 'character', 3: 'segment' };
+    if ((e.ctrlKey || e.metaKey) && views[e.key]) {
       e.preventDefault();
-      switchView(e.key === '1' ? 'prompt' : 'character');
+      switchView(views[e.key]);
       return;
     }
     // Ctrl/⌘ + S：保存当前视图的结果
@@ -2004,6 +2385,9 @@ function bind() {
       if (S.view === 'character') {
         if (S.charData) $('#btnCharSave').click();
         else toast('还没有角色提示词可以保存', true);
+      } else if (S.view === 'segment') {
+        if (S.segData) $('#btnSegSave').click();
+        else toast('还没有标签可以保存', true);
       } else if (S.current) {
         $('#btnSavePrompt').click();
       } else {
@@ -2022,6 +2406,7 @@ function bind() {
     } else {
       if (S.busy && S.abort) S.abort.abort();
       if (S.charBusy && S.charAbort) S.charAbort.abort();
+      if (S.segBusy && S.segAbort) S.segAbort.abort();
     }
   });
 
@@ -2036,6 +2421,12 @@ function bind() {
     if (e.key === 'Enter') {
       e.preventDefault();
       generateCharacters();
+    }
+  });
+  $('#segExtra').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      generateSegment();
     }
   });
 

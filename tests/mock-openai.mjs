@@ -49,6 +49,14 @@ const CHAR_REFINED = {
     '晚上九点，三个街头乐手在地铁站出口的路灯下演出。手风琴手三十来岁，瘦长脸上有胡茬，圆框金属眼镜滑到鼻梁中间，米色粗针织开衫配着发白的深蓝T恤和灰色工装裤，闭着眼睛仰头拉动手风琴，那是一台边角掉漆的红色琴。旁边二十出头的女孩深棕色短发被汗黏在额角，左眉一枚银色眉钉，穿黑色背心、腰间系着过大的格纹衬衫，坐在倒扣的塑料桶上用木鼓槌敲击桶面，下巴微抬看向他。第三人鬓角发白，穿不合身的黑西装没打领带，侧身站着，小提琴架在肩上，琴弓还悬在半空。湿漉漉的水泥台阶上散落着琴盒和零钱，头顶暖黄的钠灯穿过细雨，身后店铺橱窗亮着，路人的影子被拉得很长，有行人停下围观。夜色深沉，地面积水映出灯光。中景，略低机位仰拍，35mm 镜头 f/2.8 浅景深，三分法构图，台阶形成斜向引导线。青橙调色，有体积光雾感，细节丰富、焦点锐利，8k，电影级布光，专业构图。',
 };
 
+// 细分标签（服饰）示例
+const SEG_SAMPLE = {
+  title: '黑蕾丝哥特长裙',
+  tags: 'black lace corset dress, sheer puff sleeves, tarnished silver buckles, layered velvet skirt, thigh-high leather boots, cameo choker, worn lace gloves, floor-length hem',
+  translation: '黑色蕾丝束身长裙配薄纱泡泡袖，裙摆是多层天鹅绒；银色搭扣有氧化痕迹，搭配过膝皮靴、浮雕颈链和磨损的蕾丝手套。',
+  keywords: ['黑蕾丝', '束身长裙', '银搭扣', '哥特'],
+};
+
 // 灵感接口返回的内容（一次 6 条）
 const MOCK_IDEAS = [
   '凌晨四点的便利店门口，一个值夜班的人蹲在台阶上吃关东煮',
@@ -76,6 +84,9 @@ function pickSample(payload) {
   const sys = String(messages[0]?.content || '');
   const user = String(messages[1]?.content || '');
   const pinned = extractApiPinned(sys);
+
+  // 细分标签：只按当前维度返回一组 tag
+  if (sys.includes('细分标签工程师')) return SEG_SAMPLE;
 
   // 角色提示词的微调（注意要排在角色设定之前，前者的系统提示词里也含「多角色同框」）
   if (sys.includes('角色提示词修改器')) {

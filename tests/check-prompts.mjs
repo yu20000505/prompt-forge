@@ -4,6 +4,8 @@ import {
   buildRefineMessages,
   buildIdeaMessages,
   buildCharacterMessages,
+  buildSegmentMessages,
+  SEGMENT_LIST,
 } from '../src/styles.mjs';
 
 let bad = 0;
@@ -30,12 +32,36 @@ check('角色设定的用户消息含原句', c[1].content.includes('三个流�
 check('角色设定含附加要求位', buildCharacterMessages({ sentence: 'x', extra: '全女性' })[1].content.includes('全女性'));
 check('画幅 auto 时不给硬约束', !buildCharacterMessages({ sentence: 'x' })[0].content.includes('必须是'));
 
+// ---------- 细分标签（只生成一个维度的 tag） ----------
+const seg = buildSegmentMessages({
+  sentence: '银发吸血鬼少女',
+  segmentType: 'character',
+  detail: 'rich',
+  targetModel: 'NovelAI V4',
+  extra: '不要配饰',
+  apiPinned: PIN,
+});
+const segSys = seg[0].content;
+check('细分标签要 tags 字段', segSys.includes('"tags"'));
+check('细分标签只要当前维度', segSys.includes('本次只写：人物形象') && segSys.includes('不写衣服'));
+check('细分标签禁止混入其它维度', segSys.includes('只写「人物形象」这一个维度'));
+check('细分标签要求逗号分隔', segSys.includes('逗号加空格分隔'));
+check('细分标签 rich 数量 20-32', segSys.includes('20-32'));
+check('细分标签带目标模型约束', segSys.includes('NovelAI V4'));
+check('细分标签用户消息含原句与附加要求',
+  seg[1].content.includes('银发吸血鬼少女') && seg[1].content.includes('不要配饰'));
+check('细分标签 7 种类型都能构造',
+  SEGMENT_LIST.length === 7 && SEGMENT_LIST.every((t) => buildSegmentMessages({
+    sentence: 'x', segmentType: t.id,
+  })[0].content.includes(t.label)));
+
 // ---------- 置顶提示词注入 ----------
 const gens = [
   ['generate', buildMessages({ sentence: '猫', style: 'sd', apiPinned: PIN })],
   ['refine', buildRefineMessages({ previous: { positive: 'a' }, instruction: 'b', apiPinned: PIN })],
   ['characters', c],
   ['idea', buildIdeaMessages({ apiPinned: PIN })],
+  ['segment', buildSegmentMessages({ sentence: '银发少女', segmentType: 'outfit', apiPinned: PIN })],
 ];
 for (const [name, msgs] of gens) {
   const sys = msgs[0].content;

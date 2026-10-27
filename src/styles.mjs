@@ -9,6 +9,17 @@ export const STYLE_LIST = [
   { id: 'natural', label: '自然语言', desc: 'Flux / DALL·E' },
 ];
 
+// 细分标签的类型。前端 app.js 里有一份同样的列表（靠 tests/check-prompts.mjs 约束）。
+export const SEGMENT_LIST = [
+  { id: 'outfit', label: '服饰穿搭', desc: '衣服 / 材质 / 配饰' },
+  { id: 'character', label: '人物形象', desc: '脸 / 发型 / 体型' },
+  { id: 'scene', label: '场景环境', desc: '地点 / 天气 / 背景' },
+  { id: 'pose', label: '动作表情', desc: '姿态 / 手势 / 神情' },
+  { id: 'props', label: '道具物件', desc: '手持 / 陈设 / 关键物' },
+  { id: 'lighting', label: '光影氛围', desc: '光线 / 色调 / 空气感' },
+  { id: 'style', label: '画风质感', desc: '媒介 / 镜头 / 画质' },
+];
+
 const RULES = `# 你的角色
 你是一位顶级的文生图提示词工程师（prompt engineer）。你写出来的提示词会被用户原样粘贴到 Stable Diffusion、NovelAI、Midjourney、Flux、DALL·E 等工具里直接出图，所以每一条都必须信息密度高、可直接使用。
 
@@ -321,5 +332,81 @@ export function buildRefineMessages(opts = {}) {
   return [
     { role: 'system', content: applyApiPinned(system, opts.apiPinned) },
     { role: 'user', content: blocks.join('\n') },
+  ];
+}
+
+/* ============ 细分标签：只生成服饰 / 人物 / 场景等某一个维度的 tag ============ */
+
+const SEGMENT_RULES = {
+  outfit: `- 覆盖上衣、下装、外套、裙装、鞋帽、袜子、手套、首饰、包袋等穿着与配饰。
+- 每个 tag 至少带出材质、颜色、版型、穿法或磨损痕迹中的一项。
+- 不要写脸、发型、身材、表情、动作、场景、光线、镜头。`,
+
+  character: `- 覆盖年龄感、脸型、五官、眼睛颜色、发型发色与发质、肤色、体型、身体特征（疤痕、胎记、纹身、义体等）。
+- 不写衣服、配饰、道具、动作、表情、场景、光线。
+- 例：sharp jawline, hooded violet eyes, ash-grey skin, long silver hair with side-swept bangs, lean muscular build。`,
+
+  scene: `- 覆盖地点、建筑结构、地形、天气、时间、地面与墙面材质、背景层次、环境痕迹。
+- 不写人物、服饰、动作、镜头、画质。
+- 例：abandoned gothic cathedral, collapsed stone arches, overgrown ivy, shallow puddles, thick morning fog。`,
+
+  pose: `- 覆盖身体朝向、站坐卧、四肢位置、手势、头部角度、表情、视线。
+- 不写外貌、发型、衣服、场景、光线、镜头。`,
+
+  props: `- 覆盖手持物、家具、陈设、关键道具；写清材质、颜色、新旧、位置。
+- 不写人物外貌、服饰、场景大环境、镜头。`,
+
+  lighting: `- 覆盖光源类型与方向、色温、明暗对比、体积光、反射、空气感。
+- 不写主体外貌、服饰、道具、构图。`,
+
+  style: `- 覆盖媒介（photo / illustration / 3d render）、渲染方式、镜头焦段、景深、胶片与颗粒、调色、画质词。
+- 不写具体主体、服饰、场景内容。`,
+};
+
+export function buildSegmentMessages(opts = {}) {
+  const typeId = SEGMENT_LIST.some((t) => t.id === opts.segmentType) ? opts.segmentType : 'outfit';
+  const info = SEGMENT_LIST.find((t) => t.id === typeId);
+  const detail = String(opts.detail || 'standard');
+  const countRule = detail === 'short' ? '8-12 个' : detail === 'rich' ? '20-32 个' : '12-20 个';
+  const target = String(opts.targetModel || '').trim();
+
+  const targetRule = target
+    ? `目标模型：${target}。按它的标签习惯写：NovelAI 优先 danbooru 小写标签；SD / SDXL / Flux 用描述性短语；Midjourney 也只用逗号短语，但不要写任何 -- 参数。`
+    : '目标模型：通用图像生成模型，用兼容性最好的英文描述性标签。';
+
+  const system = `# 你的角色
+你是文生图提示词的「细分标签工程师」。用户要的不是整条提示词，而是某一个维度的可复用 tag 组合，
+之后会自己把它拼进完整提示词里。所以你要写得精准、具体、可单独使用。
+
+# 本次只写：${info.label}
+${SEGMENT_RULES[typeId]}
+
+# 标签写法
+1. tags 必须是英文小写、逗号加空格分隔的原子短语（tag），不是整句；不要编号、引号、句号。
+2. 每个 tag 1-6 个英文词，必须具体到能被画出来；不要 beautiful / nice / cool 这类空词。
+3. 只写「${info.label}」这一个维度，不要混入其它维度。
+4. 不要输出权重语法、--ar 参数、负面词或解释性文字。
+5. 数量：${countRule}，宁可精准也不要凑数；不要重复或同义堆叠。
+6. 除非本次类型就是「画风质感」，否则不要加 masterpiece / best quality / 8k / highres 这类空泛画质词。
+${targetRule}
+
+# 输出格式（强制）
+只输出一个 JSON 对象。不要 markdown 代码块，不要前后缀解释文字，不要注释。
+
+{
+  "title": "中文短标题，不超过 12 个字",
+  "tags": "英文 tag，逗号加空格分隔",
+  "translation": "用中文说明这组标签具体描述了什么，2-3 句；不要逐词硬译",
+  "keywords": ["3-5 个中文关键词，概括这组标签的要素"]
+}`;
+
+  const userLines = [`用户的一句话描述：${String(opts.sentence || '').trim()}`];
+  const extra = String(opts.extra || '').trim();
+  if (extra) userLines.push(`用户的附加要求（优先满足）：${extra}`);
+  userLines.push('请只输出 JSON。');
+
+  return [
+    { role: 'system', content: applyApiPinned(system, opts.apiPinned) },
+    { role: 'user', content: userLines.join('\n') },
   ];
 }

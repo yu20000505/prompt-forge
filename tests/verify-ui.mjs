@@ -144,6 +144,9 @@ async function main() {
   // ---------- 1. 基础结构 ----------
   const chipCount = await evalJs(`document.querySelectorAll('#styleChips .chip').length`);
   check('风格 chip 渲染出 5 个', chipCount === 5, `实际 ${chipCount}`);
+  const tabLabels = await evalJs(`[...document.querySelectorAll('#mainTabs .tab')].map(t => t.textContent)`);
+  check('页签包含提示词 / 角色 / 细分三个模式',
+    tabLabels.length === 3 && tabLabels.some((t) => t.includes('细分提示词')), JSON.stringify(tabLabels));
 
   // ---------- 1.5 初始可见性（hidden 必须真的不可见） ----------
   check('初始状态：抽屉不可见', (await visible('#drawer')) === false);
@@ -668,6 +671,22 @@ async function main() {
   await sleep(300);
   check('Ctrl+2 切到角色设定视图', (await visible('#viewCharacter')) === true);
 
+  // Ctrl+3 切到新的细分提示词页
+  await evalJs(`document.dispatchEvent(new KeyboardEvent('keydown', {key:'3', ctrlKey:true, bubbles:true, cancelable:true})); true`);
+  await sleep(300);
+  check('Ctrl+3 切到细分提示词视图',
+    (await visible('#viewSegment')) === true
+      && (await visible('#viewPrompt')) === false
+      && (await visible('#viewCharacter')) === false);
+  const segTypeCount = await evalJs(`document.querySelectorAll('#segTypeChips .chip').length`);
+  check('细分页有 7 类标签可选', segTypeCount === 7, `实际 ${segTypeCount}`);
+  const segDefaultType = await evalJs(`document.querySelector('#segTypeChips .chip.active b').textContent`);
+  check('细分页默认选中服饰穿搭', segDefaultType === '服饰穿搭', segDefaultType);
+
+  // 切回角色视图，继续后面的角色生成
+  await evalJs(`document.querySelector('#mainTabs .tab[data-view="character"]').click(); true`);
+  await sleep(300);
+
   await evalJs(`(() => {
     const t = document.querySelector('#charSentence');
     t.value = '三个流浪乐手在地铁站出口表演，傍晚刚下过雨';
@@ -1119,7 +1138,127 @@ async function main() {
   check('灵感置顶开关能改回关闭', cfgBack.apiPinnedForIdea === false);
   check('保存置顶提示词不会动到 Key', cfgBack.hasKey === true);
 
-  // ---------- 12. 控制台错误 ----------
+  // ---------- 12. 细分提示词 ----------
+  await evalJs(`document.querySelector('#mainTabs .tab[data-view="segment"]').click(); true`);
+  await sleep(350);
+
+  await evalJs(`(() => {
+    const s = document.querySelector('#segSentence');
+    s.value = '银发吸血鬼贵族少女，穿黑色蕾丝长裙';
+    s.dispatchEvent(new Event('input', {bubbles:true}));
+    document.querySelector('#segTarget').value = 'SDXL';
+    document.querySelector('#segDetail').value = 'standard';
+    return true;
+  })()`);
+  const histBeforeSeg = Number(await evalJs(`document.querySelector('#historyCount').textContent`));
+  await evalJs(`document.querySelector('#btnSegGenerate').click(); true`);
+  let segDone = false;
+  for (let i = 0; i < 150; i++) {
+    segDone = await visible('#segCards');
+    if (segDone) break;
+    await sleep(200);
+  }
+  const segErr = await evalJs(`document.querySelector('#segErr').hidden ? '' : document.querySelector('#segErr').textContent`);
+  check('细分标签生成成功', segDone, segErr);
+
+  const segCardLabels = await evalJs(`[...document.querySelectorAll('#segCards .card-head span')].map(e => e.textContent)`);
+  check('细分结果有标签和中文对照两张卡',
+    segCardLabels.some((t) => t.includes('标签组合')) && segCardLabels.some((t) => t.includes('中文对照')),
+    JSON.stringify(segCardLabels));
+
+  const segBadgeTexts = await evalJs(`[...document.querySelectorAll('#segCards .badges .badge')].map(e => e.textContent)`);
+  check('细分结果标出类型与标签数',
+    segBadgeTexts.includes('服饰穿搭') && segBadgeTexts.some((t) => /个标签/.test(t)),
+    JSON.stringify(segBadgeTexts));
+
+  const segTags = await evalJs(`document.querySelectorAll('#segCards .card-body')[0].textContent`);
+  const segTagCount = segTags.split(/[,，]/).filter((s) => s.trim()).length;
+  check('标签组合是一串逗号分隔的 tag',
+    segTagCount >= 5 && !/[。；]/.test(segTags), `${segTagCount} 个 / ${segTags.slice(0, 50)}`);
+  check('细分标签不拼置顶词',
+    !segTags.includes('masterpiece') && !segTags.includes(PIN), segTags.slice(0, 40));
+
+  const segZh = await evalJs(`document.querySelectorAll('#segCards .card-body')[1].textContent`);
+  check('细分标签带中文对照', /[\u4e00-\u9fa5]/.test(segZh), segZh.slice(0, 40));
+
+  const histAfterSeg = Number(await evalJs(`document.querySelector('#historyCount').textContent`));
+  check('细分生成也进历史', histAfterSeg === histBeforeSeg + 1, `${histBeforeSeg} -> ${histAfterSeg}`);
+
+  // 从历史恢复细分结果
+  await evalJs(`document.querySelector('#btnHistory').click(); true`);
+  await sleep(400);
+  await evalJs(`document.querySelector('#historyList .hist-item').click(); true`);
+  await sleep(450);
+  check('从历史恢复细分结果回到细分页',
+    (await visible('#viewSegment')) === true && (await visible('#segCards')) === true
+      && (await evalJs(`document.querySelectorAll('#segCards .card-body')[0].textContent`)) === segTags);
+
+  // 保存到保存库
+  await evalJs(`document.querySelector('#btnSegSave').click(); true`);
+  await sleep(1100);
+  const segFile = savedFiles().find((f) => f.includes('_细分提示词_')) || '';
+  check('细分结果保存成 md 文件', !!segFile, segFile);
+  check('细分文件名带类型与标题', /^\d{8}-\d{6}_细分提示词_/.test(segFile), segFile);
+  const segSaved = readSaved(segFile);
+  check('保存文件包含标签组合和中文对照',
+    segSaved.includes('## 标签组合') && segSaved.includes('## 中文对照'), '');
+  check('保存文件元数据是 segment 类型', segSaved.includes('"kind":"segment"'), '');
+
+  // 保存库识别与载入
+  await evalJs(`document.querySelector('#btnLibrary').click(); true`);
+  await sleep(900);
+  const segLibItem = await evalJs(`(() => {
+    const it = [...document.querySelectorAll('#libList .lib-item')]
+      .find((x) => x.querySelector('.lib-kind')?.textContent === '细分提示词');
+    if (!it) return null;
+    return {
+      kind: it.querySelector('.lib-kind').textContent,
+      title: it.querySelector('.lib-title').textContent,
+      cls: it.querySelector('.lib-kind').className,
+    };
+  })()`);
+  check('保存库把细分结果单独归类',
+    !!segLibItem && segLibItem.kind === '细分提示词' && /segment/.test(segLibItem.cls),
+    JSON.stringify(segLibItem));
+
+  await evalJs(`(() => {
+    const it = [...document.querySelectorAll('#libList .lib-item')]
+      .find((x) => x.querySelector('.lib-kind')?.textContent === '细分提示词');
+    [...it.querySelectorAll('.lib-actions .btn')].find((b) => b.textContent === '载入').click();
+    return true;
+  })()`);
+  await sleep(900);
+  check('载入细分结果回到细分页并渲染标签',
+    (await visible('#viewSegment')) === true
+      && (await evalJs(`document.querySelectorAll('#segCards .card-body')[0].textContent`)) === segTags);
+
+  // 重命名不能把类型丢掉
+  await evalJs(`document.querySelector('#btnLibrary').click(); true`);
+  await sleep(800);
+  await evalJs(`(() => {
+    const it = [...document.querySelectorAll('#libList .lib-item')]
+      .find((x) => x.querySelector('.lib-kind')?.textContent === '细分提示词');
+    [...it.querySelectorAll('.lib-actions .btn')].find((b) => b.textContent === '重命名').click();
+    return true;
+  })()`);
+  await sleep(350);
+  await evalJs(`(() => {
+    const i = document.querySelector('#libList .lib-rename');
+    i.value = '改过名的细分条目';
+    i.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true, cancelable:true}));
+    return true;
+  })()`);
+  await sleep(1400);
+  const segRenamed = savedFiles().find((f) => f.includes('_细分提示词_改过名的细分条目.md')) || '';
+  check('细分条目重命名后保留类型', !!segRenamed, savedFiles().join(' | '));
+  await evalJs(`document.querySelector('#btnLibClose').click(); true`);
+  await sleep(250);
+
+  // 回到提示词页，后面的通用检查不依赖当前页
+  await evalJs(`document.querySelector('#mainTabs .tab[data-view="prompt"]').click(); true`);
+  await sleep(300);
+
+  // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------
   // 先验一下错误栏的「重试」按钮
   await evalJs(`showErr('这是一条测试错误', () => {}); true`);

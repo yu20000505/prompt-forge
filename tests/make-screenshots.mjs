@@ -161,7 +161,21 @@ async function main() {
   await sleep(600);
   await shoot('02-character.png');
 
-  // 3) 皮肤面板
+  // 3) 细分提示词
+  await js(`document.querySelector('#mainTabs .tab[data-view="segment"]').click(); true`);
+  await sleep(400);
+  await js(`(() => {
+    const s = document.querySelector('#segSentence');
+    s.value = '银发吸血鬼贵族少女，穿黑色蕾丝长裙';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#btnSegGenerate').click();
+    return true;
+  })()`);
+  if (!(await waitVisible('#segCards'))) throw new Error('细分标签没出现');
+  await sleep(600);
+  await shoot('05-segment.png');
+
+  // 4) 皮肤面板
   await js(`document.querySelector('#mainTabs .tab[data-view="prompt"]').click(); true`);
   await sleep(300);
   await js(`document.querySelector('#btnTheme').click(); true`);
@@ -170,7 +184,7 @@ async function main() {
   await js(`document.querySelector('#btnTheme').click(); true`);
   await sleep(200);
 
-  // 4) 设置弹窗
+  // 5) 设置弹窗
   await js(`document.querySelector('#btnSettings').click(); true`);
   await sleep(600);
   await shoot('04-settings.png');

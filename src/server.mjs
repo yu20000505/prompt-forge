@@ -11,6 +11,8 @@ import {
   buildIdeaMessages,
   buildCharacterMessages,
   buildCharacterRefineMessages,
+  buildSegmentMessages,
+  SEGMENT_LIST,
 } from './styles.mjs';
 
 // 打包成 exe（Node SEA）后，资源和配置都跟着 exe 走；
@@ -526,6 +528,30 @@ async function handleCharacterRefine(req, res) {
   return proxyChatStream(req, res, { ...ctx, messages, maxTokens: 2600 });
 }
 
+// 细分标签：只生成服饰 / 人物 / 场景等某一个维度的 tag 组合
+async function handleSegment(req, res) {
+  const ctx = await resolveUpstream(req, res);
+  if (!ctx) return;
+
+  const sentence = String(ctx.body.sentence || '').trim();
+  if (!sentence) return json(res, 400, { error: '请先输入一句话描述' });
+
+  const segmentType = SEGMENT_LIST.some((t) => t.id === ctx.body.segmentType)
+    ? ctx.body.segmentType
+    : 'outfit';
+
+  const messages = buildSegmentMessages({
+    sentence,
+    segmentType,
+    targetModel: ctx.body.targetModel,
+    detail: ctx.body.detail,
+    extra: ctx.body.extra,
+    apiPinned: ctx.apiPinned,
+  });
+
+  return proxyChatStream(req, res, { ...ctx, messages, maxTokens: 1800 });
+}
+
 // ---------- 保存到本地 ----------
 function stampNow(d = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
@@ -642,7 +668,10 @@ async function readSavedEntry(name, opts = {}) {
 
   const h1 = (body.match(/^#\s+(.+)$/m) || [])[1] || '';
   const title = String(meta.title || h1 || name.replace(/\.md$/, '')).trim();
-  const kind = meta.kind === 'character' ? '角色设定' : (body.includes('## 英文提示词') ? '角色设定' : '提示词');
+  const kind = meta.kind === 'character' ? '角色设定'
+    : meta.kind === 'segment' ? '细分提示词'
+      : (body.includes('## 英文提示词') ? '角色设定'
+        : (body.includes('## 标签组合') ? '细分提示词' : '提示词'));
 
   // 没有元数据时，从 Markdown 小节里把内容捡回来，这样手写的文件也能载入
   const sec = sectionsOf(body);
@@ -651,16 +680,20 @@ async function readSavedEntry(name, opts = {}) {
   if (!meta.translation && sec['画面解读']) meta.translation = sec['画面解读'];
   if (!meta.prompt_en && sec['英文提示词']) meta.prompt_en = sec['英文提示词'];
   if (!meta.prompt_zh && sec['中文对照']) meta.prompt_zh = sec['中文对照'];
+  if (!meta.tags && sec['标签组合']) meta.tags = sec['标签组合'];
+  if (kind === '细分提示词' && !meta.translation && sec['中文对照']) meta.translation = sec['中文对照'];
 
   const summarySource = kind === '角色设定'
     ? (meta.prompt_en || (body.split('## 英文提示词')[1] || ''))
-    : (meta.positive || (body.split('## 正向提示词')[1] || ''));
+    : kind === '细分提示词'
+      ? (meta.tags || (body.split('## 标签组合')[1] || ''))
+      : (meta.positive || (body.split('## 正向提示词')[1] || ''));
   const summary = String(summarySource).split(/\n##/)[0].replace(/\s+/g, ' ').trim().slice(0, 110);
 
   // 列表接口不需要完整正文，省点带宽
   const outMeta = { ...meta };
   if (opts.light) {
-    for (const k of ['positive', 'negative', 'translation', 'prompt_en', 'prompt_zh']) delete outMeta[k];
+    for (const k of ['positive', 'negative', 'translation', 'prompt_en', 'prompt_zh', 'tags']) delete outMeta[k];
   }
 
   return {
@@ -682,8 +715,10 @@ async function handleSave(req, res) {
     return json(res, 400, { error: '请求格式错误' });
   }
 
-  const kindKey = body.kind === 'character' ? 'character' : 'prompt';
-  const kindLabel = kindKey === 'character' ? '角色设定' : '提示词';
+  const kindKey = body.kind === 'character' ? 'character'
+    : body.kind === 'segment' ? 'segment' : 'prompt';
+  const kindLabel = kindKey === 'character' ? '角色设定'
+    : kindKey === 'segment' ? '细分提示词' : '提示词';
   const title = String(body.title || '').trim() || '未命名';
   const content = String(body.content || '').trim();
   if (!content) return json(res, 400, { error: '没有可保存的内容' });
@@ -764,7 +799,8 @@ async function handleRenameSaved(req, res) {
 
     // 文件名结构是 时间戳_类型_标题.md，重命名时保留前半段
     const stamp = (oldName.match(/^(\d{8}-\d{6})_/) || [])[1] || stampNow();
-    const kindLabel = oldName.includes('_角色设定_') ? '角色设定' : '提示词';
+    const kindLabel = oldName.includes('_角色设定_') ? '角色设定'
+      : oldName.includes('_细分提示词_') ? '细分提示词' : '提示词';
     const base = `${stamp}_${kindLabel}_${safeName(newTitle)}`;
 
     let target = path.join(SAVED_DIR, `${base}.md`);
@@ -960,6 +996,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/idea' && req.method === 'POST') return await handleIdea(req, res);
     if (pathname === '/api/characters' && req.method === 'POST') return await handleCharacters(req, res);
     if (pathname === '/api/characters/refine' && req.method === 'POST') return await handleCharacterRefine(req, res);
+    if (pathname === '/api/segment' && req.method === 'POST') return await handleSegment(req, res);
     if (pathname === '/api/models' && req.method === 'GET') return await handleModels(req, res);
     if (pathname === '/api/save' && req.method === 'POST') return await handleSave(req, res);
     if (pathname === '/api/saved' && req.method === 'GET') return await handleListSaved(req, res);
