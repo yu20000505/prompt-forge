@@ -822,6 +822,16 @@ async function main() {
   check('类型标签区分提示词与角色设定',
     libKinds.includes('提示词') && libKinds.includes('角色设定'), JSON.stringify(libKinds));
 
+  const libGroups = await evalJs(`[...document.querySelectorAll('#libList .lib-group')].map(g => ({
+    kind: g.dataset.kind,
+    count: g.querySelectorAll('.lib-item').length,
+  }))`);
+  check('保存库按大分类分组',
+    libGroups.length === 2
+      && libGroups[0].kind === '提示词' && libGroups[1].kind === '角色设定'
+      && libGroups[0].count + libGroups[1].count === libItems,
+    JSON.stringify(libGroups));
+
   const libTitles = await evalJs(`[...document.querySelectorAll('#libList .lib-title')].map(e=>e.textContent)`);
   check('每条都显示名称', libTitles.every((t) => t && t.length > 1), JSON.stringify(libTitles));
 
@@ -871,6 +881,9 @@ async function main() {
   await sleep(400);
   const libFiltered = await evalJs(`document.querySelectorAll('#libList .lib-item').length`);
   check('搜索能过滤列表', libFiltered >= 1 && libFiltered < libItems, `${libItems} -> ${libFiltered}`);
+  const filteredGroups = await evalJs(`[...document.querySelectorAll('#libList .lib-group')].map(g => g.dataset.kind)`);
+  check('搜索时只显示命中的分类',
+    filteredGroups.length === 1 && filteredGroups[0] === '角色设定', JSON.stringify(filteredGroups));
 
   // 清空搜索
   await evalJs(`(() => {
@@ -902,10 +915,15 @@ async function main() {
   await evalJs(`document.querySelector('#btnLibrary').click(); true`);
   await sleep(900);
   const filesBeforeRename = savedFiles().length;
-  const nameBefore = await evalJs(`document.querySelector('#libList .lib-title').textContent`);
+  const nameBefore = await evalJs(`(() => {
+    const it = [...document.querySelectorAll('#libList .lib-item')]
+      .find((el) => el.querySelector('.lib-kind').textContent === '角色设定');
+    return it ? it.querySelector('.lib-title').textContent : '';
+  })()`);
   await evalJs(`(() => {
-    const items = [...document.querySelectorAll('#libList .lib-item')];
-    [...items[0].querySelectorAll('.lib-actions .btn')].find((b) => b.textContent === '重命名').click();
+    const it = [...document.querySelectorAll('#libList .lib-item')]
+      .find((el) => el.querySelector('.lib-kind').textContent === '角色设定');
+    [...it.querySelectorAll('.lib-actions .btn')].find((b) => b.textContent === '重命名').click();
     return true;
   })()`);
   await sleep(500);
@@ -925,13 +943,18 @@ async function main() {
   check('取消后退出编辑态',
     (await evalJs(`document.querySelectorAll('#libList .lib-rename').length`)) === 0);
   check('取消后名称没变',
-    (await evalJs(`document.querySelector('#libList .lib-title').textContent`)) === nameBefore);
+    (await evalJs(`(() => {
+      const it = [...document.querySelectorAll('#libList .lib-item')]
+        .find((el) => el.querySelector('.lib-kind').textContent === '角色设定');
+      return it ? it.querySelector('.lib-title').textContent : '';
+    })()`)) === nameBefore);
 
   // 正式改名
   const NEW_NAME = '改过名的测试条目';
   await evalJs(`(() => {
-    const items = [...document.querySelectorAll('#libList .lib-item')];
-    [...items[0].querySelectorAll('.lib-actions .btn')].find((b) => b.textContent === '重命名').click();
+    const it = [...document.querySelectorAll('#libList .lib-item')]
+      .find((el) => el.querySelector('.lib-kind').textContent === '角色设定');
+    [...it.querySelectorAll('.lib-actions .btn')].find((b) => b.textContent === '重命名').click();
     return true;
   })()`);
   await sleep(400);
@@ -1220,6 +1243,16 @@ async function main() {
   check('保存库把细分结果单独归类',
     !!segLibItem && segLibItem.kind === '细分提示词' && /segment/.test(segLibItem.cls),
     JSON.stringify(segLibItem));
+
+  const segGroups = await evalJs(`[...document.querySelectorAll('#libList .lib-group')].map(g => ({
+    kind: g.dataset.kind,
+    count: g.querySelectorAll('.lib-item').length,
+  }))`);
+  check('细分结果进入第三个分类',
+    segGroups.length === 3
+      && segGroups.map((g) => g.kind).join('/') === '提示词/角色设定/细分提示词'
+      && segGroups[2].count === 1,
+    JSON.stringify(segGroups));
 
   await evalJs(`(() => {
     const it = [...document.querySelectorAll('#libList .lib-item')]

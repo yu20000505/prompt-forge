@@ -1611,6 +1611,51 @@ select {
   padding: 7px 10px;
 }
 
+/* 保存库按三个大分类分组 */
+.lib-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lib-group+.lib-group {
+  margin-top: 10px;
+}
+
+.lib-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.lib-group-title {
+  display: flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  color: var(--text-2);
+}
+
+.lib-group-title::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 7px;
+  background: var(--accent);
+}
+
+.lib-group[data-kind="角色设定"] .lib-group-title::before {
+  background: var(--warn);
+}
+
+.lib-group[data-kind="细分提示词"] .lib-group-title::before {
+  background: var(--ok);
+}
+
 .lib-item {
   border: 1px solid var(--line);
   border-radius: 10px;

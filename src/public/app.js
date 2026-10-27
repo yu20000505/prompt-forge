@@ -812,7 +812,7 @@ function renderLibrary() {
   const haystack = (it) => `${it.title} ${it.summary} ${it.kind} ${it.name}`.toLowerCase();
   const list = q ? all.filter((it) => haystack(it).includes(q)) : all;
 
-  $('#libCount').textContent = all.length ? `${all.length} 条` : '';
+  $('#libCount').textContent = all.length ? (q ? `${list.length} / ${all.length} 条` : `${all.length} 条`) : '';
   box.innerHTML = '';
 
   if (!list.length) {
@@ -826,7 +826,35 @@ function renderLibrary() {
     return;
   }
 
-  for (const it of list) box.appendChild(libraryItemEl(it));
+  // 三个大分类固定顺序；未知类型（以后新增的）排在最后，不丢内容
+  const groups = new Map([['提示词', []], ['角色设定', []], ['细分提示词', []]]);
+  for (const it of list) {
+    if (!groups.has(it.kind)) groups.set(it.kind, []);
+    groups.get(it.kind).push(it);
+  }
+
+  for (const [kind, items] of groups) {
+    if (!items.length) continue;
+
+    const section = document.createElement('section');
+    section.className = 'lib-group';
+    section.dataset.kind = kind;
+
+    const head = document.createElement('div');
+    head.className = 'lib-group-head';
+    const name = document.createElement('span');
+    name.className = 'lib-group-title';
+    name.textContent = kind;
+    const count = document.createElement('span');
+    count.className = 'dim small';
+    count.textContent = `${items.length} 条`;
+    head.appendChild(name);
+    head.appendChild(count);
+    section.appendChild(head);
+
+    for (const it of items) section.appendChild(libraryItemEl(it));
+    box.appendChild(section);
+  }
 }
 
 function libraryItemEl(it) {
