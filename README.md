@@ -92,6 +92,21 @@ npm run build:desktop   # → release-desktop/PromptForge-Desktop.exe （Electro
 - `build:desktop`：除上面的服务端 bundle 外，还会打一个 Electron 主进程，
   在进程内起服务并开原生窗口。
 
+### 代码签名（可选）
+
+发布产物默认未签名，Windows 可能提示「未知发布者」。有自己的 Authenticode 证书时：
+
+```powershell
+npm run build:all
+$env:PF_SIGN_PFX = 'C:\certs\prompt-forge.pfx'
+$env:PF_SIGN_PASSWORD = '...'
+npm run sign
+```
+
+CI 里配置 `WINDOWS_PFX_BASE64` 和 `WINDOWS_PFX_PASSWORD` 两个 Secret，打 `v*` 标签时会自动签名；
+未配置则跳过。详细步骤、时间戳和硬件令牌用法见 [docs/SIGNING.md](docs/SIGNING.md)。
+自签名证书不能消除提示。
+
 ## 测试
 
 ```bash

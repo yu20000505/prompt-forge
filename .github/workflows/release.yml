@@ -32,6 +32,34 @@ jobs:
       - name: Build desktop app (Electron)
         run: node build/build-desktop.mjs
 
+      # 仓库里配置了签名证书就自动签名；没配置就跳过，产物仍可正常使用
+      - name: Check signing certificate
+        id: signcheck
+        shell: pwsh
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+        run: |
+          if ($env:WINDOWS_PFX_BASE64) {
+            "enabled=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "enabled=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Sign binaries (optional)
+        if: steps.signcheck.outputs.enabled == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'promptforge-sign.pfx'
+          [System.IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
+          try {
+            node build/sign.mjs --pfx $pfx --password $env:WINDOWS_PFX_PASSWORD release/PromptForge.exe release-desktop/PromptForge-Desktop.exe
+          } finally {
+            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -57,7 +85,7 @@ jobs:
             | `PromptForge-Desktop.exe` | **推荐**。独立窗口的桌面版，不开浏览器、没有命令行窗口。 |
             | `PromptForge.exe` | 单文件命令行版，启动后自动用系统浏览器打开。 |
 
-            两个都不需要安装 Node.js。exe 未签名，首次运行 Windows 可能提示「未知发布者」，
-            点「更多信息 → 仍要运行」即可。
+            两个都不需要安装 Node.js。发布产物默认未签名；维护者配置证书后会自动签名。
+            若 Windows 提示「未知发布者」，点「更多信息 → 仍要运行」即可。
 
             数据保存在 `%APPDATA%\PromptForge`（`config.json`、`saved/`）。

@@ -103,6 +103,23 @@ flips the SEA fuse.
 `build:desktop` bundles the same server, copies the frontend, and ships an Electron main process
 that boots the server in-process and opens a native window.
 
+### Code signing (optional)
+
+Release binaries are unsigned by default, so Windows may show an unknown-publisher warning.
+With your own Authenticode certificate:
+
+```powershell
+npm run build:all
+$env:PF_SIGN_PFX = 'C:\certs\prompt-forge.pfx'
+$env:PF_SIGN_PASSWORD = '...'
+npm run sign
+```
+
+In CI, set the `WINDOWS_PFX_BASE64` and `WINDOWS_PFX_PASSWORD` repository secrets and `v*` tags
+will be signed automatically; without them the step is skipped. See
+[docs/SIGNING.md](docs/SIGNING.md) for timestamp servers, hardware tokens and verification.
+Self-signed certificates do not remove the warning.
+
 ## Tests
 
 ```bash

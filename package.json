@@ -26,6 +26,7 @@
     "test:contrast": "node tests/check-contrast-dom.mjs",
     "build:exe": "node build/build-exe.mjs",
     "build:desktop": "node build/build-desktop.mjs",
-    "build:all": "node build/build-exe.mjs && node build/build-desktop.mjs"
+    "build:all": "node build/build-exe.mjs && node build/build-desktop.mjs",
+    "sign": "node build/sign.mjs"
   }
 }
