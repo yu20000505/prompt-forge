@@ -915,6 +915,16 @@ function renderLibrary() {
   }
 }
 
+// 保存库的「复制」只给能直接出图的英文内容，不把中文对照一起塞进剪贴板。
+// kind 用列表项的判定结果，手写文件没有 meta.kind 时也能正确按类型取内容。
+function savedCopyText(loaded, fallback, kind) {
+  const meta = loaded && loaded.meta && typeof loaded.meta === 'object' ? loaded.meta : {};
+  const k = kind || (meta.kind === 'character' ? '角色设定' : meta.kind === 'segment' ? '细分提示词' : '提示词');
+  if (k === '角色设定') return meta.prompt_en || fallback || '';
+  if (k === '细分提示词') return meta.tags || fallback || '';
+  return [meta.positive, meta.negative].filter(Boolean).join('\n\n') || fallback || '';
+}
+
 function libraryItemEl(it) {
   const editing = S.libEditing === it.name;
   const wrap = document.createElement('div');
@@ -990,19 +1000,13 @@ function libraryItemEl(it) {
     mkBtn('取消', () => cancelRename(), 'ghost');
   } else {
     mkBtn('载入', () => openSavedEntry(it), 'primary');
-    mkBtn('复制', async (b) => {
+    const copyBtn = mkBtn('复制', async (b) => {
       const loaded = await fetchSavedMeta(it);
       if (!loaded) return;
-      let text;
-      if (loaded.meta?.kind === 'character') {
-        text = [loaded.meta.prompt_en, loaded.meta.prompt_zh].filter(Boolean).join('\n\n');
-      } else if (loaded.meta?.kind === 'segment') {
-        text = loaded.meta.tags || it.summary;
-      } else {
-        text = [loaded.meta?.positive, loaded.meta?.negative].filter(Boolean).join('\n\n');
-      }
-      copyText(text || it.summary, b);
+      const text = savedCopyText(loaded, it.summary, it.kind);
+      copyText(text, b);
     });
+    copyBtn.title = '复制英文内容（角色设定只复制英文提示词）';
     mkBtn('重命名', () => {
       S.libEditing = it.name;
       renderLibrary();
@@ -1569,7 +1573,8 @@ function renderCharacters(d) {
   wrap.appendChild(promptCard('中文对照', d.zh, false));
 
   S.charData = d;
-  S.charText = [d.en, d.zh].filter(Boolean).join('\n\n');
+  // 「复制英文」按钮只给英文提示词；中文对照在单独的卡片里
+  S.charText = d.en || '';
   $('#charRefineBar').hidden = false;
   updateCharRefineUi();
 }

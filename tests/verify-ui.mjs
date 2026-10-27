@@ -738,6 +738,9 @@ async function main() {
 
   check('复制英文按钮已启用',
     (await evalJs(`document.querySelector('#btnCharCopyAll').disabled`)) === false);
+  const charCopyText = await evalJs(`S.charText`);
+  check('角色页的复制英文只含英文',
+    charCopyText.length > 50 && !/[\u4e00-\u9fa5]/.test(charCopyText), charCopyText.slice(0, 40));
   check('每张卡都有自己的复制按钮',
     (await evalJs(`document.querySelectorAll('#charCards .card-head .copy').length`)) === 2);
 
@@ -842,6 +845,15 @@ async function main() {
       && libGroups[0].kind === '提示词' && libGroups[1].kind === '角色设定'
       && libGroups[0].count + libGroups[1].count === libItems,
     JSON.stringify(libGroups));
+
+  // 保存库的「复制」只给英文，不把中文对照拼进去
+  const charLibCopy = await evalJs(`savedCopyText({ meta: { kind: 'character', prompt_en: 'english only', prompt_zh: '中文对照' } }, 'fallback')`);
+  check('保存库复制角色设定只给英文', charLibCopy === 'english only', JSON.stringify(charLibCopy));
+  const promptLibCopy = await evalJs(`savedCopyText({ meta: { kind: 'prompt', positive: 'a cat', negative: 'lowres', translation: '一只猫' } }, 'fallback')`);
+  check('保存库复制提示词不带中文解读',
+    promptLibCopy === ['a cat', 'lowres'].join(String.fromCharCode(10, 10)), JSON.stringify(promptLibCopy));
+  const segLibCopy = await evalJs(`savedCopyText({ meta: { kind: 'segment', tags: 'black lace dress, silver buckles' } }, 'fallback')`);
+  check('保存库复制细分标签只给标签', segLibCopy === 'black lace dress, silver buckles', JSON.stringify(segLibCopy));
 
   // 分类标题可点击收起 / 展开
   const promptGroupSel = '#libList .lib-group[data-kind="提示词"]';
