@@ -804,6 +804,29 @@ async function loadLibrary() {
   }
 }
 
+// 保存库分类的收起状态记在 localStorage，下次打开还保持
+const LIB_COLLAPSE_KEY = 'pf-lib-collapsed';
+
+function readCollapsedGroups() {
+  try {
+    const v = JSON.parse(localStorage.getItem(LIB_COLLAPSE_KEY) || '[]');
+    return new Set(Array.isArray(v) ? v : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeCollapsedGroup(kind, collapsed) {
+  const set = readCollapsedGroups();
+  if (collapsed) set.add(kind);
+  else set.delete(kind);
+  try {
+    localStorage.setItem(LIB_COLLAPSE_KEY, JSON.stringify([...set]));
+  } catch {
+    /* 存不下就只在本次生效 */
+  }
+}
+
 function renderLibrary() {
   const box = $('#libList');
   const q = $('#libFilter').value.trim().toLowerCase();
@@ -832,27 +855,55 @@ function renderLibrary() {
     if (!groups.has(it.kind)) groups.set(it.kind, []);
     groups.get(it.kind).push(it);
   }
+  const collapsed = readCollapsedGroups();
 
   for (const [kind, items] of groups) {
     if (!items.length) continue;
 
+    const isCollapsed = collapsed.has(kind);
     const section = document.createElement('section');
-    section.className = 'lib-group';
+    section.className = 'lib-group' + (isCollapsed ? ' collapsed' : '');
     section.dataset.kind = kind;
 
-    const head = document.createElement('div');
+    // 标题本身是按钮：鼠标点、键盘 Enter / Space 都能收起展开
+    const head = document.createElement('button');
+    head.type = 'button';
     head.className = 'lib-group-head';
+    head.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+    head.title = isCollapsed ? `展开「${kind}」` : `收起「${kind}」`;
+
     const name = document.createElement('span');
     name.className = 'lib-group-title';
     name.textContent = kind;
+
     const count = document.createElement('span');
     count.className = 'dim small';
     count.textContent = `${items.length} 条`;
+
+    const caret = document.createElement('span');
+    caret.className = 'lib-group-caret';
+    caret.textContent = '▾';
+
     head.appendChild(name);
     head.appendChild(count);
+    head.appendChild(caret);
+    head.addEventListener('click', () => {
+      // 直接改 DOM，不整块重渲染，避免长列表收起时滚动位置跳回顶部
+      const nowCollapsed = !section.classList.contains('collapsed');
+      section.classList.toggle('collapsed', nowCollapsed);
+      groupBody.hidden = nowCollapsed;
+      head.setAttribute('aria-expanded', nowCollapsed ? 'false' : 'true');
+      head.title = nowCollapsed ? `展开「${kind}」` : `收起「${kind}」`;
+      writeCollapsedGroup(kind, nowCollapsed);
+    });
     section.appendChild(head);
 
-    for (const it of items) section.appendChild(libraryItemEl(it));
+    const groupBody = document.createElement('div');
+    groupBody.className = 'lib-group-body';
+    groupBody.hidden = isCollapsed;
+    for (const it of items) groupBody.appendChild(libraryItemEl(it));
+    section.appendChild(groupBody);
+
     box.appendChild(section);
   }
 }

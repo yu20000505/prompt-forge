@@ -812,6 +812,7 @@ async function main() {
   const libBtnCount = await evalJs(`document.querySelector('#libBtnCount').textContent`);
   check('底部保存库计数已更新', Number(libBtnCount) >= 2, `count=${libBtnCount}`);
 
+  await evalJs(`localStorage.removeItem('pf-lib-collapsed'); true`);
   await evalJs(`document.querySelector('#btnLibrary').click(); true`);
   await sleep(900);
   check('保存库能打开', (await visible('#libDrawer')) === true);
@@ -831,6 +832,26 @@ async function main() {
       && libGroups[0].kind === '提示词' && libGroups[1].kind === '角色设定'
       && libGroups[0].count + libGroups[1].count === libItems,
     JSON.stringify(libGroups));
+
+  // 分类标题可点击收起 / 展开
+  const promptGroupSel = '#libList .lib-group[data-kind="提示词"]';
+  const promptHeadSel = `${promptGroupSel} .lib-group-head`;
+  const promptItemSel = `${promptGroupSel} .lib-item`;
+  check('分类默认展开',
+    (await evalJs(`document.querySelector(${JSON.stringify(promptHeadSel)}).getAttribute('aria-expanded')`)) === 'true');
+  await evalJs(`document.querySelector(${JSON.stringify(promptHeadSel)}).click(); true`);
+  await sleep(300);
+  check('点分类标题能收起',
+    (await evalJs(`document.querySelector(${JSON.stringify(promptGroupSel)}).classList.contains('collapsed')`)) === true
+      && (await evalJs(`document.querySelector(${JSON.stringify(promptHeadSel)}).getAttribute('aria-expanded')`)) === 'false'
+      && (await visible(promptItemSel)) === false);
+  const libCollapseState = await evalJs(`localStorage.getItem('pf-lib-collapsed')`);
+  check('收起状态已记住', /提示词/.test(libCollapseState || ''), libCollapseState);
+  await evalJs(`document.querySelector(${JSON.stringify(promptHeadSel)}).click(); true`);
+  await sleep(300);
+  check('再点一次能展开',
+    (await visible(promptItemSel)) === true
+      && (await evalJs(`document.querySelector(${JSON.stringify(promptHeadSel)}).getAttribute('aria-expanded')`)) === 'true');
 
   const libTitles = await evalJs(`[...document.querySelectorAll('#libList .lib-title')].map(e=>e.textContent)`);
   check('每条都显示名称', libTitles.every((t) => t && t.length > 1), JSON.stringify(libTitles));

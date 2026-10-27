@@ -1611,7 +1611,7 @@ select {
   padding: 7px 10px;
 }
 
-/* 保存库按三个大分类分组 */
+/* 保存库按三个大分类分组，标题可点开/收起 */
 .lib-group {
   display: flex;
   flex-direction: column;
@@ -1623,11 +1623,33 @@ select {
 }
 
 .lib-group-head {
+  width: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 2px 6px;
+  gap: 8px;
+  padding: 3px 2px 6px;
+  border: 0;
   border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lib-group-head:hover .lib-group-title {
+  color: var(--text);
+}
+
+.lib-group-head:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), .5);
+  outline-offset: 2px;
+}
+
+.lib-group-head .dim {
+  margin-left: auto;
+  font-size: 10.5px;
 }
 
 .lib-group-title {
@@ -1646,6 +1668,22 @@ select {
   border-radius: 50%;
   margin-right: 7px;
   background: var(--accent);
+}
+
+.lib-group-caret {
+  font-size: 10px;
+  color: var(--dim);
+  transition: transform .16s;
+}
+
+.lib-group.collapsed .lib-group-caret {
+  transform: rotate(-90deg);
+}
+
+.lib-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .lib-group[data-kind="角色设定"] .lib-group-title::before {
