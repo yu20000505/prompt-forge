@@ -1,149 +1,138 @@
 # Prompt Forge
 
-**One sentence in. A production-ready image prompt out.**
+**一句话进，可出图的提示词出来。**
 
-Prompt Forge is a local-first desktop tool that turns a single plain-language sentence into
-prompts you can paste straight into Stable Diffusion, NovelAI, Midjourney, Flux or DALL·E —
-including character sheets with an English prompt and a Chinese translation side by side.
+Prompt Forge 是一个纯本地的小工具：写一句中文，它帮你调大模型生成
+Stable Diffusion / NovelAI / Midjourney / Flux / DALL·E 能直接用的提示词，
+还能产出「英文提示词 + 中文对照」的角色设定。
 
-No accounts, no telemetry, no cloud sync. It talks directly to whatever
-**OpenAI-compatible API** you configure, and your key never leaves your machine.
+不需要注册、不上传数据，直连你自己配置的 **OpenAI 兼容接口**，Key 只存在本机。
 
-[中文说明](README.zh-CN.md) · [Download](../../releases) · [Build from source](#build-from-source)
+[English](README.en.md) · [下载](../../releases) · [自己构建](#自己构建)
 
-![Main window](docs/screenshots/01-main.png)
+![主界面](docs/screenshots/01-main.png)
 
 ---
 
-## Why
+## 它解决什么问题
 
-Writing image prompts by hand is repetitive: you know what you want, but translating a mental
-image into `masterpiece, best quality, cinematic lighting, 85mm, f/1.4 …` is the slow part.
-Prompt Forge does the translation, then lets you iterate with short natural-language edits
-instead of hand-splicing tags.
+想要的画面在脑子里很清楚，但要翻译成
+`masterpiece, best quality, cinematic lighting, 85mm, f/1.4 …` 很费劲。
+Prompt Forge 负责翻译，然后让你用一句人话继续微调，而不是手工拼接标签。
 
-## Features
+## 功能
 
-- **Five prompt dialects** — SD/SDXL/Flux structured phrases, NovelAI danbooru tags,
-  Midjourney (parameters placed in `--ar`/`--style`), photorealistic photography, and plain
-  natural language.
-- **Character sheet mode** — describes who is in frame, what they wear, the scene, the action and
-  the camera, then outputs one flowing English prompt plus a Chinese translation.
-- **Refine instead of regenerate** — after generating, say `make it night` / `remove the person` /
-  `vertical composition`; only what you mention changes, everything else stays verbatim.
-  Unlimited undo.
-- **Two independent pinning layers**
-  - *Local prefix* — fixed quality tags prepended in the browser. Never sent to the model.
-  - *API preamble* — your own standing instructions injected into every system prompt.
-- **Idea generator** — asks the model for six fresh scene one-liners, avoiding topics you just used.
-- **Local library** — save any result as a readable Markdown file, then browse, search, rename,
-  reload or delete it inside the UI.
-- **Seven Morandi skins** — six low-saturation light palettes plus one dark theme, all
-  WCAG contrast checked.
-- **Zero runtime dependencies** — the server uses only Node built-ins.
+- **五种提示词风格** —— SD/SDXL/Flux 结构化短语、NovelAI 的 danbooru 标签流、
+  Midjourney（参数自动放进 `--ar` / `--style`）、写实摄影、自然语言直述。
+- **角色设定模式** —— 把画面里有谁、穿什么、在什么场景、做什么动作、什么镜头写清楚，
+  直接输出一整段可出图的英文提示词 + 中文对照。
+- **微调而不是重新生成** —— 生成后说「改成夜景」「去掉人物」「竖构图」，
+  只改你提到的地方，其余逐字保留，可无限撤回。
+- **两层互不干扰的「置顶」**
+  - 本地置顶词：只在浏览器里拼到输出前面，**永远不会发给模型**；
+  - 置顶提示词：你写的一段长期要求，**每次请求都注入系统提示词**。
+- **随机灵感** —— 让模型现编 6 条场景句，自动避开你刚用过的题材。
+- **本地保存库** —— 结果可存成可读的 `.md` 文件，在界面里检索、改名、重新载入、删除。
+- **七套莫兰迪皮肤** —— 六套低饱和浅色 + 一套深色，配色都经过 WCAG 对比度校验。
+- **运行时零依赖** —— 服务端只用 Node 内置模块，不需要 `npm install`。
 
-![Character mode](docs/screenshots/02-character.png)
+![角色设定](docs/screenshots/02-character.png)
 
-## Quick start
+## 快速开始
 
-### Option A — use a release build
+### 方式一：用打包好的 exe
 
-| Build | Size | Behavior |
+| 版本 | 体积 | 行为 |
 | --- | --- | --- |
-| `PromptForge-Desktop.exe` | ~105 MB | Real desktop window (Electron). No browser, no console. |
-| `PromptForge.exe` | ~88 MB | Starts a local server and opens your browser. |
+| `PromptForge-Desktop.exe` | ~105 MB | 真正的桌面窗口（Electron），不开浏览器、没有命令行窗口 |
+| `PromptForge.exe` | ~88 MB | 起本地服务并打开浏览器 |
 
-Both are self-contained — no Node.js required on the target machine.
-Grab them from [Releases](../../releases).
+两者都自带运行时，**目标电脑不需要装 Node**。到 [Releases](../../releases) 下载。
 
-> Windows may warn about an unknown publisher; the binaries are not code-signed.
-> Click *More info → Run anyway*.
+> exe 未做代码签名，Windows 可能提示「未知发布者」，点「更多信息 → 仍要运行」即可。
 
-### Option B — run from source
+### 方式二：直接跑源码
 
 ```bash
 git clone https://github.com/<you>/prompt-forge.git
 cd prompt-forge
-node src/server.mjs          # on Windows you can also double-click 启动.bat
+node src/server.mjs          # Windows 也可以双击 启动.bat
 ```
 
-Requires Node.js 20+. Nothing to install — there is no `npm install` step for runtime.
+需要 Node.js 20+，运行时不需要装任何依赖。
 
-Open <http://127.0.0.1:43125>, click **设置** (Settings) and fill in:
+打开 <http://127.0.0.1:43125>，点右上角「设置」填三样：
 
-| Field | Example |
+| 项目 | 例子 |
 | --- | --- |
-| Base URL | `https://api.deepseek.com` (a bare domain gets `/v1` appended) |
+| BaseURL | `https://api.deepseek.com`（只写域名会自动补 `/v1`） |
 | API Key | `sk-…` |
-| Model | `deepseek-chat` |
+| 模型名 | `deepseek-chat` |
 
-Any OpenAI-compatible endpoint works — DeepSeek, OpenAI, Moonshot, Zhipu, SiliconFlow,
-LM Studio, Ollama, or a proxy. Hit **测试连接** to verify, then **保存**.
+任何 OpenAI 兼容服务都能用：DeepSeek、OpenAI、Kimi、智谱、硅基流动、LM Studio、Ollama、中转站。
+填完点「测试连接」确认，再「保存」。
 
-## Build from source
+## 自己构建
 
-Runtime has no dependencies; the packaging steps pull their own toolchain on first run.
-
-```bash
-npm run build:exe       # → release/PromptForge.exe                 (Node SEA, single file)
-npm run build:desktop   # → release-desktop/PromptForge-Desktop.exe  (Electron desktop app)
-```
-
-How `build:exe` works: `esbuild` bundles the ESM server into one CommonJS file (Node SEA only
-accepts a CJS entry) → `node --experimental-sea-config` embeds the bundle plus the three frontend
-assets into a blob → a copy of `node.exe` is used as the base → `postject` injects the blob and
-flips the SEA fuse.
-
-`build:desktop` bundles the same server, copies the frontend, and ships an Electron main process
-that boots the server in-process and opens a native window.
-
-## Tests
+运行时没有依赖，但打包工具链会在首次运行时自动安装。
 
 ```bash
-npm run test:static    # id references, prompt templates, theme contrast — no browser needed
-npm test               # full UI regression: 223 assertions in headless Chrome
+npm run build:exe       # → release/PromptForge.exe            （Node SEA 单文件）
+npm run build:desktop   # → release-desktop/PromptForge-Desktop.exe （Electron 桌面版）
 ```
 
-The UI suite boots a throwaway server against a mock OpenAI endpoint and asserts real behavior:
-contrast of every text node across all skins, layout geometry, streaming, refine/undo, the save
-library round-trip (including on-disk file contents), and the absence of console errors.
+- `build:exe` 的原理：`esbuild` 把 ESM 服务端打成单个 CJS（SEA 入口只接受 CJS）→
+  `node --experimental-sea-config` 把 bundle 和三个前端文件一起塞进 blob →
+  以本机 `node.exe` 为底座 → `postject` 注入 blob 并打开 SEA fuse。
+- `build:desktop`：除上面的服务端 bundle 外，还会打一个 Electron 主进程，
+  在进程内起服务并开原生窗口。
+
+## 测试
+
+```bash
+npm run test:static    # id 引用、prompt 模板、主题对比度，不需要浏览器
+npm test               # 完整 UI 回归：无头 Chrome 里跑 223 条断言
+```
+
+UI 套件会用假接口起一个临时实例，验证真实行为：全部皮肤下每个文字节点的对比度、
+布局几何、流式输出、微调与撤回、保存库的写入与回读（连磁盘文件内容一起验）、控制台是否报错。
 
 ```
-PASS  默认皮肤是莫兰迪浅色 (default skin is the light Morandi palette)
-PASS  输入区在结果区左侧（左右分栏） (input sits left of results)
-PASS  微调结果仍带置顶词（只带一次） (pinned prefix not duplicated after refine)
-PASS  保存的是带置顶词的实际版本 (saved file matches what you see)
-PASS  载入时置顶词没有被二次拼接 (no double-prefixing when reloading)
+PASS  默认皮肤是莫兰迪浅色
+PASS  输入区在结果区左侧（左右分栏）
+PASS  微调结果仍带置顶词（只带一次）
+PASS  保存的是带置顶词的实际版本
+PASS  载入时置顶词没有被二次拼接
 ...
-223 passed, 0 failed
+223 项通过，0 失败
 ```
 
-Screenshots in `docs/` are generated by `node tests/make-screenshots.mjs`, not hand-cropped.
+`docs/` 里的截图由 `node tests/make-screenshots.mjs` 生成，不是手工裁剪。
 
-## Project layout
+## 目录结构
 
 ```
 src/
-  server.mjs         HTTP server + OpenAI-compatible proxy (SSE), config & library I/O
-  styles.mjs         system-prompt templates for all modes
-  public/            index.html, styles.css (theme tokens), app.js
+  server.mjs         HTTP 服务 + OpenAI 兼容代理（SSE 流式），配置与保存库读写
+  styles.mjs         六种场景的 system prompt 模板
+  public/            index.html、styles.css（主题 token）、app.js
 build/
-  build-exe.mjs      Node SEA packaging
-  build-desktop.mjs  Electron packaging
-  electron/          Electron main process + builder config
-tests/               regression suite, mock API, static checkers, screenshot generator
-docs/screenshots/    images used by these READMEs
+  build-exe.mjs      SEA 打包
+  build-desktop.mjs  Electron 打包
+  electron/          主进程与打包配置
+tests/               回归套件、假接口、静态检查、截图生成
+docs/screenshots/    README 用图
 ```
 
-## Privacy
+## 隐私
 
-- Your API key is stored in `config.json` **in plain text, on your machine only**.
-- The UI never receives the key back — settings show a masked hint (`sk-…abcd`).
-- Prompts and results are only sent to the endpoint you configure.
-- Saved prompts are ordinary `.md` files in `saved/`.
+- API Key 明文存在本机 `config.json`，**只在你自己的电脑上**；
+- 界面永远拿不到 Key 原文，设置里只显示掩码（`sk-…abcd`）；
+- 提示词和结果只会发给你配置的那个接口；
+- 保存的提示词就是 `saved/` 下的普通 `.md` 文件。
 
-Windows builds keep data in `%APPDATA%\PromptForge`; running from source keeps it next to the app.
+Windows 打包版把数据放在 `%APPDATA%\PromptForge`，源码版放在程序目录。
 
-## License
+## 协议
 
 [MIT](LICENSE)
