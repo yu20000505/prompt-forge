@@ -2729,6 +2729,9 @@ async function main() {
       && (await evalJs(`document.querySelector('#worldGenBased').textContent.includes('九霄残卷')`)) === true);
   check('设定集生成不污染首页历史',
     Number(await evalJs(`document.querySelector('#historyCount').textContent`)) === histBeforeWorldGen);
+  check('设定集结果有直接复制正向按钮',
+    (await visible('#btnWorldCopyPositive')) === true
+      && (await evalJs(`document.querySelector('#btnWorldCopyPositive').textContent`)) === '复制正向');
   await evalJs(`document.querySelector('#btnWorldWriteRef').click(); true`);
   await sleep(700);
   check('结果能写入条目参考提示词',

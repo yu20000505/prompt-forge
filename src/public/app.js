@@ -6228,6 +6228,9 @@ function bind() {
     if (S.worldGenAbort) S.worldGenAbort.abort();
   });
   $('#btnWorldWriteRef').addEventListener('click', writeWorldRef);
+  $('#btnWorldCopyPositive').addEventListener('click', (e) => {
+    if (S.worldGen) copyText(S.worldGen.positive || '', e.currentTarget);
+  });
   $('#btnWorldCopyGen').addEventListener('click', (e) => {
     if (S.worldGen) copyText(`Positive prompt: ${S.worldGen.positive}\n\nNegative prompt: ${S.worldGen.negative}`, e.currentTarget);
   });
