@@ -464,7 +464,13 @@
       </div>
     </div>
     <div class="lib-search">
-      <input id="histFilter" placeholder="搜索历史记录…" autocomplete="off" />
+      <input id="histFilter" placeholder="搜索标题、句子或内容…" autocomplete="off" />
+    </div>
+    <div class="hist-filter" id="histFilterChips" role="group" aria-label="按类型筛选历史">
+      <button class="hist-filter-btn active" type="button" data-kind="all" aria-pressed="true">全部</button>
+      <button class="hist-filter-btn" type="button" data-kind="prompt" aria-pressed="false">提示词</button>
+      <button class="hist-filter-btn" type="button" data-kind="character" aria-pressed="false">角色设定</button>
+      <button class="hist-filter-btn" type="button" data-kind="segment" aria-pressed="false">细分提示词</button>
     </div>
     <div class="drawer-body" id="historyList"></div>
   </aside>

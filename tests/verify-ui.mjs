@@ -920,6 +920,8 @@ async function main() {
   check('微调后英文仍不含中文', !/[\u4e00-\u9fa5]/.test(enAfter));
   const charRefineStatus = await evalJs(`document.querySelector('#charRefineStatus').textContent`);
   check('微调次数已显示', /已微调 1 次/.test(charRefineStatus), charRefineStatus);
+  const charHistRefined = await evalJs(`JSON.parse(localStorage.getItem('prompt-forge-history-v1') || '[]').find((h) => h.kind === 'character')`);
+  check('角色微调同步更新历史', /nighttime/i.test(charHistRefined?.prompt_en || ''), (charHistRefined?.prompt_en || '').slice(0, 60));
   check('微调后撤回可用',
     (await evalJs(`document.querySelector('#btnCharUndoRefine').disabled`)) === false);
 
@@ -932,6 +934,8 @@ async function main() {
     (await evalJs(`document.querySelector('#charRefineStatus').textContent`)) === '');
   check('撤回后撤回按钮重新禁用',
     (await evalJs(`document.querySelector('#btnCharUndoRefine').disabled`)) === true);
+  const charHistUndone = await evalJs(`JSON.parse(localStorage.getItem('prompt-forge-history-v1') || '[]').find((h) => h.kind === 'character')`);
+  check('角色撤回也同步历史', !/nighttime/i.test(charHistUndone?.prompt_en || ''), (charHistUndone?.prompt_en || '').slice(0, 60));
 
   // 重新生成时取消，保留上一次角色结果
   const charTitleBeforeCancel = await evalJs(`document.querySelector('#charCards h3').textContent`);
@@ -1691,6 +1695,103 @@ async function main() {
     libAssemble === 'clicked' && boardTypesAfterLib.includes('outfit') && boardTypesAfterLib.includes('lighting'),
     `${libAssemble} / ${JSON.stringify(boardTypesAfterLib)}`);
   await evalJs(`document.querySelector('#btnLibClose').click(); true`);
+  await sleep(250);
+
+  // ---------- 12.7 历史：角色、筛选与收藏 ----------
+  const histKindsAll = await evalJs(`JSON.parse(localStorage.getItem('prompt-forge-history-v1') || '[]').map((h) => h.kind || 'prompt')`);
+  check('历史里已经包含三类结果',
+    histKindsAll.includes('prompt') && histKindsAll.includes('character') && histKindsAll.includes('segment'),
+    JSON.stringify(histKindsAll));
+
+  const charHistEntry = await evalJs(`JSON.parse(localStorage.getItem('prompt-forge-history-v1') || '[]').find((h) => h.kind === 'character')`);
+  check('角色生成写入了历史',
+    !!charHistEntry && (charHistEntry.prompt_en || '').length > 100, charHistEntry?.title);
+  check('角色历史带英文与中文对照',
+    /[\u4e00-\u9fa5]/.test(charHistEntry?.prompt_zh || '') && !/[\u4e00-\u9fa5]/.test(charHistEntry?.prompt_en || ''));
+
+  await evalJs(`document.querySelector('#btnHistory').click(); true`);
+  await sleep(450);
+  check('历史筛选有四个分类',
+    (await evalJs(`document.querySelectorAll('#histFilterChips .hist-filter-btn').length`)) === 4);
+
+  await evalJs(`document.querySelector('#histFilterChips [data-kind="character"]').click(); true`);
+  await sleep(250);
+  const charFilterCount = await evalJs(`document.querySelectorAll('#historyList .hist-item').length`);
+  check('按角色设定筛选历史',
+    charFilterCount === histKindsAll.filter((k) => k === 'character').length,
+    `${charFilterCount} 条`);
+  check('角色筛选按钮高亮',
+    (await evalJs(`document.querySelector('#histFilterChips [data-kind="character"]').classList.contains('active')`)) === true);
+  check('角色历史显示英文提示词',
+    /candid street photography|accordionist/i.test(await evalJs(`document.querySelector('#historyList .h-prompt').textContent`)));
+
+  await evalJs(`document.querySelector('#historyList .hist-item').click(); true`);
+  await sleep(500);
+  const restoredCharEn = await evalJs(`document.querySelectorAll('#charCards .card-body')[0].textContent`);
+  check('从历史恢复角色结果回到角色页',
+    (await visible('#viewCharacter')) === true && (await visible('#charCards')) === true);
+  check('恢复的角色英文与历史一致', restoredCharEn === charHistEntry.prompt_en, restoredCharEn.slice(0, 50));
+
+  // 角色手改也要同步历史
+  await evalJs(`document.querySelector('#btnEditChar').click(); true`);
+  await sleep(250);
+  await evalJs(`(() => {
+    document.querySelector('#editCharEn').value += ' history-char-marker';
+    document.querySelector('#btnEditorSave').click();
+    return true;
+  })()`);
+  await sleep(400);
+  const charHistAfterEdit = await evalJs(`JSON.parse(localStorage.getItem('prompt-forge-history-v1') || '[]').find((h) => h.kind === 'character')`);
+  check('角色手改同步历史', /history-char-marker/.test(charHistAfterEdit?.prompt_en || ''), (charHistAfterEdit?.prompt_en || '').slice(-50));
+  await evalJs(`document.querySelector('#btnRestoreChar').click(); true`);
+  await sleep(400);
+
+  // 收藏并置顶
+  await evalJs(`document.querySelector('#btnHistory').click(); true`);
+  await sleep(400);
+  await evalJs(`document.querySelector('#histFilterChips [data-kind="character"]').click(); true`);
+  await sleep(200);
+  await evalJs(`document.querySelector('#historyList .hist-item .h-star').click(); true`);
+  await sleep(350);
+  const charFav = await evalJs(`JSON.parse(localStorage.getItem('prompt-forge-history-v1') || '[]').find((h) => h.kind === 'character')`);
+  check('历史条目可以收藏', charFav?.favorite === true);
+
+  await evalJs(`document.querySelector('#histFilterChips [data-kind="all"]').click(); true`);
+  await sleep(250);
+  const firstHistTitle = await evalJs(`document.querySelector('#historyList .hist-item .h-top span').textContent`);
+  check('收藏的历史置顶显示', firstHistTitle === charHistEntry.title, `${firstHistTitle} vs ${charHistEntry.title}`);
+
+  await evalJs(`document.querySelector('#histFilterChips [data-kind="segment"]').click(); true`);
+  await sleep(250);
+  const segFilterCount = await evalJs(`document.querySelectorAll('#historyList .hist-item').length`);
+  check('按细分提示词筛选历史',
+    segFilterCount === histKindsAll.filter((k) => k === 'segment').length, `${segFilterCount} 条`);
+  check('细分历史显示标签内容',
+    /black lace|volumetric|ornate/.test(await evalJs(`document.querySelector('#historyList .h-prompt').textContent`)));
+
+  await evalJs(`document.querySelector('#histFilterChips [data-kind="prompt"]').click(); true`);
+  await sleep(250);
+  const promptFilterCount = await evalJs(`document.querySelectorAll('#historyList .hist-item').length`);
+  check('按提示词筛选历史',
+    promptFilterCount === histKindsAll.filter((k) => k === 'prompt').length, `${promptFilterCount} 条`);
+
+  await evalJs(`(() => {
+    const i = document.querySelector('#histFilter');
+    i.value = 'zzzz-no-such-history';
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(250);
+  check('筛选后搜索无结果时有提示',
+    /没有匹配/.test(await evalJs(`document.querySelector('#historyList').textContent`)));
+  await evalJs(`(() => {
+    const i = document.querySelector('#histFilter');
+    i.value = '';
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(200);
+  await evalJs(`document.querySelector('#histFilterChips [data-kind="all"]').click(); document.querySelector('#btnCloseDrawer').click(); true`);
   await sleep(250);
 
   // 回到提示词页，后面的通用检查不依赖当前页

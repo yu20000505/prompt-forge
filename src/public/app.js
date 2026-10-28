@@ -60,6 +60,7 @@ const S = {
   config: null,
   current: null,       // { sentence, style, targetModel, language, detail, extra, result, raw }
   history: [],
+  histFilter: 'all',
   abort: null,
   modelOptions: [],    // 「拉取列表」拿到的模型
   modelFetched: false,
@@ -74,6 +75,7 @@ const S = {
   charStack: [],
   charOriginal: null,
   charEdited: false,
+  charHistoryAt: null,
   segType: 'outfit',
   segBusy: false,
   segAbort: null,
@@ -1225,6 +1227,7 @@ function loadSavedCharacter(meta, fallbackTitle) {
   S.charStack = [d];
   S.charOriginal = cloneData(d);
   S.charEdited = false;
+  S.charHistoryAt = null;
   S.charSentence = str(meta.sentence);
   if (meta.sentence) {
     $('#charSentence').value = meta.sentence;
@@ -1342,6 +1345,7 @@ function saveHistory() {
 
 function pushHistory(item) {
   S.history.unshift({
+    kind: 'prompt',
     sentence: item.sentence,
     style: item.style,
     positive: item.parsed.positive,
@@ -1352,10 +1356,51 @@ function pushHistory(item) {
     keywords: item.parsed.keywords,
     targetModel: item.targetModel,
     language: item.language,
+    favorite: false,
     at: item.at,
   });
   S.history = S.history.slice(0, 60);
   saveHistory();
+}
+
+// 角色结果也进历史；恢复时按 kind 回到角色页
+function pushCharacterHistory() {
+  const d = S.charData || {};
+  if (!d.en) return;
+  const at = Date.now();
+  S.history.unshift({
+    kind: 'character',
+    sentence: S.charSentence || '',
+    title: d.title || '角色提示词',
+    prompt_en: d.en,
+    prompt_zh: d.zh || '',
+    aspect_ratio: d.aspect || '',
+    targetModel: $('#targetModel').value.trim(),
+    style: S.style,
+    favorite: false,
+    at,
+  });
+  S.history = S.history.slice(0, 60);
+  S.charHistoryAt = at;
+  saveHistory();
+}
+
+// 角色微调/手改不新增历史，就地更新同一次生成
+function updateCharacterHistoryEntry() {
+  const at = S.charHistoryAt;
+  if (!at) return;
+  const h = S.history.find((x) => x.kind === 'character' && x.at === at);
+  if (!h) return;
+  const d = S.charData || {};
+  h.title = d.title || h.title;
+  h.prompt_en = d.en || h.prompt_en;
+  h.prompt_zh = d.zh || '';
+  h.aspect_ratio = d.aspect || '';
+  saveHistory();
+}
+
+function historyKind(h) {
+  return h.kind === 'character' ? 'character' : h.kind === 'segment' ? 'segment' : 'prompt';
 }
 
 function renderHistory() {
@@ -1363,9 +1408,20 @@ function renderHistory() {
   const box = $('#historyList');
   const q = ($('#histFilter')?.value || '').trim().toLowerCase();
   const all = S.history || [];
+  const filter = S.histFilter || 'all';
+  const inFilter = filter === 'all' ? all : all.filter((h) => historyKind(h) === filter);
   const list = q
-    ? all.filter((h) => `${h.title || ''} ${h.sentence || ''} ${h.positive || ''} ${h.tags || ''}`.toLowerCase().includes(q))
-    : all;
+    ? inFilter.filter((h) => `${h.title || ''} ${h.sentence || ''} ${h.positive || ''} ${h.tags || ''} ${h.prompt_en || ''} ${h.prompt_zh || ''}`
+      .toLowerCase().includes(q))
+    : inFilter;
+  // 收藏的永远排在最前，其余按时间倒序
+  const sorted = [...list].sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0) || (b.at || 0) - (a.at || 0));
+
+  document.querySelectorAll('#histFilterChips .hist-filter-btn').forEach((b) => {
+    const active = b.dataset.kind === filter;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
 
   box.innerHTML = '';
 
@@ -1373,12 +1429,16 @@ function renderHistory() {
     box.innerHTML = '<p class="dim small" style="text-align:center;padding:30px 0">还没有记录</p>';
     return;
   }
-  if (!list.length) {
+  if (!inFilter.length) {
+    box.innerHTML = `<p class="dim small" style="text-align:center;padding:30px 0">${filter === 'all' ? '还没有记录' : '这个分类还没有记录'}</p>`;
+    return;
+  }
+  if (!sorted.length) {
     box.innerHTML = '<p class="dim small" style="text-align:center;padding:30px 0">没有匹配的记录</p>';
     return;
   }
 
-  for (const h of list) {
+  for (const h of sorted) {
     const d = document.createElement('div');
     d.className = 'hist-item';
 
@@ -1392,6 +1452,19 @@ function renderHistory() {
     const time = document.createElement('span');
     time.textContent = fmtTime(new Date(h.at || Date.now()).toISOString());
     top.appendChild(time);
+
+    // 收藏：只改排序，不触发恢复
+    const fav = document.createElement('button');
+    fav.type = 'button';
+    fav.className = 'h-star' + (h.favorite ? ' active' : '');
+    fav.title = h.favorite ? '取消收藏' : '收藏并置顶';
+    fav.setAttribute('aria-pressed', h.favorite ? 'true' : 'false');
+    fav.textContent = h.favorite ? '★' : '☆';
+    fav.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleHistoryFavorite(h.at);
+    });
+    top.appendChild(fav);
 
     // 单条删除
     const del = document.createElement('button');
@@ -1414,12 +1487,29 @@ function renderHistory() {
 
     const prompt = document.createElement('div');
     prompt.className = 'h-prompt';
-    prompt.textContent = h.kind === 'segment' ? (h.tags || '') : (h.positive || '');
+    prompt.textContent = h.kind === 'segment'
+      ? (h.tags || '')
+      : h.kind === 'character'
+        ? (h.prompt_en || '')
+        : (h.positive || '');
     d.appendChild(prompt);
 
     d.addEventListener('click', () => restoreHistoryEntry(h));
     box.appendChild(d);
   }
+}
+
+function setHistoryFilter(kind) {
+  S.histFilter = ['all', 'prompt', 'character', 'segment'].includes(kind) ? kind : 'all';
+  renderHistory();
+}
+
+function toggleHistoryFavorite(at) {
+  const h = S.history.find((x) => x.at === at);
+  if (!h) return;
+  h.favorite = !h.favorite;
+  saveHistory();
+  toast(h.favorite ? '已收藏并置顶' : '已取消收藏');
 }
 
 function deleteHistoryEntry(at) {
@@ -1437,6 +1527,44 @@ function deleteHistoryEntry(at) {
 }
 
 function restoreHistoryEntry(h) {
+  // 角色设定有自己的状态，恢复到角色页
+  if (h.kind === 'character') {
+    const d = normalizeChar({
+      title: h.title,
+      prompt_en: h.prompt_en,
+      prompt_zh: h.prompt_zh,
+      aspect_ratio: h.aspect_ratio,
+    });
+    if (!d) {
+      toast('这条历史缺少角色提示词内容', true);
+      return;
+    }
+    S.charData = d;
+    S.charStack = [d];
+    S.charOriginal = cloneData(d);
+    S.charEdited = false;
+    S.charSentence = h.sentence || '';
+    S.charHistoryAt = h.at;
+    if (h.sentence) {
+      $('#charSentence').value = h.sentence;
+      refreshCounter();
+    }
+    const aspects = ['auto', '1:1', '3:4', '2:3', '16:9', '9:16'];
+    $('#charAspect').value = aspects.includes(h.aspect_ratio) ? h.aspect_ratio : 'auto';
+    if (h.targetModel) $('#targetModel').value = h.targetModel;
+    if (STYLES.some((x) => x.id === h.style)) {
+      S.style = h.style;
+      $('#styleSelect').value = h.style;
+    }
+    switchView('character');
+    renderCharacters(d);
+    $('#btnCharSave').disabled = false;
+    $('#btnCharCopyAll').disabled = false;
+    $('#btnCharRegen').disabled = false;
+    closeDrawer();
+    return;
+  }
+
   // 细分标签有自己的一套状态，直接恢复回细分页面
   if (h.kind === 'segment') {
     const d = normalizeSegment({
@@ -1802,6 +1930,7 @@ async function refineCharacter(instructionArg) {
     S.charOriginal = cloneData(parsed);
     S.charEdited = false;
     renderCharacters(parsed);
+    updateCharacterHistoryEntry();
     $('#charRefineInput').value = '';
     revealResult('#viewCharacter .result');
     $('#charRefineInput').focus();
@@ -1827,6 +1956,7 @@ function undoCharRefine() {
   S.charOriginal = cloneData(d);
   S.charEdited = false;
   renderCharacters(d);
+  updateCharacterHistoryEntry();
   hideCharErr();
 }
 
@@ -1925,6 +2055,7 @@ async function generateCharacters() {
     S.charEdited = false;
     renderCharacters(parsed);
     S.charSentence = sentence;
+    pushCharacterHistory();
     revealResult('#viewCharacter .result');
     $('#btnCharSave').disabled = false;
     $('#btnCharCopyAll').disabled = false;
@@ -2201,6 +2332,7 @@ function pushSegmentHistory() {
     tags: d.tags || '',
     translation: d.translation || '',
     keywords: d.keywords || [],
+    favorite: false,
     at: meta.at || Date.now(),
   });
   S.history = S.history.slice(0, 60);
@@ -2803,6 +2935,7 @@ function saveEditor() {
       S.charData = next;
       S.charEdited = JSON.stringify(next) !== JSON.stringify(S.charOriginal);
       renderCharacters(next);
+      updateCharacterHistoryEntry();
     } else if (mode === 'segment') {
       const tags = val('#editSegTags');
       if (!tags) throw new Error('标签组合不能为空');
@@ -2845,6 +2978,7 @@ function restoreCharOriginal() {
   S.charData = cloneData(S.charOriginal);
   S.charEdited = false;
   renderCharacters(S.charData);
+  updateCharacterHistoryEntry();
   toast('已恢复模型原版');
 }
 
@@ -3333,6 +3467,9 @@ function bind() {
   /* 历史抽屉 */
   $('#btnHistory').addEventListener('click', openDrawer);
   $('#histFilter').addEventListener('input', renderHistory);
+  document.querySelectorAll('#histFilterChips .hist-filter-btn').forEach((b) => {
+    b.addEventListener('click', () => setHistoryFilter(b.dataset.kind));
+  });
   $('#btnCloseDrawer').addEventListener('click', closeDrawer);
   $('#drawerMask').addEventListener('click', closeDrawer);
   $('#btnClearHistory').addEventListener('click', () => {
