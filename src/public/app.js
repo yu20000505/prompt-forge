@@ -93,6 +93,9 @@ const S = {
   lib: [],
   libDir: '',
   libEditing: null,
+  libTotal: 0,
+  libSelected: new Set(),
+  libSort: 'new',
   board: [],           // [{ type, tags, title, sentence, at }]
   boardTitle: '',
 };
@@ -130,6 +133,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderSegRefineChips();
   renderThemeSwatches();
   loadBoard();
+  initLibraryPrefs();
   bind();
   loadHistory();
   loadConfig();
@@ -903,10 +907,35 @@ async function refreshLibraryCount() {
   try {
     const r = await fetch('/api/saved');
     const j = await r.json();
-    if (r.ok) $('#libBtnCount').textContent = String(j.count ?? 0);
+    if (r.ok) {
+      S.libTotal = Number(j.count) || 0;
+      $('#libBtnCount').textContent = String(S.libTotal);
+    }
   } catch {
     /* 计数失败不影响使用 */
   }
+}
+
+function initLibraryPrefs() {
+  try {
+    const v = localStorage.getItem('pf-lib-sort');
+    if (['new', 'old', 'title'].includes(v)) S.libSort = v;
+  } catch {
+    /* 用默认 */
+  }
+  const sel = $('#libSort');
+  if (sel) sel.value = S.libSort;
+}
+
+function setLibrarySort(v) {
+  if (!['new', 'old', 'title'].includes(v)) return;
+  S.libSort = v;
+  try {
+    localStorage.setItem('pf-lib-sort', v);
+  } catch {
+    /* 本次生效 */
+  }
+  renderLibrary();
 }
 
 async function openLibrary() {
@@ -916,6 +945,7 @@ async function openLibrary() {
   $('#libDrawer').hidden = false;
   $('#libFilter').value = '';
   S.libEditing = null;
+  S.libSelected.clear();
   await loadLibrary();
   $('#libFilter').focus();
 }
@@ -930,12 +960,16 @@ async function loadLibrary() {
   const box = $('#libList');
   box.innerHTML = '<p class="dim small" style="text-align:center;padding:24px 0">读取中…</p>';
   try {
-    const r = await fetch('/api/saved');
+    const q = $('#libFilter').value.trim();
+    const r = await fetch(q ? `/api/saved?q=${encodeURIComponent(q)}` : '/api/saved');
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
     S.lib = Array.isArray(j.items) ? j.items : [];
     S.libDir = j.dir || '';
-    $('#libBtnCount').textContent = String(j.count ?? S.lib.length);
+    S.libTotal = Number(j.count) || S.lib.length;
+    // 搜索会换掉可见条目，选中项只保留仍然可见的
+    S.libSelected = new Set([...S.libSelected].filter((name) => S.lib.some((it) => it.name === name)));
+    $('#libBtnCount').textContent = String(S.libTotal);
     renderLibrary();
   } catch (err) {
     box.innerHTML = '';
@@ -970,31 +1004,76 @@ function writeCollapsedGroup(kind, collapsed) {
   }
 }
 
+function highlightInto(el, text, q) {
+  const raw = String(text || '');
+  if (!q) {
+    el.textContent = raw;
+    return;
+  }
+  const lower = raw.toLowerCase();
+  let from = 0;
+  let idx;
+  while ((idx = lower.indexOf(q, from)) !== -1) {
+    if (idx > from) el.appendChild(document.createTextNode(raw.slice(from, idx)));
+    const mark = document.createElement('mark');
+    mark.textContent = raw.slice(idx, idx + q.length);
+    el.appendChild(mark);
+    from = idx + q.length;
+  }
+  if (from < raw.length) el.appendChild(document.createTextNode(raw.slice(from)));
+}
+
+function updateLibBulkUi() {
+  const n = S.libSelected.size;
+  const count = $('#libSelectedCount');
+  if (count) count.textContent = n ? `已选 ${n} 个` : '未选择';
+  const del = $('#btnLibDeleteSelected');
+  if (del) del.disabled = n === 0;
+  const boxes = [...document.querySelectorAll('#libList .lib-check')];
+  const all = $('#libSelectAll');
+  if (all) {
+    all.checked = boxes.length > 0 && boxes.every((b) => b.checked);
+    all.indeterminate = n > 0 && !all.checked;
+  }
+}
+
 function renderLibrary() {
   const box = $('#libList');
-  const q = $('#libFilter').value.trim().toLowerCase();
+  const q = ($('#libFilter').value || '').trim().toLowerCase();
+  S.libQuery = q;
   const all = S.lib || [];
-  // 搜索范围包含类型和文件名，这样输入「角色」「提示词」也能筛出来
-  const haystack = (it) => `${it.title} ${it.summary} ${it.kind} ${it.name}`.toLowerCase();
-  const list = q ? all.filter((it) => haystack(it).includes(q)) : all;
+  const list = [...all].sort((a, b) => {
+    if (!!b.favorite !== !!a.favorite) return b.favorite ? 1 : -1;
+    if (S.libSort === 'title') return String(a.title).localeCompare(String(b.title), 'zh');
+    const ta = new Date(a.mtime).getTime() || 0;
+    const tb = new Date(b.mtime).getTime() || 0;
+    return S.libSort === 'old' ? ta - tb : tb - ta;
+  });
 
-  $('#libCount').textContent = all.length ? (q ? `${list.length} / ${all.length} 条` : `${all.length} 条`) : '';
+  $('#libCount').textContent = (S.libTotal || all.length)
+    ? (q ? `${list.length} / ${S.libTotal} 条` : `${S.libTotal || list.length} 条`)
+    : '';
   box.innerHTML = '';
 
   if (!list.length) {
     const p = document.createElement('p');
     p.className = 'dim small';
     p.style.cssText = 'text-align:center;padding:26px 10px;line-height:1.8';
-    p.textContent = all.length
+    p.textContent = q
       ? '没有匹配的内容'
       : '还没有保存过内容。生成结果后点右上角「💾 保存」，就会出现在这里。';
     box.appendChild(p);
+    updateLibBulkUi();
     return;
   }
 
-  // 三个大分类固定顺序；未知类型（以后新增的）排在最后，不丢内容
-  const groups = new Map([['提示词', []], ['角色设定', []], ['细分提示词', []]]);
+  // 收藏单独置顶；其余按三个大分类固定顺序，未知类型排最后
+  const groups = new Map([['收藏', []], ['提示词', []], ['角色设定', []], ['细分提示词', []]]);
   for (const it of list) {
+    if (it.favorite) {
+      groups.get('收藏').push(it);
+      continue;
+    }
     if (!groups.has(it.kind)) groups.set(it.kind, []);
     groups.get(it.kind).push(it);
   }
@@ -1049,6 +1128,77 @@ function renderLibrary() {
 
     box.appendChild(section);
   }
+  updateLibBulkUi();
+}
+
+async function toggleLibraryFavorite(it) {
+  const next = !it.favorite;
+  try {
+    const r = await fetch('/api/saved/favorite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file: it.name, favorite: next }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    it.favorite = next;
+    renderLibrary();
+    toast(next ? '已收藏并置顶' : '已取消收藏');
+  } catch (err) {
+    toast(`收藏失败：${err.message}`, true);
+  }
+}
+
+function selectAllLibrary(checked) {
+  if (checked) S.lib.forEach((it) => S.libSelected.add(it.name));
+  else S.lib.forEach((it) => S.libSelected.delete(it.name));
+  renderLibrary();
+}
+
+async function deleteSelectedSaved() {
+  const names = [...S.libSelected];
+  if (!names.length) return;
+  if (!confirm(`删除选中的 ${names.length} 个文件？\n文件会先移到回收站，提示条上可以撤销。`)) return;
+
+  const backups = [];
+  let failed = 0;
+  for (const name of names) {
+    try {
+      const r = await fetch('/api/saved/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: name }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      backups.push({ trash: j.trash, original: j.original });
+    } catch {
+      failed++;
+    }
+  }
+
+  S.libSelected.clear();
+  await loadLibrary();
+  refreshLibraryCount();
+  if (!backups.length) {
+    toast('删除失败，文件没有变动', true);
+    return;
+  }
+  const msg = failed
+    ? `已删除 ${backups.length} 个，${failed} 个失败`
+    : `已删除 ${backups.length} 个文件（7 天内可撤销）`;
+  toastUndo(msg, async () => {
+    for (const b of backups) {
+      await fetch('/api/saved/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trash: b.trash, original: b.original }),
+      });
+    }
+    await loadLibrary();
+    refreshLibraryCount();
+    toast('已恢复删除的文件');
+  });
 }
 
 // 保存库的「复制」只给能直接出图的英文内容，不把中文对照一起塞进剪贴板。
@@ -1063,11 +1213,26 @@ function savedCopyText(loaded, fallback, kind) {
 
 function libraryItemEl(it) {
   const editing = S.libEditing === it.name;
+  const selected = S.libSelected.has(it.name);
   const wrap = document.createElement('div');
-  wrap.className = 'lib-item' + (editing ? ' editing' : '');
+  wrap.className = 'lib-item' + (editing ? ' editing' : '') + (selected ? ' selected' : '');
 
   const top = document.createElement('div');
   top.className = 'lib-top';
+
+  const check = document.createElement('input');
+  check.type = 'checkbox';
+  check.className = 'lib-check';
+  check.checked = selected;
+  check.title = selected ? '取消选择' : '选择这个文件';
+  check.addEventListener('click', (e) => e.stopPropagation());
+  check.addEventListener('change', () => {
+    if (check.checked) S.libSelected.add(it.name);
+    else S.libSelected.delete(it.name);
+    wrap.classList.toggle('selected', check.checked);
+    updateLibBulkUi();
+  });
+  top.appendChild(check);
 
   const kind = document.createElement('span');
   kind.className = 'lib-kind'
@@ -1099,9 +1264,21 @@ function libraryItemEl(it) {
     });
     title.appendChild(input);
   } else {
-    title.textContent = it.title;
+    highlightInto(title, it.title, S.libQuery || '');
   }
   top.appendChild(title);
+
+  const fav = document.createElement('button');
+  fav.type = 'button';
+  fav.className = 'lib-fav' + (it.favorite ? ' active' : '');
+  fav.title = it.favorite ? '取消收藏' : '收藏并置顶';
+  fav.setAttribute('aria-pressed', it.favorite ? 'true' : 'false');
+  fav.textContent = it.favorite ? '★' : '☆';
+  fav.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleLibraryFavorite(it);
+  });
+  top.appendChild(fav);
 
   const time = document.createElement('span');
   time.className = 'lib-time';
@@ -1112,7 +1289,7 @@ function libraryItemEl(it) {
 
   const summary = document.createElement('div');
   summary.className = 'lib-summary';
-  summary.textContent = it.summary || '（无摘要）';
+  highlightInto(summary, it.summary || '（无摘要）', S.libQuery || '');
   wrap.appendChild(summary);
 
   const actions = document.createElement('div');
@@ -1379,6 +1556,7 @@ async function deleteSavedEntry(it) {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
 
+    S.libSelected.delete(it.name);
     await loadLibrary();
     refreshLibraryCount();
     toastUndo(`已删除「${it.title}」（${j.retentionDays || 7} 天内可撤销）`, async () => {
@@ -3805,7 +3983,11 @@ function bind() {
   $('#btnLibrary').addEventListener('click', openLibrary);
   $('#btnLibClose').addEventListener('click', closeLibrary);
   $('#libMask').addEventListener('click', closeLibrary);
-  $('#libFilter').addEventListener('input', renderLibrary);
+  const reloadLibraryDebounced = debounce(() => loadLibrary(), 280);
+  $('#libFilter').addEventListener('input', reloadLibraryDebounced);
+  $('#libSort').addEventListener('change', () => setLibrarySort($('#libSort').value));
+  $('#libSelectAll').addEventListener('change', () => selectAllLibrary($('#libSelectAll').checked));
+  $('#btnLibDeleteSelected').addEventListener('click', deleteSelectedSaved);
   $('#btnLibFolder').addEventListener('click', openSavedDir);
 
   $('#btnOpenSaved').addEventListener('click', openSavedDir);

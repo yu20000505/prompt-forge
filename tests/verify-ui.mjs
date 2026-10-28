@@ -2034,6 +2034,86 @@ async function main() {
   check('输出被截断时有提示', truncDone && /截断|max_tokens/.test(truncToast), truncToast);
   await evalJs(`hideErr(); true`);
 
+  // ---------- 12.12 保存库全文搜索、收藏、批量与排序 ----------
+  const newSave = await evalJs(`fetch('/api/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      kind: 'prompt',
+      title: '全文搜索测试',
+      content: '## 正向提示词\\n\\nshort summary\\n\\n## 标签明细\\n\\nfulltext-unique-marker',
+      meta: { positive: 'short summary', kind: 'prompt' }
+    })
+  }).then((r) => r.json())`);
+  check('测试用保存文件已创建', !!newSave.file, newSave.file);
+
+  await evalJs(`document.querySelector('#btnLibrary').click(); true`);
+  await sleep(1000);
+  await evalJs(`(() => {
+    const f = document.querySelector('#libFilter');
+    f.value = 'fulltext-unique-marker';
+    f.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(800);
+  const fulltextItems = await evalJs(`document.querySelectorAll('#libList .lib-item').length`);
+  check('保存库能全文搜索（不只看摘要）', fulltextItems === 1, `${fulltextItems} 条`);
+  const fulltextSummary = await evalJs(`document.querySelector('#libList .lib-summary').textContent`);
+  check('全文命中时摘要显示命中上下文',
+    /fulltext-unique-marker/.test(fulltextSummary), fulltextSummary.slice(0, 80));
+  check('搜索结果有关键词高亮',
+    (await evalJs(`document.querySelectorAll('#libList mark').length`)) >= 1);
+
+  // 收藏置顶
+  await evalJs(`document.querySelector('#libList .lib-fav').click(); true`);
+  await sleep(700);
+  const favGroups = await evalJs(`[...document.querySelectorAll('#libList .lib-group')].map((g) => g.dataset.kind)`);
+  check('收藏后出现「收藏」分组并置顶', favGroups[0] === '收藏', JSON.stringify(favGroups));
+  const favList = await evalJs(`fetch('/api/saved?q=fulltext-unique-marker').then((r) => r.json())`);
+  check('收藏状态写到了服务端', favList.items?.[0]?.favorite === true);
+  await evalJs(`document.querySelector('#libList .lib-fav').click(); true`);
+  await sleep(600);
+  const unfavGroups = await evalJs(`[...document.querySelectorAll('#libList .lib-group')].map((g) => g.dataset.kind)`);
+  check('取消收藏后回到原分类', unfavGroups[0] === '提示词', JSON.stringify(unfavGroups));
+
+  // 批量选择 + 删除 + 撤销
+  await evalJs(`document.querySelector('#libList .lib-check').click(); true`);
+  await sleep(200);
+  check('批量选择后删除按钮可用',
+    (await evalJs(`document.querySelector('#btnLibDeleteSelected').disabled`)) === false);
+  await evalJs(`window.confirm = () => true; true`);
+  await evalJs(`document.querySelector('#btnLibDeleteSelected').click(); true`);
+  await sleep(1200);
+  check('批量删除生效',
+    (await evalJs(`document.querySelectorAll('#libList .lib-item').length`)) === 0);
+  check('批量删除出现撤销按钮',
+    (await evalJs(`!!document.querySelector('#toast .toast-undo')`)) === true);
+  await evalJs(`document.querySelector('#toast .toast-undo').click(); true`);
+  await sleep(1200);
+  check('撤销批量删除能恢复文件',
+    (await evalJs(`document.querySelectorAll('#libList .lib-item').length`)) === 1);
+
+  // 排序偏好
+  await evalJs(`(() => {
+    const f = document.querySelector('#libFilter');
+    f.value = '';
+    f.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(700);
+  await evalJs(`(() => {
+    const s = document.querySelector('#libSort');
+    s.value = 'title';
+    s.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(300);
+  check('保存库排序偏好能保存',
+    (await evalJs(`S.libSort`)) === 'title'
+      && (await evalJs(`localStorage.getItem('pf-lib-sort')`)) === 'title');
+  await evalJs(`document.querySelector('#btnLibClose').click(); true`);
+  await sleep(250);
+
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------
   // 先验一下错误栏的「重试」按钮

@@ -447,8 +447,22 @@
         <button class="btn tiny ghost" id="btnLibClose">关闭</button>
       </div>
     </div>
-    <div class="lib-search">
-      <input id="libFilter" placeholder="搜索标题或内容…" autocomplete="off" />
+    <div class="lib-search lib-tools">
+      <input id="libFilter" placeholder="全文搜索标题、标签或正文…" autocomplete="off" />
+      <select id="libSort" aria-label="保存库排序">
+        <option value="new">最新优先</option>
+        <option value="old">最早优先</option>
+        <option value="title">按标题</option>
+      </select>
+    </div>
+    <div class="lib-bulk" id="libBulkBar">
+      <label class="lib-select-all">
+        <input type="checkbox" id="libSelectAll" />
+        <span>全选</span>
+      </label>
+      <span class="dim small" id="libSelectedCount">未选择</span>
+      <span class="grow"></span>
+      <button class="btn tiny ghost" id="btnLibDeleteSelected" disabled>删除选中</button>
     </div>
     <div class="drawer-body" id="libList"></div>
   </aside>

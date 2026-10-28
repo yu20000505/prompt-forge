@@ -64,6 +64,7 @@ const SAVED_DIR = process.env.PF_SAVED
   : path.join(DATA_DIR, 'saved');
 // 删除先进回收站，给用户一个反悔的机会；过期或超过上限再真删
 const TRASH_DIR = path.join(SAVED_DIR, '.trash');
+const FAVORITES_PATH = path.join(SAVED_DIR, '.favorites.json');
 const TRASH_RETENTION_DAYS = 7;
 const TRASH_MAX_FILES = 100;
 const HOST = '127.0.0.1';
@@ -897,7 +898,21 @@ async function readSavedEntry(name, opts = {}) {
     mtime: stat.mtime.toISOString(),
     summary,
     meta: outMeta,
+    ...(opts.searchText ? { searchText: raw.toLowerCase() } : {}),
   };
+}
+
+async function loadFavorites() {
+  try {
+    const j = JSON.parse(await fsp.readFile(FAVORITES_PATH, 'utf8'));
+    return j && typeof j === 'object' && !Array.isArray(j) ? j : {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveFavorites(map) {
+  await fsp.writeFile(FAVORITES_PATH, JSON.stringify(map, null, 2), 'utf8');
 }
 
 async function handleSave(req, res) {
@@ -946,19 +961,55 @@ async function handleSave(req, res) {
 async function handleListSaved(req, res) {
   try {
     await fsp.mkdir(SAVED_DIR, { recursive: true });
+    const url = new URL(req.url, `http://${HOST}`);
+    const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
     const names = (await fsp.readdir(SAVED_DIR))
       .filter((f) => f.endsWith('.md'))
       .sort()
       .reverse();
+    const favorites = await loadFavorites();
 
     const items = [];
     for (const name of names) {
-      const entry = await readSavedEntry(name, { light: true });
-      if (entry) items.push(entry);
+      const entry = await readSavedEntry(name, { light: true, searchText: !!q });
+      if (!entry) continue;
+      entry.favorite = !!favorites[name];
+      if (q) {
+        const idx = entry.searchText.indexOf(q);
+        if (idx < 0) continue;
+        // 搜索命中正文时，把摘要换成命中位置附近的内容，用户能看到为什么匹配
+        entry.summary = entry.searchText.slice(Math.max(0, idx - 40), idx + q.length + 70)
+          .replace(/\s+/g, ' ').trim();
+      }
+      delete entry.searchText;
+      items.push(entry);
     }
-    return json(res, 200, { dir: SAVED_DIR, count: items.length, items });
+    return json(res, 200, { dir: SAVED_DIR, count: names.length, matched: items.length, items, query: q });
   } catch (err) {
     return json(res, 500, { error: String(err?.message || err) });
+  }
+}
+
+async function handleFavoriteSaved(req, res) {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return json(res, 400, { error: '请求格式错误' });
+  }
+  const full = resolveSavedFile(body.file);
+  if (!full) return json(res, 400, { error: '文件名不合法' });
+  if (!fs.existsSync(full)) return json(res, 404, { error: '找不到这个文件' });
+
+  try {
+    const name = path.basename(full);
+    const favorites = await loadFavorites();
+    if (body.favorite) favorites[name] = true;
+    else delete favorites[name];
+    await saveFavorites(favorites);
+    return json(res, 200, { ok: true, file: name, favorite: !!body.favorite });
+  } catch (err) {
+    return json(res, 500, { error: `收藏失败：${err?.message || err}` });
   }
 }
 
@@ -1012,6 +1063,18 @@ async function handleRenameSaved(req, res) {
 
     if (path.resolve(target) !== path.resolve(full)) {
       await fsp.rename(full, target);
+    }
+
+    // 收藏是按文件名记的，重命名后要跟着搬家
+    try {
+      const favs = await loadFavorites();
+      if (favs[oldName]) {
+        delete favs[oldName];
+        favs[path.basename(target)] = true;
+        await saveFavorites(favs);
+      }
+    } catch {
+      /* 收藏信息丢了不影响重命名本身 */
     }
 
     return json(res, 200, { ok: true, file: path.basename(target), dir: SAVED_DIR });
@@ -1196,6 +1259,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/save' && req.method === 'POST') return await handleSave(req, res);
     if (pathname === '/api/saved' && req.method === 'GET') return await handleListSaved(req, res);
     if (pathname === '/api/saved/item' && req.method === 'GET') return await handleSavedItem(req, res);
+    if (pathname === '/api/saved/favorite' && req.method === 'POST') return await handleFavoriteSaved(req, res);
     if (pathname === '/api/saved/rename' && req.method === 'POST') return await handleRenameSaved(req, res);
     if (pathname === '/api/saved/delete' && req.method === 'POST') return await handleDeleteSaved(req, res);
     if (pathname === '/api/saved/restore' && req.method === 'POST') return await handleRestoreSaved(req, res);
