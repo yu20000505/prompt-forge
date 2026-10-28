@@ -461,6 +461,92 @@ body {
   justify-content: flex-end;
 }
 
+.mini-select {
+  width: auto;
+  padding: 5px 24px 5px 8px;
+  font-size: 11px;
+  border-radius: 8px;
+}
+
+/* ---------- 版本时间线 ---------- */
+.version-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  margin: 2px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink-1);
+}
+
+.version-label {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.version-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.version-chip {
+  font: inherit;
+  font-size: 10.5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.version-chip:hover:not(:disabled) {
+  border-color: rgba(var(--accent-rgb), .45);
+  color: var(--text-2);
+}
+
+.version-chip.active {
+  border-color: rgba(var(--accent-rgb), .55);
+  background: rgba(var(--accent-rgb), .15);
+  color: var(--accent-soft);
+}
+
+.version-diff {
+  flex-basis: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.version-diff .diff-del {
+  color: var(--danger-soft);
+  background: rgba(var(--danger-rgb), .12);
+  border-radius: 3px;
+  text-decoration: line-through;
+}
+
+.version-diff .diff-add {
+  color: var(--ok-soft);
+  background: rgba(var(--ok-rgb), .13);
+  border-radius: 3px;
+}
+
+.version-diff .diff-empty {
+  color: var(--dim);
+}
+
 /* ---------- 表单 ---------- */
 .field-label {
   display: block;

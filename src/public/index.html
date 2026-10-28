@@ -159,7 +159,15 @@
           <div class="result-tools">
             <button class="btn tiny" id="btnEditPrompt" disabled title="直接修改生成结果，不重新请求模型">✎ 编辑</button>
             <button class="btn tiny" id="btnRestorePrompt" disabled title="放弃手改，恢复模型原版">↺ 原版</button>
-            <button class="btn tiny" id="btnCopyAll" disabled>复制全部</button>
+            <select class="mini-select" id="copyFormat" aria-label="复制格式">
+              <option value="all">全部（带标签）</option>
+              <option value="positive">仅正向</option>
+              <option value="negative">仅负向</option>
+              <option value="plain">正向 + 负向</option>
+              <option value="json">JSON</option>
+              <option value="mj">Midjourney 参数</option>
+            </select>
+            <button class="btn tiny" id="btnCopyAll" disabled>复制</button>
             <button class="btn tiny" id="btnSavePrompt" disabled>💾 保存</button>
             <button class="btn tiny" id="btnRegen" disabled>↻ 重新生成</button>
           </div>
@@ -184,6 +192,13 @@
             <div class="result-title-row">
               <h3 id="outTitle"></h3>
               <div class="badges" id="outBadges"></div>
+            </div>
+
+            <div class="version-bar" id="versionBar" hidden>
+              <span class="version-label">版本</span>
+              <div class="version-chips" id="versionChips"></div>
+              <button class="btn tiny ghost" id="btnVersionDiff" type="button" disabled>对比上一版</button>
+              <div class="version-diff" id="versionDiff" hidden></div>
             </div>
 
             <div class="card" data-kind="positive">
@@ -325,6 +340,10 @@
           </div>
 
           <div id="charCards" hidden></div>
+          <div class="version-bar" id="charVersionBar" hidden>
+            <span class="version-label">版本</span>
+            <div class="version-chips" id="charVersionChips"></div>
+          </div>
 
           <div class="refine" id="charRefineBar" hidden>
             <div class="refine-head">
@@ -406,6 +425,10 @@
           </div>
 
           <div id="segCards" hidden></div>
+          <div class="version-bar" id="segVersionBar" hidden>
+            <span class="version-label">版本</span>
+            <div class="version-chips" id="segVersionChips"></div>
+          </div>
 
           <div class="refine" id="segRefineBar" hidden>
             <div class="refine-head">

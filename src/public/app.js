@@ -236,6 +236,7 @@ const S = {
   charOriginal: null,
   charEdited: false,
   charHistoryAt: null,
+  charVIndex: 0,
   segType: 'outfit',
   segBusy: false,
   segAbort: null,
@@ -246,6 +247,7 @@ const S = {
   segStack: [],
   segOriginal: null,
   segEdited: false,
+  segVIndex: 0,
   segBatch: null,
   segBatchMode: false,
   editorMode: null,
@@ -728,6 +730,7 @@ async function generate(opts = {}) {
       at: Date.now(),
       ms: Date.now() - started,
       stack: parsed && parsed.positive ? [parsed] : [],  // 微调版本栈，用来撤回
+      vIndex: 0,
       historyAt: null,
       original: parsed ? cloneData(parsed) : null,
       edited: false,
@@ -1830,6 +1833,7 @@ function loadSavedPrompt(meta, fallbackTitle) {
     parsed,
     at: Date.now(),
     stack: [parsed],
+    vIndex: 0,
     historyAt: null,
     original: cloneData(parsed),
     edited: false,
@@ -1867,6 +1871,7 @@ function loadSavedCharacter(meta, fallbackTitle) {
 
   S.charData = d;
   S.charStack = [d];
+  S.charVIndex = 0;
   S.charOriginal = cloneData(d);
   S.charEdited = false;
   S.charHistoryAt = null;
@@ -1907,6 +1912,7 @@ function loadSavedSegment(meta, fallbackTitle) {
   S.segData = d;
   S.segSentence = str(meta.sentence);
   S.segStack = [d];
+  S.segVIndex = 0;
   S.segMeta = {
     sentence: S.segSentence,
     type,
@@ -2232,6 +2238,7 @@ function restoreHistoryEntry(h) {
     }
     S.charData = d;
     S.charStack = [d];
+    S.charVIndex = 0;
     S.charOriginal = cloneData(d);
     S.charEdited = false;
     S.charSentence = h.sentence || '';
@@ -2274,6 +2281,7 @@ function restoreHistoryEntry(h) {
     S.segData = d;
     S.segSentence = h.sentence || '';
     S.segStack = [d];
+    S.segVIndex = 0;
     S.segMeta = {
       sentence: S.segSentence,
       type,
@@ -2310,6 +2318,7 @@ function restoreHistoryEntry(h) {
     parsed,
     at: h.at,
     stack: [parsed],
+    vIndex: 0,
     historyAt: h.at,
     original: cloneData(parsed),
     edited: false,
@@ -2532,8 +2541,36 @@ function renderCharRefineChips() {
   }
 }
 
+function updateCharVersionUi() {
+  const stack = S.charStack || [];
+  const bar = $('#charVersionBar');
+  if (!bar) return;
+  bar.hidden = stack.length <= 1;
+  if (bar.hidden) return;
+  const chips = $('#charVersionChips');
+  chips.innerHTML = '';
+  stack.forEach((_, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'version-chip' + (i === S.charVIndex ? ' active' : '');
+    b.textContent = `v${i + 1}`;
+    b.title = i === 0 ? '模型原版' : `第 ${i + 1} 版`;
+    b.addEventListener('click', () => selectCharVersion(i));
+    chips.appendChild(b);
+  });
+}
+
+function selectCharVersion(i) {
+  if (!S.charStack?.[i]) return;
+  S.charVIndex = i;
+  S.charData = cloneData(S.charStack[i]);
+  S.charEdited = false;
+  renderCharacters(S.charData);
+  updateCharacterHistoryEntry();
+}
+
 function updateCharRefineUi() {
-  const n = Math.max(0, (S.charStack || []).length - 1);
+  const n = Math.max(0, Number(S.charVIndex) || 0);
   if (!S.charBusy) {
     $('#charRefineStatus').textContent = n > 0 ? `已微调 ${n} 次` : '';
   }
@@ -2541,6 +2578,7 @@ function updateCharRefineUi() {
   $('#btnCharRefine').disabled = S.charBusy;
   $('#charRefineInput').disabled = S.charBusy;
   $('#charRefineChips').querySelectorAll('button').forEach((b) => { b.disabled = S.charBusy; });
+  updateCharVersionUi();
 }
 
 async function refineCharacter(instructionArg) {
@@ -2625,7 +2663,9 @@ async function refineCharacter(instructionArg) {
     const parsed = normalizeChar(parseJsonLoose(acc));
     if (!parsed) throw new Error('模型返回的不是标准 JSON，再试一次或换个模型');
 
+    if (S.charVIndex < S.charStack.length - 1) S.charStack = S.charStack.slice(0, S.charVIndex + 1);
     S.charStack.push(parsed);
+    S.charVIndex = S.charStack.length - 1;
     S.charOriginal = cloneData(parsed);
     S.charEdited = false;
     renderCharacters(parsed);
@@ -2648,11 +2688,10 @@ async function refineCharacter(instructionArg) {
 }
 
 function undoCharRefine() {
-  if (!S.charStack || S.charStack.length <= 1) return;
-  S.charStack.pop();
-  const d = S.charStack[S.charStack.length - 1];
+  if (!S.charStack || S.charVIndex <= 0) return;
+  S.charVIndex--;
+  const d = cloneData(S.charStack[S.charVIndex]);
   S.charData = d;
-  S.charOriginal = cloneData(d);
   S.charEdited = false;
   renderCharacters(d);
   updateCharacterHistoryEntry();
@@ -2753,6 +2792,7 @@ async function generateCharacters() {
     }
 
     S.charStack = [parsed];
+    S.charVIndex = 0;
     S.charOriginal = cloneData(parsed);
     S.charEdited = false;
     renderCharacters(parsed);
@@ -2915,6 +2955,7 @@ async function generateSegment() {
     S.segData = parsed;
     S.segSentence = sentence;
     S.segStack = [parsed];
+    S.segVIndex = 0;
     S.segOriginal = cloneData(parsed);
     S.segEdited = false;
     S.segMeta = {
@@ -3065,8 +3106,37 @@ function updateSegmentHistoryEntry() {
   saveHistory();
 }
 
+function updateSegVersionUi() {
+  const stack = S.segStack || [];
+  const bar = $('#segVersionBar');
+  if (!bar) return;
+  bar.hidden = stack.length <= 1 || S.segBatchMode;
+  if (bar.hidden) return;
+  const chips = $('#segVersionChips');
+  chips.innerHTML = '';
+  stack.forEach((_, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'version-chip' + (i === S.segVIndex ? ' active' : '');
+    b.textContent = `v${i + 1}`;
+    b.title = i === 0 ? '模型原版' : `第 ${i + 1} 版`;
+    b.addEventListener('click', () => selectSegVersion(i));
+    chips.appendChild(b);
+  });
+}
+
+function selectSegVersion(i) {
+  if (!S.segStack?.[i]) return;
+  S.segVIndex = i;
+  S.segData = cloneData(S.segStack[i]);
+  S.segText = S.segData.tags || '';
+  S.segEdited = false;
+  renderSegment(S.segData);
+  updateSegmentHistoryEntry();
+}
+
 function updateSegRefineUi() {
-  const n = Math.max(0, (S.segStack || []).length - 1);
+  const n = Math.max(0, Number(S.segVIndex) || 0);
   if (!S.segBusy) {
     $('#segRefineStatus').textContent = n > 0 ? `已微调 ${n} 次` : '';
   }
@@ -3074,6 +3144,7 @@ function updateSegRefineUi() {
   $('#btnSegRefine').disabled = S.segBusy;
   $('#segRefineInput').disabled = S.segBusy;
   $('#segRefineChips').querySelectorAll('button').forEach((b) => { b.disabled = S.segBusy; });
+  updateSegVersionUi();
 }
 
 async function refineSegment(instructionArg) {
@@ -3161,7 +3232,9 @@ async function refineSegment(instructionArg) {
     const parsed = normalizeSegment(parseJsonLoose(acc));
     if (!parsed) throw new Error('模型返回的不是标准 JSON，再试一次或换个模型');
 
+    if (S.segVIndex < S.segStack.length - 1) S.segStack = S.segStack.slice(0, S.segVIndex + 1);
     S.segStack.push(parsed);
+    S.segVIndex = S.segStack.length - 1;
     S.segData = parsed;
     S.segOriginal = cloneData(parsed);
     S.segEdited = false;
@@ -3188,11 +3261,10 @@ async function refineSegment(instructionArg) {
 
 function undoSegmentRefine() {
   const stack = S.segStack || [];
-  if (stack.length <= 1) return;
-  stack.pop();
-  const d = stack[stack.length - 1];
+  if (S.segVIndex <= 0) return;
+  S.segVIndex--;
+  const d = cloneData(stack[S.segVIndex]);
   S.segData = d;
-  S.segOriginal = cloneData(d);
   S.segEdited = false;
   renderSegment(d);
   updateSegmentHistoryEntry();
@@ -3358,6 +3430,7 @@ function renderSegmentBatch(meta = {}) {
   $('#segStream').hidden = true;
   $('#segNote').hidden = true;
   $('#segRefineBar').hidden = true;
+  $('#segVersionBar').hidden = true;
 
   const head = document.createElement('div');
   head.className = 'result-title-row';
@@ -4003,6 +4076,10 @@ function restorePromptOriginal() {
   const cur = S.current;
   if (!cur?.original) return;
   cur.parsed = cloneData(cur.original);
+  if (cur.stack?.length) {
+    cur.vIndex = cur.stack.length - 1;
+    cur.stack[cur.vIndex] = cloneData(cur.original);
+  }
   cur.edited = false;
   updateHistoryEntry(cur);
   renderResult(cur.parsed, { sentence: cur.sentence, language: cur.language });
@@ -4012,6 +4089,10 @@ function restorePromptOriginal() {
 function restoreCharOriginal() {
   if (!S.charOriginal) return;
   S.charData = cloneData(S.charOriginal);
+  if (S.charStack?.length) {
+    S.charVIndex = S.charStack.length - 1;
+    S.charStack[S.charVIndex] = cloneData(S.charOriginal);
+  }
   S.charEdited = false;
   renderCharacters(S.charData);
   updateCharacterHistoryEntry();
@@ -4021,6 +4102,10 @@ function restoreCharOriginal() {
 function restoreSegOriginal() {
   if (!S.segOriginal) return;
   S.segData = cloneData(S.segOriginal);
+  if (S.segStack?.length) {
+    S.segVIndex = S.segStack.length - 1;
+    S.segStack[S.segVIndex] = cloneData(S.segOriginal);
+  }
   S.segText = S.segData.tags || '';
   S.segEdited = false;
   updateSegmentHistoryEntry();
@@ -4050,9 +4135,168 @@ function renderRefineChips() {
   }
 }
 
+function updatePromptVersionUi() {
+  const cur = S.current;
+  const stack = cur?.stack || [];
+  const bar = $('#versionBar');
+  if (!bar) return;
+  const show = stack.length > 1;
+  bar.hidden = !show;
+  if (!show) {
+    $('#versionDiff').hidden = true;
+    return;
+  }
+
+  const chips = $('#versionChips');
+  chips.innerHTML = '';
+  stack.forEach((_, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'version-chip' + (i === cur.vIndex ? ' active' : '');
+    b.textContent = `v${i + 1}`;
+    b.title = i === 0 ? '模型原版' : `第 ${i + 1} 版`;
+    b.addEventListener('click', () => selectPromptVersion(i));
+    chips.appendChild(b);
+  });
+
+  const btn = $('#btnVersionDiff');
+  btn.disabled = (Number(cur.vIndex) || 0) <= 0;
+  btn.textContent = $('#versionDiff').hidden ? '对比上一版' : '收起对比';
+  if (!$('#versionDiff').hidden) renderPromptDiff();
+}
+
+function selectPromptVersion(i) {
+  const cur = S.current;
+  if (!cur?.stack?.[i]) return;
+  cur.vIndex = i;
+  cur.parsed = cloneData(cur.stack[i]);
+  cur.edited = false;
+  renderResult(cur.parsed, { sentence: cur.sentence, language: cur.language });
+  updateHistoryEntry(cur);
+  hideErr();
+}
+
+function tokenizeDiff(text) {
+  return String(text || '').split(/(\s+|[，,;；])/).filter((x) => x !== '');
+}
+
+function diffParts(oldText, newText) {
+  const a = tokenizeDiff(oldText);
+  const b = tokenizeDiff(newText);
+  const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  const removed = [];
+  const added = [];
+  let i = a.length;
+  let j = b.length;
+  while (i > 0 && j > 0) {
+    if (a[i - 1] === b[j - 1]) {
+      i--;
+      j--;
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+      removed.unshift(a[i - 1]);
+      i--;
+    } else {
+      added.unshift(b[j - 1]);
+      j--;
+    }
+  }
+  while (i > 0) removed.unshift(a[--i]);
+  while (j > 0) added.unshift(b[--j]);
+  return { removed: removed.join('').trim(), added: added.join('').trim() };
+}
+
+function appendDiffBlock(container, label, oldText, newText) {
+  const diff = diffParts(oldText, newText);
+  const title = document.createElement('div');
+  title.className = 'diff-empty';
+  title.textContent = label;
+  container.appendChild(title);
+  if (!diff.removed && !diff.added) {
+    const same = document.createElement('div');
+    same.className = 'diff-empty';
+    same.textContent = '内容没有变化';
+    container.appendChild(same);
+    return;
+  }
+  if (diff.removed) {
+    const line = document.createElement('div');
+    const minus = document.createElement('span');
+    minus.className = 'diff-del';
+    minus.textContent = `− ${diff.removed}`;
+    line.appendChild(minus);
+    container.appendChild(line);
+  }
+  if (diff.added) {
+    const line = document.createElement('div');
+    const plus = document.createElement('span');
+    plus.className = 'diff-add';
+    plus.textContent = `+ ${diff.added}`;
+    line.appendChild(plus);
+    container.appendChild(line);
+  }
+}
+
+function renderPromptDiff() {
+  const cur = S.current;
+  const box = $('#versionDiff');
+  if (!cur?.stack || cur.vIndex <= 0) {
+    box.hidden = true;
+    return;
+  }
+  const prev = cur.stack[cur.vIndex - 1];
+  const next = cur.stack[cur.vIndex];
+  box.innerHTML = '';
+  appendDiffBlock(box, `正向 · v${cur.vIndex} → v${cur.vIndex + 1}`, prev.positive, next.positive);
+  if (prev.negative !== next.negative) {
+    const split = document.createElement('div');
+    split.style.height = '6px';
+    box.appendChild(split);
+    appendDiffBlock(box, '负向', prev.negative, next.negative);
+  }
+  box.hidden = false;
+}
+
+function promptCopyText() {
+  const r = S.rendered || {};
+  const p = S.current?.parsed || {};
+  const mode = $('#copyFormat').value;
+  if (mode === 'positive') return r.positive || '';
+  if (mode === 'negative') return r.negative || '';
+  if (mode === 'plain') return [r.positive, r.negative].filter(Boolean).join('\n\n');
+  if (mode === 'json') {
+    return JSON.stringify({
+      title: p.title || '',
+      positive: r.positive || '',
+      negative: r.negative || '',
+      translation: p.translation || '',
+      params: p.params || {},
+      keywords: p.keywords || [],
+    }, null, 2);
+  }
+  if (mode === 'mj') {
+    const params = p.params || {};
+    const extra = String(params.extra || '').trim();
+    let text = r.positive || '';
+    if (params.aspect_ratio && !/--ar\b/.test(extra) && !/--ar\b/.test(text)) {
+      text += ` --ar ${params.aspect_ratio}`;
+    }
+    if (extra) text += ` ${extra}`;
+    if (r.negative && !/--no\b/.test(extra) && !/--no\b/.test(text)) {
+      text += ` --no ${r.negative}`;
+    }
+    return text.trim();
+  }
+  return `Positive prompt: ${r.positive || ''}\n\nNegative prompt: ${r.negative || ''}`;
+}
+
 function updateRefineUi() {
   const stack = S.current?.stack || [];
-  const n = Math.max(0, stack.length - 1);
+  const n = Math.max(0, Number(S.current?.vIndex) || 0);
   if (!S.busy) {
     $('#refineStatus').textContent = n > 0 ? `已微调 ${n} 次` : '';
   }
@@ -4060,6 +4304,7 @@ function updateRefineUi() {
   $('#btnRefine').disabled = S.busy;
   $('#refineInput').disabled = S.busy;
   $('#refineChips').querySelectorAll('button').forEach((b) => { b.disabled = S.busy; });
+  updatePromptVersionUi();
 }
 
 // 微调只把「没拼置顶词的原始提示词」发给模型，避免置顶词被改写或重复拼接
@@ -4150,7 +4395,10 @@ async function refine(instructionArg) {
     const parsed = parseResult(acc);
     if (!parsed || !parsed.positive) throw new Error('模型返回的不是标准 JSON，再试一次或换个模型');
 
+    // 从旧版本继续微调时，丢弃它后面的版本，形成一条线性时间线
+    if (cur.vIndex < cur.stack.length - 1) cur.stack = cur.stack.slice(0, cur.vIndex + 1);
     cur.stack.push(parsed);
+    cur.vIndex = cur.stack.length - 1;
     cur.parsed = parsed;
     cur.original = cloneData(parsed);
     cur.edited = false;
@@ -4176,10 +4424,9 @@ async function refine(instructionArg) {
 
 function undoRefine() {
   const cur = S.current;
-  if (!cur?.stack || cur.stack.length <= 1) return;
-  cur.stack.pop();
-  cur.parsed = cur.stack[cur.stack.length - 1];
-  cur.original = cloneData(cur.parsed);
+  if (!cur?.stack || cur.vIndex <= 0) return;
+  cur.vIndex--;
+  cur.parsed = cloneData(cur.stack[cur.vIndex]);
   cur.edited = false;
   renderResult(cur.parsed, { sentence: cur.sentence, language: cur.language });
   updateHistoryEntry(cur);
@@ -4484,9 +4731,13 @@ function bind() {
   });
 
   $('#btnCopyAll').addEventListener('click', (e) => {
-    const r = S.rendered || {};
-    const text = `Positive prompt: ${r.positive || ''}\n\nNegative prompt: ${r.negative || ''}`;
-    copyText(text, e.currentTarget);
+    copyText(promptCopyText(), e.currentTarget);
+  });
+  $('#btnVersionDiff').addEventListener('click', () => {
+    const box = $('#versionDiff');
+    box.hidden = !box.hidden;
+    if (box.hidden) box.innerHTML = '';
+    updatePromptVersionUi();
   });
 
   $('#btnSavePrompt').addEventListener('click', () => {

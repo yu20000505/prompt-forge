@@ -491,6 +491,45 @@ async function main() {
   check('微调次数已显示', /已微调 1 次/.test(statusAfterRefine), statusAfterRefine);
   check('微调后撤回按钮可用', (await evalJs(`document.querySelector('#btnUndoRefine').disabled`)) === false);
 
+  // 版本时间线
+  const versionChips = await evalJs(`[...document.querySelectorAll('#versionChips .version-chip')].map((b) => ({ t: b.textContent, active: b.classList.contains('active') }))`);
+  check('微调后出现两版时间线',
+    versionChips.length === 2 && versionChips[0].t === 'v1' && versionChips[1].active,
+    JSON.stringify(versionChips));
+  await evalJs(`document.querySelectorAll('#versionChips .version-chip')[0].click(); true`);
+  await sleep(300);
+  check('点 v1 能恢复到模型原版',
+    (await evalJs(`document.querySelector('#outPositive').textContent`)) === pos);
+  await evalJs(`document.querySelectorAll('#versionChips .version-chip')[1].click(); true`);
+  await sleep(300);
+  check('点 v2 能回到微调后的版本',
+    (await evalJs(`document.querySelector('#outPositive').textContent`)) === posAfterRefine);
+  await evalJs(`document.querySelector('#btnVersionDiff').click(); true`);
+  await sleep(250);
+  check('版本差异能高亮显示',
+    (await visible('#versionDiff')) === true
+      && (await evalJs(`document.querySelectorAll('#versionDiff .diff-add, #versionDiff .diff-del').length`)) > 0);
+  await evalJs(`document.querySelector('#btnVersionDiff').click(); true`);
+  await sleep(150);
+
+  // 复制格式
+  const copyModes = await evalJs(`(() => {
+    const sel = document.querySelector('#copyFormat');
+    const out = {};
+    sel.value = 'positive';
+    out.positive = promptCopyText();
+    sel.value = 'json';
+    out.json = JSON.parse(promptCopyText());
+    sel.value = 'mj';
+    out.mj = promptCopyText();
+    sel.value = 'all';
+    return out;
+  })()`);
+  check('复制格式：仅正向', copyModes.positive === (await evalJs(`S.rendered.positive`)));
+  check('复制格式：JSON 可解析且含正负向',
+    !!copyModes.json.positive && !!copyModes.json.negative && !!copyModes.json.params);
+  check('复制格式：Midjourney 带 --ar 参数', /--ar\s+\d+:\d+/.test(copyModes.mj), copyModes.mj.slice(-40));
+
   // 撤回
   await evalJs(`document.querySelector('#btnUndoRefine').click(); true`);
   await sleep(400);
@@ -940,6 +979,15 @@ async function main() {
   check('角色微调同步更新历史', /nighttime/i.test(charHistRefined?.prompt_en || ''), (charHistRefined?.prompt_en || '').slice(0, 60));
   check('微调后撤回可用',
     (await evalJs(`document.querySelector('#btnCharUndoRefine').disabled`)) === false);
+  const charVersionChips = await evalJs(`[...document.querySelectorAll('#charVersionChips .version-chip')].map((b) => ({ t: b.textContent, active: b.classList.contains('active') }))`);
+  check('角色微调后出现版本时间线',
+    charVersionChips.length === 2 && charVersionChips[1].active, JSON.stringify(charVersionChips));
+  await evalJs(`document.querySelectorAll('#charVersionChips .version-chip')[0].click(); true`);
+  await sleep(300);
+  check('角色版本可回到 v1',
+    (await evalJs(`document.querySelectorAll('#charCards .card-body')[0].textContent`)) === enBefore);
+  await evalJs(`document.querySelectorAll('#charVersionChips .version-chip')[1].click(); true`);
+  await sleep(300);
 
   // 撤回
   await evalJs(`document.querySelector('#btnCharUndoRefine').click(); true`);
@@ -1522,6 +1570,15 @@ async function main() {
     Number(await evalJs(`document.querySelector('#historyCount').textContent`)) === histAfterSeg);
   const histSegItem = await evalJs(`JSON.parse(localStorage.getItem('prompt-forge-history-v1') || '[]').find(h => h.kind === 'segment')`);
   check('细分微调同步更新历史', /ornate/.test(histSegItem?.tags || ''), (histSegItem?.tags || '').slice(0, 40));
+  const segVersionChips = await evalJs(`[...document.querySelectorAll('#segVersionChips .version-chip')].map((b) => ({ t: b.textContent, active: b.classList.contains('active') }))`);
+  check('细分微调后出现版本时间线',
+    segVersionChips.length === 2 && segVersionChips[1].active, JSON.stringify(segVersionChips));
+  await evalJs(`document.querySelectorAll('#segVersionChips .version-chip')[0].click(); true`);
+  await sleep(300);
+  check('细分版本可回到 v1',
+    (await evalJs(`document.querySelectorAll('#segCards .card-body')[0].textContent`)) === segTags);
+  await evalJs(`document.querySelectorAll('#segVersionChips .version-chip')[1].click(); true`);
+  await sleep(300);
 
   await evalJs(`document.querySelector('#btnSegUndoRefine').click(); true`);
   await sleep(500);
