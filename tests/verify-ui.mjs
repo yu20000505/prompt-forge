@@ -1911,6 +1911,54 @@ async function main() {
   await evalJs(`document.querySelector('#mainTabs .tab[data-view="prompt"]').click(); true`);
   await sleep(300);
 
+  // ---------- 12.10 失败自动重试 ----------
+  const MOCK_STATS = `http://127.0.0.1:${process.env.PF_MOCK_PORT || 43199}/__mock-stats`;
+  const histBeforeRetry = Number(await evalJs(`document.querySelector('#historyCount').textContent`));
+  await evalJs(`(() => {
+    const s = document.querySelector('#sentence');
+    s.value = 'MOCK-RETRY-429 雨夜的霓虹街头，一位女剑客回头';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#btnGenerate').click();
+    return true;
+  })()`);
+  await sleep(350);
+  const retryLabel = await evalJs(`document.querySelector('#streamLabel').textContent`);
+  check('429 会自动重试并显示重试状态', /重试/.test(retryLabel), retryLabel);
+  let retryDone = false;
+  for (let i = 0; i < 80; i++) {
+    if ((await evalJs(`S.busy`)) === false && (await visible('#cards'))) { retryDone = true; break; }
+    await sleep(200);
+  }
+  const retryErr = await evalJs(`document.querySelector('#err').hidden ? '' : document.querySelector('#err').textContent`);
+  check('429 重试后生成成功',
+    retryDone && /cinematic portrait/.test(await evalJs(`document.querySelector('#outPositive').textContent`)), retryErr);
+  const retryStats = await (await fetch(MOCK_STATS)).json();
+  check('429 确实重试了一次（共请求两次）', retryStats.counts['MOCK-RETRY-429'] === 2,
+    JSON.stringify(retryStats.counts));
+  check('重试成功只写一条历史',
+    Number(await evalJs(`document.querySelector('#historyCount').textContent`)) === histBeforeRetry + 1);
+
+  const histBefore401 = Number(await evalJs(`document.querySelector('#historyCount').textContent`));
+  await evalJs(`(() => {
+    const s = document.querySelector('#sentence');
+    s.value = 'MOCK-401 雨夜的霓虹街头';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#btnGenerate').click();
+    return true;
+  })()`);
+  let err401 = '';
+  for (let i = 0; i < 80; i++) {
+    err401 = await evalJs(`document.querySelector('#err').hidden ? '' : document.querySelector('#err').textContent`);
+    if (err401 && (await evalJs(`S.busy`)) === false) break;
+    await sleep(200);
+  }
+  check('401 不重试且给出 Key 提示', /API Key|401/.test(err401), err401);
+  const stats401 = await (await fetch(MOCK_STATS)).json();
+  check('401 只请求一次', stats401.counts['MOCK-401'] === 1, JSON.stringify(stats401.counts));
+  check('401 失败不写历史',
+    Number(await evalJs(`document.querySelector('#historyCount').textContent`)) === histBefore401);
+  await evalJs(`hideErr(); true`);
+
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------
   // 先验一下错误栏的「重试」按钮

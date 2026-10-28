@@ -91,6 +91,17 @@ function extractApiPinned(sys) {
   return m ? m[1].trim() : '';
 }
 
+// 测试用的上游状态：按 MOCK-xxx 标记计数，用来验证重试/不重试
+const callCounts = new Map();
+function markerCount(marker) {
+  return callCounts.get(marker) || 0;
+}
+function bumpMarker(body) {
+  const marker = (String(body).match(/MOCK-[A-Z0-9-]+/) || [])[0] || '';
+  if (marker) callCounts.set(marker, markerCount(marker) + 1);
+  return marker;
+}
+
 // 从微调请求里抽出一段（回显用，方便验证请求内容）
 function section(text, name) {
   const m = String(text).match(new RegExp(`【${name}】\\n([\\s\\S]*?)(?:\\n\\n|$)`));
@@ -143,6 +154,14 @@ function pickSample(payload) {
 }
 
 const server = http.createServer((req, res) => {
+  if (req.url === '/__mock-stats') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({
+      counts: Object.fromEntries(callCounts),
+      total: [...callCounts.values()].reduce((a, b) => a + b, 0),
+    }));
+  }
+
   if (req.url === '/v1/models' || req.url === '/models') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ data: [{ id: 'mock-prompt-model' }, { id: 'mock-lite' }] }));
@@ -156,6 +175,16 @@ const server = http.createServer((req, res) => {
       try {
         payload = JSON.parse(body);
       } catch { /* 忽略 */ }
+
+      const marker = bumpMarker(body);
+      if (marker === 'MOCK-401') {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: { message: 'mock invalid api key' } }));
+      }
+      if (marker === 'MOCK-RETRY-429' && markerCount(marker) === 1) {
+        res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' });
+        return res.end(JSON.stringify({ error: { message: 'mock rate limited once' } }));
+      }
 
       const sys = String(payload?.messages?.[0]?.content || '');
 

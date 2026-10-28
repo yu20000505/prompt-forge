@@ -71,6 +71,11 @@ const BASE_PORT = Number(process.env.PORT || process.argv[2] || 43125);
 // 上游流式接口超过这个时间没有任何数据，就判定为卡死并中止；测试可用环境变量调小
 const STREAM_IDLE_MS = Math.max(5000, Number(process.env.PF_STREAM_IDLE_MS) || 120000);
 
+// 429 / 5xx / 网络抖动自动重试；只在还没给浏览器发任何 delta 之前重试
+const RETRY_MAX = Math.max(0, Number(process.env.PF_RETRY_MAX ?? 2));
+const RETRY_BASE_MS = Math.max(100, Number(process.env.PF_RETRY_BASE_MS) || 700);
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+
 const DEFAULT_CONFIG = {
   baseURL: 'https://api.deepseek.com',
   apiKey: '',
@@ -255,6 +260,44 @@ async function resolveUpstream(req, res) {
 }
 
 // 把上游流式响应转发给浏览器；生成和微调共用这一段
+function upstreamErrorMessage(status, text) {
+  const hint =
+    status === 401 || status === 403 ? '（API Key 无效或没有权限）'
+      : status === 404 ? '（BaseURL 或模型名不对）'
+        : status === 429 ? '（请求太频繁或余额不足）'
+          : status >= 500 ? '（上游服务端暂时不可用）'
+            : '';
+  return `接口返回 ${status}${hint}：${extractError(text) || '无内容'}`;
+}
+
+function sleepWithAbort(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      const err = new Error('aborted');
+      err.name = 'AbortError';
+      reject(err);
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      const err = new Error('aborted');
+      err.name = 'AbortError';
+      reject(err);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function retryWaitMs(attempt, retryAfter) {
+  const header = Number(retryAfter);
+  if (Number.isFinite(header) && header > 0) return Math.min(header * 1000, 5000);
+  return Math.min(RETRY_BASE_MS * (2 ** attempt), 5000);
+}
+
 async function proxyChatStream(req, res, { messages, baseURL, apiKey, model, temperature, maxTokens }) {
   const ac = new AbortController();
   // 注意：不能用 req.on('close')，请求体读完后它就会触发，会把上游流误杀。
@@ -293,32 +336,49 @@ async function proxyChatStream(req, res, { messages, baseURL, apiKey, model, tem
   armIdle();
 
   try {
-    const upstream = await fetch(`${baseURL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        Accept: 'text/event-stream',
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: Number.isFinite(temperature) ? temperature : 0.85,
-        stream: true,
-        max_tokens: Number.isFinite(Number(maxTokens)) ? Number(maxTokens) : 2200,
-      }),
-      signal: ac.signal,
-    });
-    armIdle();
+    let upstream = null;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        upstream = await fetch(`${baseURL}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+            Accept: 'text/event-stream',
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            temperature: Number.isFinite(temperature) ? temperature : 0.85,
+            stream: true,
+            max_tokens: Number.isFinite(Number(maxTokens)) ? Number(maxTokens) : 2200,
+          }),
+          signal: ac.signal,
+        });
+      } catch (err) {
+        if (ac.signal.aborted) throw err;
+        const retryable = !(err?.name === 'AbortError');
+        if (!retryable || attempt >= RETRY_MAX) throw err;
+        const wait = retryWaitMs(attempt);
+        send({ type: 'retry', attempt: attempt + 1, waitMs: wait });
+        clearIdle();
+        await sleepWithAbort(wait, ac.signal);
+        armIdle();
+        continue;
+      }
+      armIdle();
 
-    if (!upstream.ok) {
+      if (upstream.ok) break;
+
       const text = await upstream.text().catch(() => '');
-      const hint =
-        upstream.status === 401 ? '（API Key 无效或已过期）'
-          : upstream.status === 404 ? '（BaseURL 或模型名不对）'
-            : upstream.status === 429 ? '（请求太频繁或余额不足）'
-              : '';
-      throw new Error(`接口返回 ${upstream.status}${hint}：${extractError(text) || '无内容'}`);
+      if (!RETRYABLE_STATUS.has(upstream.status) || attempt >= RETRY_MAX) {
+        throw new Error(upstreamErrorMessage(upstream.status, text));
+      }
+      const wait = retryWaitMs(attempt, upstream.headers.get('retry-after'));
+      send({ type: 'retry', attempt: attempt + 1, waitMs: wait, status: upstream.status });
+      clearIdle();
+      await sleepWithAbort(wait, ac.signal);
+      armIdle();
     }
 
     const ctype = String(upstream.headers.get('content-type') || '');

@@ -483,6 +483,8 @@ async function generate(opts = {}) {
           $('#streamText').textContent = acc;
           $('#streamText').scrollTop = $('#streamText').scrollHeight;
           $('#streamLabel').textContent = `${imported ? '正在改写' : '正在生成'}… ${acc.length} 字（Esc 取消）`;
+        } else if (evt.type === 'retry') {
+          $('#streamLabel').textContent = `接口暂时失败，第 ${evt.attempt} 次重试…`;
         } else if (evt.type === 'error') {
           gotError = evt.message;
         }
@@ -1977,6 +1979,8 @@ async function refineCharacter(instructionArg) {
         if (evt.type === 'delta') {
           acc += evt.text;
           $('#charRefineStatus').textContent = `微调中… ${acc.length} 字`;
+        } else if (evt.type === 'retry') {
+          $('#charRefineStatus').textContent = `接口暂时失败，第 ${evt.attempt} 次重试…`;
         } else if (evt.type === 'error') {
           gotError = evt.message;
         }
@@ -2094,6 +2098,8 @@ async function generateCharacters() {
           $('#charStreamText').textContent = acc;
           $('#charStreamText').scrollTop = $('#charStreamText').scrollHeight;
           $('#charStreamLabel').textContent = `正在生成… ${acc.length} 字（Esc 取消）`;
+        } else if (evt.type === 'retry') {
+          $('#charStreamLabel').textContent = `接口暂时失败，第 ${evt.attempt} 次重试…`;
         } else if (evt.type === 'error') {
           gotError = evt.message;
         }
@@ -2258,6 +2264,8 @@ async function generateSegment() {
           $('#segStreamText').textContent = acc;
           $('#segStreamText').scrollTop = $('#segStreamText').scrollHeight;
           $('#segStreamLabel').textContent = `正在生成… ${acc.length} 字（Esc 取消）`;
+        } else if (evt.type === 'retry') {
+          $('#segStreamLabel').textContent = `接口暂时失败，第 ${evt.attempt} 次重试…`;
         } else if (evt.type === 'error') {
           gotError = evt.message;
         }
@@ -2503,6 +2511,8 @@ async function refineSegment(instructionArg) {
         if (evt.type === 'delta') {
           acc += evt.text;
           $('#segRefineStatus').textContent = `微调中… ${acc.length} 字`;
+        } else if (evt.type === 'retry') {
+          $('#segRefineStatus').textContent = `接口暂时失败，第 ${evt.attempt} 次重试…`;
         } else if (evt.type === 'error') {
           gotError = evt.message;
         }
@@ -2600,6 +2610,8 @@ async function requestSegmentOnce(type, sentence, extra, onDelta) {
       if (evt.type === 'delta') {
         acc += evt.text;
         if (onDelta) onDelta(acc);
+      } else if (evt.type === 'retry') {
+        $('#segStreamLabel').textContent = `第 ${evt.attempt} 次重试：接口暂时失败…`;
       } else if (evt.type === 'error') {
         gotError = evt.message;
       }
@@ -3417,6 +3429,8 @@ async function refine(instructionArg) {
         if (evt.type === 'delta') {
           acc += evt.text;
           $('#refineStatus').textContent = `微调中… ${acc.length} 字`;
+        } else if (evt.type === 'retry') {
+          $('#refineStatus').textContent = `接口暂时失败，第 ${evt.attempt} 次重试…`;
         } else if (evt.type === 'error') {
           gotError = evt.message;
         }
