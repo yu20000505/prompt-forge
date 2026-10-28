@@ -8,29 +8,29 @@ on:
 
 jobs:
   verify:
-    name: Static checks + server smoke test
+    name: Static checks + unit tests + UI regression
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Syntax check
         run: |
           node --check src/server.mjs
           node --check src/styles.mjs
           node --check src/public/app.js
+          node --check src/public/i18n.js
           node --check build/sign.mjs
           node build/sign.mjs --help > /dev/null
 
-      - name: Static checks (ids / prompt templates / theme contrast)
-        run: |
-          node tests/check-ids.mjs
-          node tests/check-prompts.mjs
-          node tests/check-themes.mjs
-          node tests/check-ideas.mjs
+      - name: Static checks (ids / prompt templates / theme contrast / ideas)
+        run: npm run test:static
+
+      - name: Server unit tests
+        run: npm run test:server
 
       - name: Server smoke test
         env:
@@ -50,3 +50,65 @@ jobs:
           echo "--- assets ---"
           curl -fsS -o /dev/null -w "styles.css %{http_code}\n" http://127.0.0.1:43200/styles.css
           curl -fsS -o /dev/null -w "app.js %{http_code}\n" http://127.0.0.1:43200/app.js
+          curl -fsS -o /dev/null -w "i18n.js %{http_code}\n" http://127.0.0.1:43200/i18n.js
+
+      - name: Install Chinese fonts
+        run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+
+      - name: UI regression (headless Chrome)
+        env:
+          CHROME_PATH: google-chrome
+        run: npm test
+
+  windows-smoke:
+    name: Windows build smoke test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Static checks
+        run: npm run test:static
+
+      - name: Server unit tests
+        run: npm run test:server
+
+      - name: Build single-file exe
+        run: npm run build:exe
+
+      - name: Start exe and probe endpoints
+        shell: pwsh
+        run: |
+          $cfg = Join-Path $env:TEMP "pf-ci-config.json"
+          $saved = Join-Path $env:TEMP "pf-ci-saved"
+          $env:NO_OPEN = '1'
+          $env:PF_CONFIG = $cfg
+          $env:PF_SAVED = $saved
+          $p = Start-Process -FilePath "release\PromptForge.exe" -ArgumentList 43211 -PassThru -WindowStyle Hidden
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 40; $i++) {
+              try {
+                $config = Invoke-RestMethod "http://127.0.0.1:43211/api/config"
+                if ($config.version) { $ok = $true; break }
+              } catch { }
+              Start-Sleep -Milliseconds 500
+            }
+            if (-not $ok) { throw "2.0 exe 没有在 20 秒内启动" }
+            if ($config.version -ne '2.0.0') { throw "版本号不对: $($config.version)" }
+            $vi = (Get-Item "release\PromptForge.exe").VersionInfo
+            if ($vi.ProductName -ne 'Prompt Forge' -or $vi.FileVersion -notlike '2.0.0*') {
+              throw "exe 版本资源不对: $($vi.ProductName) / $($vi.FileVersion)"
+            }
+            $home = Invoke-WebRequest "http://127.0.0.1:43211/" -UseBasicParsing
+            $i18n = Invoke-WebRequest "http://127.0.0.1:43211/i18n.js" -UseBasicParsing
+            if ($home.StatusCode -ne 200 -or $i18n.StatusCode -ne 200) { throw "静态资源不可用" }
+            Write-Host "exe smoke ok: v$($config.version), i18n $($i18n.Content.Length) bytes"
+          } finally {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            Remove-Item $cfg, "$cfg.bak", "$cfg.tmp" -Force -ErrorAction SilentlyContinue
+            Remove-Item $saved -Recurse -Force -ErrorAction SilentlyContinue
+          }

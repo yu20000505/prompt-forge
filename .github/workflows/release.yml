@@ -14,17 +14,18 @@ jobs:
     name: Build Windows binaries
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Sanity check
         run: |
           node tests/check-ids.mjs
           node tests/check-prompts.mjs
           node tests/check-themes.mjs
+          node --test tests/server-unit.test.mjs
 
       - name: Build single-file exe (Node SEA)
         run: node build/build-exe.mjs
@@ -60,22 +61,35 @@ jobs:
             Remove-Item $pfx -Force -ErrorAction SilentlyContinue
           }
 
+      - name: Generate SHA256 checksums
+        shell: pwsh
+        run: |
+          $lines = @()
+          foreach ($f in @('release\PromptForge.exe', 'release-desktop\PromptForge-Desktop.exe')) {
+            $h = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
+            $lines += "$h  $([System.IO.Path]::GetFileName($f))"
+          }
+          $lines | Set-Content -Path SHA256SUMS.txt -Encoding ascii
+          Get-Content SHA256SUMS.txt
+
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-binaries
           path: |
             release/PromptForge.exe
             release-desktop/PromptForge-Desktop.exe
+            SHA256SUMS.txt
           if-no-files-found: error
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             release/PromptForge.exe
             release-desktop/PromptForge-Desktop.exe
+            SHA256SUMS.txt
           generate_release_notes: true
           body: |
             ## Prompt Forge ${{ github.ref_name }}

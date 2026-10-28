@@ -18,13 +18,13 @@ const run = (cmd, args, opts = {}) => {
   if (r.status !== 0) throw new Error(`命令失败（退出码 ${r.status}）：${cmd} ${args.join(' ')}`);
 };
 
-const NEEDED = ['esbuild', 'postject'];
+const NEEDED = ['esbuild', 'postject', ...(process.platform === 'win32' ? ['resedit', 'pe-library'] : [])];
 const nm = path.join(BUILD, 'node_modules');
 
 function ensureDeps() {
   const missing = NEEDED.filter((d) => !fs.existsSync(path.join(nm, d)));
   if (!missing.length) {
-    log('· 依赖已就绪（esbuild / postject）');
+    log(`· 依赖已就绪（${NEEDED.join(' / ')}）`);
     return;
   }
   log(`· 安装依赖：${missing.join(', ')}`);
@@ -43,7 +43,7 @@ function ensureDeps() {
   }
 }
 
-function main() {
+async function main() {
   log('');
   log('打包 Prompt Forge 单文件 exe');
   log('='.repeat(46));
@@ -103,6 +103,50 @@ function main() {
     FUSE,
   ]);
 
+  // 5) Windows：写入图标和版本信息（SEA 底座默认是 node.exe）
+  if (process.platform === 'win32') {
+    log('\n5/5 写入图标与版本信息');
+    const iconPath = path.join(BUILD, 'icon.ico');
+    if (!fs.existsSync(iconPath)) throw new Error('缺少 build/icon.ico');
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    const PELibrary = await import('pe-library');
+    const ResEdit = await import('resedit');
+    const data = fs.readFileSync(exePath);
+    // node.exe 自带签名；这里会重写资源，生成未签名二进制
+    const exe = PELibrary.NtExecutable.from(data, { ignoreCert: true });
+    const res = PELibrary.NtExecutableResource.from(exe);
+
+    const iconFile = ResEdit.Data.IconFile.from(fs.readFileSync(iconPath));
+    for (const group of ResEdit.Resource.IconGroupEntry.fromEntries(res.entries)) {
+      ResEdit.Resource.IconGroupEntry.replaceIconsForResource(
+        res.entries,
+        group.id,
+        group.lang,
+        iconFile.icons.map((item) => item.data),
+      );
+    }
+
+    const versions = ResEdit.Resource.VersionInfo.fromEntries(res.entries);
+    if (versions[0]) {
+      const vi = versions[0];
+      vi.setFileVersion(pkg.version, 1033);
+      vi.setProductVersion(pkg.version, 1033);
+      vi.setStringValues({ lang: 1033, codepage: 1200 }, {
+        CompanyName: 'Prompt Forge',
+        FileDescription: `Prompt Forge ${pkg.version} - one sentence to image prompt`,
+        ProductName: 'Prompt Forge',
+        LegalCopyright: 'Copyright (c) 2026 Prompt Forge',
+        OriginalFilename: EXE_NAME,
+        InternalName: 'PromptForge',
+      });
+      vi.outputToResourceEntries(res.entries);
+    }
+
+    res.outputResource(exe);
+    fs.writeFileSync(exePath, Buffer.from(exe.generate()));
+    log(`    icon = ${path.relative(ROOT, iconPath)}，version = ${pkg.version}`);
+  }
+
   const mb = (fs.statSync(exePath).size / 1024 / 1024).toFixed(1);
   log('');
   log('='.repeat(46));
@@ -117,7 +161,7 @@ function main() {
 }
 
 try {
-  main();
+  await main();
 } catch (err) {
   console.error('\n打包失败：', err.message);
   process.exit(1);

@@ -13,6 +13,7 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CFG = path.join(os.tmpdir(), `pf-test-config-${process.pid}.json`);
 // 保存目录也指向临时位置，别把测试产生的文件写进用户真正的 saved/
 const SAVED = path.join(os.tmpdir(), `pf-test-saved-${process.pid}`);
+const STATE = path.join(os.tmpdir(), `pf-test-state-${process.pid}`);
 const APP_URL = `http://127.0.0.1:${APP_PORT}/`;
 // 这个值会被写进配置，再由服务端拼进系统提示词发给模型；
 // verify-ui 里靠它断言「置顶提示词确实发给了 API」
@@ -47,6 +48,9 @@ function stopAll() {
   try {
     fs.rmSync(SAVED, { recursive: true, force: true });
   } catch { /* 不存在 */ }
+  try {
+    fs.rmSync(STATE, { recursive: true, force: true });
+  } catch { /* 不存在 */ }
 }
 
 async function waitHttp(url, tries = 60) {
@@ -70,7 +74,7 @@ log(`临时配置: ${CFG}`);
 log(`启动假接口 :${MOCK_PORT} 与 应用实例 :${APP_PORT} …`);
 
 start(process.execPath, ['tests/mock-openai.mjs', String(MOCK_PORT)]);
-start(process.execPath, ['src/server.mjs', String(APP_PORT)], { PF_CONFIG: CFG, PF_SAVED: SAVED });
+start(process.execPath, ['src/server.mjs', String(APP_PORT)], { PF_CONFIG: CFG, PF_SAVED: SAVED, PF_STATE: STATE });
 
 const okMock = await waitHttp(`http://127.0.0.1:${MOCK_PORT}/v1/models`);
 const okApp = await waitHttp(APP_URL);

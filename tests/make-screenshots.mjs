@@ -13,6 +13,7 @@ const MOCK_PORT = Number(process.env.PF_MOCK_PORT || 43199);
 const DEBUG_PORT = Number(process.env.PF_DEBUG_PORT || 9340);
 const CFG = path.join(os.tmpdir(), `pf-shot-config-${process.pid}.json`);
 const SAVED = path.join(os.tmpdir(), `pf-shot-saved-${process.pid}`);
+const STATE = path.join(os.tmpdir(), `pf-shot-state-${process.pid}`);
 const CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const APP_URL = `http://127.0.0.1:${APP_PORT}/`;
 
@@ -30,6 +31,7 @@ const stopAll = () => {
   for (const c of kids) { try { c.kill('SIGKILL'); } catch { /* 已退出 */ } }
   for (const f of [CFG, `${CFG}.bak`, `${CFG}.tmp`]) { try { fs.unlinkSync(f); } catch { /* 无 */ } }
   try { fs.rmSync(SAVED, { recursive: true, force: true }); } catch { /* 无 */ }
+  try { fs.rmSync(STATE, { recursive: true, force: true }); } catch { /* 无 */ }
 };
 const waitHttp = async (url, tries = 60) => {
   for (let i = 0; i < tries; i++) {
@@ -79,7 +81,7 @@ async function main() {
   console.log(`输出目录：${OUT}`);
 
   start(['tests/mock-openai.mjs', String(MOCK_PORT)]);
-  start(['src/server.mjs', String(APP_PORT)], { PF_CONFIG: CFG, PF_SAVED: SAVED });
+  start(['src/server.mjs', String(APP_PORT)], { PF_CONFIG: CFG, PF_SAVED: SAVED, PF_STATE: STATE });
 
   if (!(await waitHttp(`http://127.0.0.1:${MOCK_PORT}/v1/models`))) throw new Error('假接口没起来');
   if (!(await waitHttp(APP_URL))) throw new Error('应用没起来');
@@ -175,7 +177,17 @@ async function main() {
   await sleep(600);
   await shoot('05-segment.png');
 
-  // 4) 皮肤面板
+  // 4) 拼装板
+  await js(`document.querySelector('#btnSegAddBoard').click(); true`);
+  await sleep(400);
+  await js(`document.querySelector('#btnBoard').click(); true`);
+  if (!(await waitVisible('#boardDrawer'))) throw new Error('拼装板没出现');
+  await sleep(500);
+  await shoot('06-board.png');
+  await js(`document.querySelector('#btnBoardClose').click(); true`);
+  await sleep(300);
+
+  // 5) 皮肤面板
   await js(`document.querySelector('#mainTabs .tab[data-view="prompt"]').click(); true`);
   await sleep(300);
   await js(`document.querySelector('#btnTheme').click(); true`);
@@ -184,7 +196,7 @@ async function main() {
   await js(`document.querySelector('#btnTheme').click(); true`);
   await sleep(200);
 
-  // 5) 设置弹窗
+  // 6) 设置弹窗
   await js(`document.querySelector('#btnSettings').click(); true`);
   await sleep(600);
   await shoot('04-settings.png');

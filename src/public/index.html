@@ -150,7 +150,7 @@
           <span id="btnGenerateText">生成提示词</span>
           <kbd>Ctrl ↵</kbd>
         </button>
-        <div class="err" id="err" hidden></div>
+        <div class="err" id="err" role="alert" hidden></div>
       </section>
 
       <section class="panel result">
@@ -174,7 +174,7 @@
 
           <div class="stream" id="stream" hidden>
             <div class="stream-head">
-              <span class="dot"></span><span id="streamLabel">正在生成…</span>
+              <span class="dot"></span><span id="streamLabel" aria-live="polite">正在生成…</span>
               <button class="btn tiny ghost stream-cancel" id="btnCancel" type="button" hidden>取消</button>
             </div>
             <pre id="streamText"></pre>
@@ -294,7 +294,7 @@
           <span id="btnCharGenerateText">生成角色设定</span>
           <kbd>Ctrl ↵</kbd>
         </button>
-        <div class="err" id="charErr" hidden></div>
+        <div class="err" id="charErr" role="alert" hidden></div>
       </section>
 
       <section class="panel result">
@@ -318,7 +318,7 @@
 
           <div class="stream" id="charStream" hidden>
             <div class="stream-head">
-              <span class="dot"></span><span id="charStreamLabel">正在生成…</span>
+              <span class="dot"></span><span id="charStreamLabel" aria-live="polite">正在生成…</span>
               <button class="btn tiny ghost stream-cancel" id="btnCharCancel" type="button" hidden>取消</button>
             </div>
             <pre id="charStreamText"></pre>
@@ -373,7 +373,7 @@
           <span id="btnSegGenerateText">生成标签组合</span>
           <kbd>Ctrl ↵</kbd>
         </button>
-        <div class="err" id="segErr" hidden></div>
+        <div class="err" id="segErr" role="alert" hidden></div>
       </section>
 
       <section class="panel result">
@@ -399,7 +399,7 @@
 
           <div class="stream" id="segStream" hidden>
             <div class="stream-head">
-              <span class="dot"></span><span id="segStreamLabel">正在生成…</span>
+              <span class="dot"></span><span id="segStreamLabel" aria-live="polite">正在生成…</span>
               <button class="btn tiny ghost stream-cancel" id="btnSegCancel" type="button" hidden>取消</button>
             </div>
             <pre id="segStreamText"></pre>
@@ -436,6 +436,7 @@
         <button class="btn tiny ghost" id="btnLibrary">📚 保存库 <span id="libBtnCount">0</span></button>
         <button class="btn tiny ghost" id="btnOpenSaved">📁 打开目录</button>
         <button class="btn tiny ghost" id="btnHistory">历史记录 <span id="historyCount">0</span></button>
+        <button class="btn tiny ghost" id="btnShortcuts" title="快捷键帮助" aria-label="快捷键帮助">?</button>
         <span class="dim small" id="appVersion"></span>
       </div>
     </footer>
@@ -522,6 +523,24 @@
       </p>
     </div>
   </aside>
+
+  <!-- ============ 快捷键帮助 ============ -->
+  <dialog class="settings shortcuts" id="shortcuts">
+    <form method="dialog">
+      <h3>快捷键</h3>
+      <ul class="shortcut-list">
+        <li><kbd>Ctrl</kbd> + <kbd>Enter</kbd><span>生成 / 微调</span></li>
+        <li><kbd>Ctrl</kbd> + <kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd><span>切换三个模式</span></li>
+        <li><kbd>Ctrl</kbd> + <kbd>S</kbd><span>保存当前结果</span></li>
+        <li><kbd>Esc</kbd><span>关闭浮层 / 取消生成</span></li>
+        <li><kbd>?</kbd><span>打开这个帮助</span></li>
+      </ul>
+      <div class="dialog-actions">
+        <span class="grow"></span>
+        <button class="btn primary" type="button" id="btnShortcutsClose">关闭</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- ============ 导入备份 ============ -->
   <dialog class="settings" id="backupDialog">

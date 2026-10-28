@@ -65,6 +65,10 @@ const SAVED_DIR = process.env.PF_SAVED
 // 删除先进回收站，给用户一个反悔的机会；过期或超过上限再真删
 const TRASH_DIR = path.join(SAVED_DIR, '.trash');
 const FAVORITES_PATH = path.join(SAVED_DIR, '.favorites.json');
+// 历史 / 拼装板也从 localStorage 落盘；测试可用 PF_STATE 指向临时目录
+const STATE_DIR = process.env.PF_STATE ? path.resolve(process.env.PF_STATE) : DATA_DIR;
+const HISTORY_PATH = path.join(STATE_DIR, 'history.json');
+const BOARD_PATH = path.join(STATE_DIR, 'board.json');
 const TRASH_RETENTION_DAYS = 7;
 const TRASH_MAX_FILES = 100;
 const HOST = '127.0.0.1';
@@ -177,7 +181,7 @@ function publicConfig(cfg) {
     stream: cfg.stream !== false,
     jsonMode: !!cfg.jsonMode,
     // 前端用它判断后端是不是旧进程（改了 server.mjs 但没重启时很常见）
-    features: { segment: true, import: true },
+    features: { segment: true, import: true, state: true },
   };
 }
 
@@ -917,6 +921,21 @@ async function saveFavorites(map) {
   await fsp.writeFile(FAVORITES_PATH, JSON.stringify(map, null, 2), 'utf8');
 }
 
+async function readJsonState(file, fallback) {
+  try {
+    return JSON.parse(await fsp.readFile(file, 'utf8'));
+  } catch {
+    return fallback;
+  }
+}
+
+async function writeJsonState(file, value) {
+  await fsp.mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp`;
+  await fsp.writeFile(tmp, JSON.stringify(value, null, 2), 'utf8');
+  await fsp.rename(tmp, file);
+}
+
 async function handleSave(req, res) {
   let body;
   try {
@@ -1133,6 +1152,39 @@ async function handleBackupImport(req, res) {
   }
 }
 
+// ---------- 历史 / 拼装板持久化 ----------
+async function handleHistoryState(req, res) {
+  try {
+    if (req.method === 'GET') {
+      const history = await readJsonState(HISTORY_PATH, []);
+      return json(res, 200, { history: Array.isArray(history) ? history.slice(0, 60) : [] });
+    }
+    const body = JSON.parse(await readBody(req));
+    const history = Array.isArray(body.history) ? body.history.filter((h) => h && typeof h === 'object').slice(0, 60) : [];
+    await writeJsonState(HISTORY_PATH, history);
+    return json(res, 200, { ok: true, count: history.length });
+  } catch (err) {
+    return json(res, 500, { error: `历史保存失败：${err?.message || err}` });
+  }
+}
+
+async function handleBoardState(req, res) {
+  try {
+    if (req.method === 'GET') {
+      const state = await readJsonState(BOARD_PATH, { board: [], title: '' });
+      const board = Array.isArray(state?.board) ? state.board.slice(0, 7) : [];
+      return json(res, 200, { board, title: String(state?.title || '').slice(0, 60) });
+    }
+    const body = JSON.parse(await readBody(req));
+    const board = Array.isArray(body.board) ? body.board.filter((x) => x && typeof x === 'object').slice(0, 7) : [];
+    const title = String(body.title || '').slice(0, 60);
+    await writeJsonState(BOARD_PATH, { board, title });
+    return json(res, 200, { ok: true, count: board.length });
+  } catch (err) {
+    return json(res, 500, { error: `拼装板保存失败：${err?.message || err}` });
+  }
+}
+
 async function handleSavedItem(req, res) {
   const url = new URL(req.url, `http://${HOST}`);
   const entry = await readSavedEntry(url.searchParams.get('file'));
@@ -1297,8 +1349,69 @@ async function handleOpenSaved(req, res) {
   }
 }
 
-async function handleModels(req, res) {
+// 真实连接测试：发一条最小 chat 请求，不依赖 /models
+async function handleTest(req, res) {
   const cfg = await loadConfig();
+  let body = {};
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch {
+    return json(res, 400, { error: '请求格式错误' });
+  }
+  const apiKey = String(body.apiKey || cfg.apiKey || '').trim();
+  const baseURL = normalizeBaseURL(body.baseURL || cfg.baseURL);
+  const model = String(body.model || cfg.model || '').trim();
+  if (!apiKey) return json(res, 400, { error: '请先填写 API Key' });
+  if (!model) return json(res, 400, { error: '请先填写模型名称' });
+
+  const started = Date.now();
+  try {
+    const upstream = await fetch(`${baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
+        temperature: 0,
+        max_tokens: 16,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const text = await upstream.text().catch(() => '');
+    if (!upstream.ok) {
+      return json(res, 502, { error: upstreamErrorMessage(upstream.status, text) });
+    }
+    let content = '';
+    let returnedModel = model;
+    try {
+      const j = JSON.parse(text);
+      content = String(j?.choices?.[0]?.message?.content ?? j?.choices?.[0]?.text ?? '').trim();
+      returnedModel = j?.model || model;
+    } catch {
+      /* 有些兼容接口直接返回纯文本 */
+      content = text.trim();
+    }
+    return json(res, 200, {
+      ok: true,
+      model: returnedModel,
+      latencyMs: Date.now() - started,
+      reply: content.slice(0, 120),
+    });
+  } catch (err) {
+    const msg = err?.name === 'TimeoutError'
+      ? `连接 ${baseURL} 超时（20 秒）`
+      : err?.message?.includes('fetch failed')
+        ? `无法连接到 ${baseURL}，请检查 BaseURL 和网络`
+        : err?.message || String(err);
+    return json(res, 502, { error: `连接测试失败：${msg}` });
+  }
+}
+
+async function handleModels(req, res) {  const cfg = await loadConfig();
   const url = new URL(req.url, `http://${HOST}`);
   const apiKey = String(url.searchParams.get('key') || cfg.apiKey || '').trim();
   const baseURL = normalizeBaseURL(url.searchParams.get('base') || cfg.baseURL);
@@ -1376,6 +1489,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/segment' && req.method === 'POST') return await handleSegment(req, res);
     if (pathname === '/api/segment/refine' && req.method === 'POST') return await handleSegmentRefine(req, res);
     if (pathname === '/api/models' && req.method === 'GET') return await handleModels(req, res);
+    if (pathname === '/api/test' && req.method === 'POST') return await handleTest(req, res);
     if (pathname === '/api/save' && req.method === 'POST') return await handleSave(req, res);
     if (pathname === '/api/saved' && req.method === 'GET') return await handleListSaved(req, res);
     if (pathname === '/api/saved/item' && req.method === 'GET') return await handleSavedItem(req, res);
@@ -1386,6 +1500,8 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/saved/open' && req.method === 'POST') return await handleOpenSaved(req, res);
     if (pathname === '/api/backup/export' && req.method === 'GET') return await handleBackupExport(req, res);
     if (pathname === '/api/backup/import' && req.method === 'POST') return await handleBackupImport(req, res);
+    if (pathname === '/api/history' && (req.method === 'GET' || req.method === 'POST')) return await handleHistoryState(req, res);
+    if (pathname === '/api/board' && (req.method === 'GET' || req.method === 'POST')) return await handleBoardState(req, res);
 
     if (pathname === '/api/config' && req.method === 'GET') {
       return json(res, 200, publicConfig(await loadConfig()));
@@ -1492,3 +1608,14 @@ if (!process.env.PF_NO_AUTOSTART) {
     process.exit(1);
   });
 }
+
+// 供 node:test 单测直接引用的纯函数
+export {
+  normalizeBaseURL,
+  safeName,
+  parseIdeas,
+  sectionsOf,
+  buildMetaComment,
+  parseMetaComment,
+  publicConfig,
+};

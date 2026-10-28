@@ -458,5 +458,12 @@ window.PF_I18N = {
     '导出失败': 'Export failed',
     '导入失败': 'Import failed',
     '打不开目录': 'Cannot open the folder',
+    '快捷键': 'Keyboard shortcuts',
+    '快捷键帮助': 'Keyboard shortcuts',
+    '生成 / 微调': 'Generate / refine',
+    '切换三个模式': 'Switch between the three modes',
+    '保存当前结果': 'Save the current result',
+    '关闭浮层 / 取消生成': 'Close overlays / cancel generation',
+    '打开这个帮助': 'Open this help',
   },
 };

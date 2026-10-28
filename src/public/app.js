@@ -219,6 +219,7 @@ const S = {
   current: null,       // { sentence, style, targetModel, language, detail, extra, result, raw }
   history: [],
   histFilter: 'all',
+  historyLoaded: false,
   abort: null,
   modelOptions: [],    // 「拉取列表」拿到的模型
   modelFetched: false,
@@ -257,6 +258,7 @@ const S = {
   pendingBackup: null,
   board: [],           // [{ type, tags, title, sentence, at }]
   boardTitle: '',
+  boardLoaded: false,
 };
 
 // 没拉取过列表时先给几个常用的，避免下拉框一开始是空的
@@ -1135,6 +1137,7 @@ async function openLibrary() {
   $('#libFilter').value = '';
   S.libEditing = null;
   S.libSelected.clear();
+  trapFocus($('#libDrawer'), $('#libFilter'));
   await loadLibrary();
   $('#libFilter').focus();
 }
@@ -1143,6 +1146,7 @@ function closeLibrary() {
   S.libEditing = null;
   $('#libMask').hidden = true;
   $('#libDrawer').hidden = true;
+  releaseFocusTrap();
 }
 
 async function loadLibrary() {
@@ -1579,6 +1583,8 @@ function libraryItemEl(it) {
   const selected = S.libSelected.has(it.name);
   const wrap = document.createElement('div');
   wrap.className = 'lib-item' + (editing ? ' editing' : '') + (selected ? ' selected' : '');
+  wrap.tabIndex = 0;
+  wrap.setAttribute('role', 'button');
 
   const top = document.createElement('div');
   top.className = 'lib-top';
@@ -1715,6 +1721,13 @@ function libraryItemEl(it) {
   wrap.addEventListener('click', () => {
     if (S.libEditing === it.name) return;   // 正在改名时点条目不要载入
     openSavedEntry(it);
+  });
+  wrap.addEventListener('keydown', (e) => {
+    if (e.target !== wrap) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      if (S.libEditing !== it.name) openSavedEntry(it);
+    }
   });
 
   if (editing) {
@@ -1941,13 +1954,48 @@ async function deleteSavedEntry(it) {
 
 /* ============ 历史 ============ */
 const HISTORY_KEY = 'prompt-forge-history-v1';
+let historySaveTimer = null;
 
-function loadHistory() {
+function readLocalHistory() {
   try {
-    S.history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    const v = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
   } catch {
-    S.history = [];
+    return [];
   }
+}
+
+async function persistHistoryNow() {
+  try {
+    await fetch('/api/history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ history: S.history.slice(0, 60) }),
+    });
+  } catch {
+    /* 服务端不可用时继续用 localStorage */
+  }
+}
+
+function scheduleHistorySave() {
+  clearTimeout(historySaveTimer);
+  historySaveTimer = setTimeout(persistHistoryNow, 300);
+}
+
+async function loadHistory() {
+  const local = readLocalHistory();
+  try {
+    const r = await fetch('/api/history');
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    const server = Array.isArray(j.history) ? j.history : [];
+    S.history = mergeHistoryLists(server, local);
+    // 服务端还没数据，或本地有更新的条目时，把合并后的结果写回
+    if (S.history.length !== server.length) persistHistoryNow();
+  } catch {
+    S.history = local;
+  }
+  S.historyLoaded = true;
   renderHistory();
 }
 
@@ -1956,6 +2004,7 @@ function saveHistory() {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(S.history.slice(0, 60)));
   } catch { /* 存不下就算了 */ }
   renderHistory();
+  scheduleHistorySave();
 }
 
 function pushHistory(item) {
@@ -2059,6 +2108,8 @@ function renderHistory() {
   for (const h of sorted) {
     const d = document.createElement('div');
     d.className = 'hist-item';
+    d.tabIndex = 0;
+    d.setAttribute('role', 'button');
 
     const top = document.createElement('div');
     top.className = 'h-top';
@@ -2113,6 +2164,13 @@ function renderHistory() {
     d.appendChild(prompt);
 
     d.addEventListener('click', () => restoreHistoryEntry(h));
+    d.addEventListener('keydown', (e) => {
+      if (e.target !== d) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        restoreHistoryEntry(h);
+      }
+    });
     box.appendChild(d);
   }
 }
@@ -3394,31 +3452,97 @@ function renderBoardCount() {
   if (count) count.textContent = n ? `${n} / ${SEG_TYPES.length} 类` : '空';
 }
 
-function loadBoard() {
+function normalizeBoardItems(items) {
+  const seen = new Set();
+  const out = [];
+  for (const it of Array.isArray(items) ? items : []) {
+    const type = SEG_TYPES.some((t) => t.id === it?.type) ? it.type : '';
+    const tags = str(it?.tags).trim();
+    if (!type || !tags || seen.has(type)) continue;
+    seen.add(type);
+    out.push({
+      type,
+      tags,
+      title: str(it.title),
+      sentence: str(it.sentence),
+      at: Number(it.at) || Date.now(),
+    });
+  }
+  return out;
+}
+
+function readLocalBoard() {
   try {
     const raw = JSON.parse(localStorage.getItem(BOARD_KEY) || 'null');
-    const items = Array.isArray(raw?.items) ? raw.items : [];
-    const seen = new Set();
-    S.board = [];
-    for (const it of items) {
-      const type = SEG_TYPES.some((t) => t.id === it?.type) ? it.type : '';
-      const tags = str(it?.tags).trim();
-      if (!type || !tags || seen.has(type)) continue;   // 坏数据直接跳过，别让它拖垮界面
-      seen.add(type);
-      S.board.push({
-        type,
-        tags,
-        title: str(it.title),
-        sentence: str(it.sentence),
-        at: Number(it.at) || Date.now(),
-      });
-    }
-    S.boardTitle = str(raw?.title);
+    return {
+      items: normalizeBoardItems(raw?.items),
+      title: str(raw?.title),
+    };
   } catch {
-    S.board = [];
-    S.boardTitle = '';
+    return { items: [], title: '' };
   }
+}
+
+let boardSaveTimer = null;
+
+async function persistBoardNow() {
+  try {
+    await fetch('/api/board', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ board: S.board, title: S.boardTitle || '' }),
+    });
+  } catch {
+    /* 服务端不可用时继续用 localStorage */
+  }
+}
+
+function scheduleBoardSave() {
+  clearTimeout(boardSaveTimer);
+  boardSaveTimer = setTimeout(persistBoardNow, 300);
+}
+
+// 关页面/切后台时，把还没到防抖时间的状态用 sendBeacon 补发一次
+function flushStateBeacons() {
+  if (historySaveTimer) {
+    clearTimeout(historySaveTimer);
+    historySaveTimer = null;
+    try {
+      navigator.sendBeacon('/api/history', new Blob([JSON.stringify({ history: S.history.slice(0, 60) })], { type: 'application/json' }));
+    } catch { /* 忽略 */ }
+  }
+  if (boardSaveTimer) {
+    clearTimeout(boardSaveTimer);
+    boardSaveTimer = null;
+    try {
+      navigator.sendBeacon('/api/board', new Blob([JSON.stringify({ board: S.board, title: S.boardTitle || '' })], { type: 'application/json' }));
+    } catch { /* 忽略 */ }
+  }
+}
+
+async function loadBoard() {
+  const local = readLocalBoard();
+  try {
+    const r = await fetch('/api/board');
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    const server = normalizeBoardItems(j.board);
+    const serverTitle = str(j.title);
+    if (server.length === 0 && local.items.length) {
+      S.board = local.items;
+      S.boardTitle = local.title;
+      persistBoardNow();
+    } else {
+      S.board = server;
+      S.boardTitle = serverTitle;
+    }
+  } catch {
+    S.board = local.items;
+    S.boardTitle = local.title;
+  }
+  S.boardLoaded = true;
   renderBoardCount();
+  if (!$('#boardDrawer').hidden) renderBoard();
 }
 
 function saveBoard() {
@@ -3428,6 +3552,7 @@ function saveBoard() {
     /* 存不下就只在本次生效 */
   }
   renderBoardCount();
+  scheduleBoardSave();
 }
 
 // 按类型顺序拼接，去掉完全相同的标签（大小写不敏感）
@@ -3533,12 +3658,13 @@ function openBoard() {
   $('#boardMask').hidden = false;
   $('#boardDrawer').hidden = false;
   renderBoard();
-  setTimeout(() => $('#btnBoardClose').focus(), 40);
+  trapFocus($('#boardDrawer'), $('#btnBoardClose'));
 }
 
 function closeBoard() {
   $('#boardMask').hidden = true;
   $('#boardDrawer').hidden = true;
+  releaseFocusTrap();
 }
 
 function boardMarkdown(tags) {
@@ -4094,11 +4220,54 @@ function refreshCounter() {
   $('#segCounter').textContent = `${sn} 字`;
 }
 
+let focusTrap = null;
+
+function focusableIn(el) {
+  return [...el.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter((x) => x.offsetParent !== null);
+}
+
+function trapFocus(el, first) {
+  if (focusTrap) releaseFocusTrap(false);
+  focusTrap = { el, prev: document.activeElement };
+  el.addEventListener('keydown', onTrapKey);
+  const target = first || focusableIn(el)[0] || el;
+  setTimeout(() => target.focus(), 30);
+}
+
+function onTrapKey(e) {
+  if (!focusTrap || e.key !== 'Tab') return;
+  const list = focusableIn(focusTrap.el);
+  if (!list.length) return;
+  const first = list[0];
+  const last = list[list.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
+}
+
+function releaseFocusTrap(restore = true) {
+  if (!focusTrap) return;
+  focusTrap.el.removeEventListener('keydown', onTrapKey);
+  const prev = focusTrap.prev;
+  focusTrap = null;
+  if (restore && prev && prev.isConnected) prev.focus();
+}
+
+function openShortcuts() {
+  $('#shortcuts').showModal();
+}
+
 function openDrawer() {
   closeLibrary();
   closeBoard();
   $('#drawerMask').hidden = false;
   $('#drawer').hidden = false;
+  trapFocus($('#drawer'), $('#histFilter'));
   const f = $('#histFilter');
   if (f) {
     f.value = '';
@@ -4110,10 +4279,12 @@ function openDrawer() {
 function closeDrawer() {
   $('#drawerMask').hidden = true;
   $('#drawer').hidden = true;
+  releaseFocusTrap();
 }
 
 /* ============ 事件绑定 ============ */
 function bind() {
+  window.addEventListener('pagehide', flushStateBeacons);
   $('#sentence').addEventListener('input', refreshCounter);
   $('#sentence').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -4410,6 +4581,14 @@ function bind() {
   });
 
   document.addEventListener('keydown', (e) => {
+    // ? 打开快捷键帮助（输入框里不拦截）
+    if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey
+      && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')
+      && !$('#shortcuts').open) {
+      e.preventDefault();
+      openShortcuts();
+      return;
+    }
     // Ctrl/⌘ + 1 / 2 / 3 切页签
     const views = { 1: 'prompt', 2: 'character', 3: 'segment' };
     if ((e.ctrlKey || e.metaKey) && views[e.key]) {
@@ -4482,6 +4661,8 @@ function bind() {
   /* 设置弹窗 */
   $('#btnSettings').addEventListener('click', openSettings);
   $('#btnLang').addEventListener('click', toggleLanguage);
+  $('#btnShortcuts').addEventListener('click', openShortcuts);
+  $('#btnShortcutsClose').addEventListener('click', () => $('#shortcuts').close());
   $('#btnCancelSettings').addEventListener('click', () => $('#settings').close());
   $('#btnSaveSettings').addEventListener('click', saveSettings);
   $('#btnTest').addEventListener('click', testConnection);
@@ -4583,16 +4764,22 @@ async function testConnection() {
   btn.textContent = '测试中…';
   el.hidden = true;
   try {
-    const base = encodeURIComponent($('#cfgBase').value.trim());
-    const key = encodeURIComponent($('#cfgKey').value.trim());
-    const r = await fetch(`/api/models?base=${base}&key=${key}`);
+    const r = await fetch('/api/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        baseURL: $('#cfgBase').value.trim(),
+        apiKey: $('#cfgKey').value.trim(),
+        model: $('#cfgModel').value.trim(),
+      }),
+    });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || '连接失败');
     el.hidden = false;
     el.style.color = 'var(--ok)';
     el.style.background = 'rgba(var(--ok-rgb), .12)';
     el.style.borderColor = 'rgba(var(--ok-rgb), .35)';
-    el.textContent = `连接成功，可用模型 ${j.models.length} 个`;
+    el.textContent = `连接成功 · ${j.latencyMs} ms · ${j.model}${j.reply ? ` · ${j.reply}` : ''}`;
   } catch (err) {
     el.hidden = false;
     el.style.color = '';

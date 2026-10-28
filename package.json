@@ -25,6 +25,7 @@
   "scripts": {
     "start": "node src/server.mjs",
     "test": "node tests/run-regression.mjs",
+    "test:server": "node --test tests/server-unit.test.mjs",
     "test:static": "node tests/check-ids.mjs && node tests/check-prompts.mjs && node tests/check-themes.mjs && node tests/check-ideas.mjs",
     "test:contrast": "node tests/check-contrast-dom.mjs",
     "build:exe": "node build/build-exe.mjs",

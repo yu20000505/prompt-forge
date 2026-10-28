@@ -4,7 +4,10 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const CHROME = process.env.CHROME_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const CHROME = process.env.CHROME_PATH
+  || (process.platform === 'win32' ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+    : process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+      : 'google-chrome');
 const PORT = 9333;
 const APP = process.env.APP_URL || 'http://127.0.0.1:43125/';
 const APP_PORT = new URL(APP).port || '80';
@@ -47,6 +50,7 @@ const chrome = spawn(CHROME, [
   '--disable-gpu',
   '--hide-scrollbars',
   '--window-size=1440,1080',
+  ...(process.env.CI ? ['--no-sandbox', '--disable-dev-shm-usage'] : []),
   APP,
 ], { stdio: 'ignore' });
 
@@ -142,6 +146,10 @@ async function main() {
   }
 
   // 浏览器 profile 是复用的，上一次跑留下的历史会让计数/收藏类断言不稳定
+  for (let i = 0; i < 60; i++) {
+    if (await evalJs(`S.historyLoaded === true && S.boardLoaded === true`)) break;
+    await sleep(200);
+  }
   await evalJs(`try { localStorage.removeItem('prompt-forge-history-v1'); } catch {} S.history = []; S.histFilter = 'all'; saveHistory(); true`);
 
   // ---------- 1. 基础结构 ----------
@@ -2239,6 +2247,112 @@ async function main() {
     (await evalJs(`document.querySelector('#btnGenerateText').textContent`)) === '生成提示词'
       && (await evalJs(`[...document.querySelectorAll('#mainTabs .tab')].map((t) => t.textContent).join('|')`))
         === '提示词工坊|角色设定|细分提示词');
+
+  // ---------- 12.15 历史与拼装板服务端落盘 ----------
+  const serverHistory = await evalJs(`fetch('/api/history').then((r) => r.json())`);
+  const serverBoard = await evalJs(`fetch('/api/board').then((r) => r.json())`);
+  check('历史已经写入服务端', Array.isArray(serverHistory.history) && serverHistory.history.length >= 1,
+    `count=${serverHistory.history?.length}`);
+  check('拼装板已经写入服务端', Array.isArray(serverBoard.board) && serverBoard.board.length >= 1,
+    `count=${serverBoard.board?.length}`);
+
+  const histCountBeforeClear = serverHistory.history.length;
+  const boardCountBeforeClear = serverBoard.board.length;
+  await evalJs(`localStorage.removeItem('prompt-forge-history-v1'); localStorage.removeItem('pf-board-v1'); location.reload(); true`);
+  await sleep(1500);
+  for (let i = 0; i < 40; i++) {
+    if (await evalJs(`!!document.querySelector('#styleSelect option')`)) break;
+    await sleep(200);
+  }
+  check('清空 localStorage 后历史能从服务端恢复',
+    (await evalJs(`S.history.length`)) === histCountBeforeClear,
+    `${await evalJs(`S.history.length`)} / ${histCountBeforeClear}`);
+  check('清空 localStorage 后拼装板能从服务端恢复',
+    (await evalJs(`S.board.length`)) === boardCountBeforeClear,
+    `${await evalJs(`S.board.length`)} / ${boardCountBeforeClear}`);
+
+  // ---------- 12.16 真实连接测试 ----------
+  const noModelsBase = `http://127.0.0.1:${process.env.PF_MOCK_PORT || 43199}/no-models/v1`;
+  const modelsFail = await evalJs(`fetch('/api/models?base=${encodeURIComponent(noModelsBase)}&key=sk-test-1234').then((r) => r.status)`);
+  check('没有 /models 的服务拉列表会失败', modelsFail !== 200, `status=${modelsFail}`);
+  const realTest = await evalJs(`fetch('/api/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ baseURL: ${JSON.stringify(noModelsBase)}, apiKey: 'sk-test-1234', model: 'mock-prompt-model' })
+  }).then((r) => r.json())`);
+  check('真实连接测试不依赖 /models',
+    realTest.ok === true && Number(realTest.latencyMs) >= 0 && (realTest.reply || '').length > 0,
+    JSON.stringify(realTest).slice(0, 120));
+
+  await evalJs(`document.querySelector('#btnSettings').click(); true`);
+  await sleep(350);
+  await evalJs(`document.querySelector('#btnTest').click(); true`);
+  let testText = '';
+  for (let i = 0; i < 40; i++) {
+    testText = await evalJs(`document.querySelector('#cfgErr').hidden ? '' : document.querySelector('#cfgErr').textContent`);
+    if (/连接成功/.test(testText)) break;
+    await sleep(200);
+  }
+  check('设置里的测试连接显示延迟和模型',
+    /连接成功/.test(testText) && / ms /.test(testText), testText);
+  await evalJs(`document.querySelector('#btnCancelSettings').click(); true`);
+  await sleep(200);
+
+  // ---------- 12.17 键盘与无障碍 ----------
+  await evalJs(`document.querySelector('#btnShortcuts').click(); true`);
+  await sleep(250);
+  check('快捷键帮助能打开', (await visible('#shortcuts')) === true);
+  await evalJs(`document.querySelector('#btnShortcutsClose').click(); true`);
+  await sleep(200);
+  await evalJs(`document.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true, cancelable: true })); true`);
+  await sleep(250);
+  check('按 ? 也能打开快捷键帮助', (await visible('#shortcuts')) === true);
+  await evalJs(`document.querySelector('#shortcuts').close(); true`);
+  await sleep(150);
+  check('流式状态使用 aria-live', (await evalJs(`document.querySelector('#streamLabel').getAttribute('aria-live')`)) === 'polite');
+
+  await evalJs(`document.querySelector('#btnHistory').click(); true`);
+  await sleep(500);
+  check('历史抽屉打开后焦点在抽屉内',
+    (await evalJs(`document.querySelector('#drawer').contains(document.activeElement)`)) === true);
+  check('历史条目可用键盘聚焦',
+    (await evalJs(`(() => { const it = document.querySelector('#historyList .hist-item'); return it?.tabIndex === 0 && it?.getAttribute('role') === 'button'; })()`)) === true);
+  await evalJs(`(() => {
+    const it = document.querySelector('#historyList .hist-item');
+    it.focus();
+    it.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    return true;
+  })()`);
+  await sleep(500);
+  check('历史条目按 Enter 能恢复', (await visible('#drawer')) === false);
+
+  await evalJs(`document.querySelector('#btnLibrary').click(); true`);
+  await sleep(700);
+  check('保存库打开后焦点在抽屉内',
+    (await evalJs(`document.querySelector('#libDrawer').contains(document.activeElement)`)) === true);
+  check('保存库条目可用键盘聚焦',
+    (await evalJs(`(() => { const it = document.querySelector('#libList .lib-item'); return it?.tabIndex === 0 && it?.getAttribute('role') === 'button'; })()`)) === true);
+  await evalJs(`fetch('/api/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      kind: 'prompt',
+      title: '键盘载入测试',
+      content: '## 正向提示词\\n\\nkeyboard-load-marker',
+      meta: { positive: 'keyboard-load-marker', kind: 'prompt' }
+    })
+  }).then((r) => r.json())`);
+  await evalJs(`loadLibrary()`);
+  await sleep(600);
+  await evalJs(`(() => {
+    const it = [...document.querySelectorAll('#libList .lib-item')]
+      .find((x) => x.querySelector('.lib-title')?.textContent === '键盘载入测试');
+    it.focus();
+    it.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    return true;
+  })()`);
+  await sleep(700);
+  check('保存库条目按 Enter 能载入', (await visible('#libDrawer')) === false);
 
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------
