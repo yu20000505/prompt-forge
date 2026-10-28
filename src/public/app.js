@@ -6639,6 +6639,10 @@ function bind() {
     e.stopPropagation();
     toggleThemePop();
   });
+  $('#btnThemeClose').addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeThemePop();
+  });
   document.addEventListener('click', (e) => {
     if ($('#themePop').hidden) return;
     if (!$('.theme-wrap').contains(e.target)) closeThemePop();

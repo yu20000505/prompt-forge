@@ -1048,6 +1048,23 @@ select {
   color: var(--dim);
   letter-spacing: .05em;
   margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.theme-close {
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.theme-close:hover {
+  color: var(--danger-soft);
 }
 
 .theme-swatches {

@@ -2747,7 +2747,8 @@ async function main() {
     (await evalJs(`document.querySelectorAll('dialog').length`))
       === (await evalJs(`document.querySelectorAll('dialog > .overlay-x').length`))
       && (await evalJs(`document.querySelectorAll('.drawer').length`))
-      === (await evalJs(`document.querySelectorAll('.drawer > .overlay-x').length`)));
+      === (await evalJs(`document.querySelectorAll('.drawer > .overlay-x').length`))
+      && (await evalJs(`!!document.querySelector('#btnThemeClose')`)) === true);
   check('设定集结果框不内部滚动',
     (await evalJs(`getComputedStyle(document.querySelector('#worldGenPositive')).overflowY`)) === 'visible'
       && (await evalJs(`getComputedStyle(document.querySelector('#worldGenPositive')).maxHeight`)) === 'none');
