@@ -72,6 +72,8 @@ const S = {
   charText: '',
   charSentence: '',
   charStack: [],
+  charOriginal: null,
+  charEdited: false,
   segType: 'outfit',
   segBusy: false,
   segAbort: null,
@@ -80,6 +82,9 @@ const S = {
   segText: '',
   segSentence: '',
   segStack: [],
+  segOriginal: null,
+  segEdited: false,
+  editorMode: null,
   serverStale: false,
   lib: [],
   libDir: '',
@@ -435,14 +440,6 @@ async function generate() {
     if (!acc.trim()) throw new Error('模型没有返回内容，试试换个模型或稍后重试');
 
     const parsed = parseResult(acc);
-    if (!parsed) {
-      // 解析失败就原样展示，别让用户白等
-      renderRaw(acc);
-      showErr('模型返回的不是标准 JSON，已按原文展示。可以点「重新生成」再试一次。');
-    } else {
-      renderResult(parsed, { sentence, raw: acc, language: $('#language').value });
-    }
-
     S.current = {
       sentence,
       style: S.style,
@@ -455,12 +452,23 @@ async function generate() {
       ms: Date.now() - started,
       stack: parsed && parsed.positive ? [parsed] : [],  // 微调版本栈，用来撤回
       historyAt: null,
+      original: parsed ? cloneData(parsed) : null,
+      edited: false,
     };
+    if (!parsed) {
+      // 解析失败就原样展示，别让用户白等
+      renderRaw(acc);
+      showErr('模型返回的不是标准 JSON，已按原文展示。可以点「重新生成」再试一次。');
+    } else {
+      renderResult(parsed, { sentence, raw: acc, language: $('#language').value });
+    }
+
     if (parsed && parsed.positive) {
       pushHistory(S.current);
       S.current.historyAt = S.current.at;
     }
     updateRefineUi();
+    updatePromptEditUi();
     $('#stream').hidden = true;
     revealResult('#viewPrompt .result');
   } catch (err) {
@@ -528,6 +536,11 @@ function normalize(o) {
 function str(v) {
   if (v === undefined || v === null) return '';
   return typeof v === 'string' ? v.trim() : String(v);
+}
+
+// 编辑结果前先留一份模型原版；只处理纯 JSON 数据
+function cloneData(v) {
+  return v === undefined || v === null ? v : JSON.parse(JSON.stringify(v));
 }
 
 /* 置顶词拼接：原样放在最前面 */
@@ -598,6 +611,7 @@ function renderResult(parsed, meta = {}) {
   if (st) badges.appendChild(badge(st.label, false));
   const lang = meta.language || S.current?.language || textLanguage(parsed.positive);
   badges.appendChild(badge(lang === 'zh' ? '中文' : '英文', false));
+  if (S.current?.edited) badges.appendChild(badge('已手改', true));
 
   $('#outPositive').textContent = p.positive || '（无）';
   $('#outNegative').textContent = p.negative || '（无）';
@@ -622,6 +636,7 @@ function renderResult(parsed, meta = {}) {
   S.rendered = { positive: p.positive, negative: p.negative, extra };
   $('#refineBar').hidden = false;
   updateRefineUi();
+  updatePromptEditUi();
 }
 
 function renderRaw(raw) {
@@ -1172,6 +1187,8 @@ function loadSavedPrompt(meta, fallbackTitle) {
     at: Date.now(),
     stack: [parsed],
     historyAt: null,
+    original: cloneData(parsed),
+    edited: false,
     pinsBaked: true,   // 保存时置顶词已经拼进去了，别再拼一次
   };
   S.style = STYLES.some((x) => x.id === meta.style) ? meta.style : 'sd';
@@ -1206,6 +1223,8 @@ function loadSavedCharacter(meta, fallbackTitle) {
 
   S.charData = d;
   S.charStack = [d];
+  S.charOriginal = cloneData(d);
+  S.charEdited = false;
   S.charSentence = str(meta.sentence);
   if (meta.sentence) {
     $('#charSentence').value = meta.sentence;
@@ -1252,6 +1271,8 @@ function loadSavedSegment(meta, fallbackTitle) {
     historyAt: null,
   };
   S.segText = d.tags;
+  S.segOriginal = cloneData(d);
+  S.segEdited = false;
 
   if (S.segSentence) {
     $('#segSentence').value = S.segSentence;
@@ -1443,6 +1464,8 @@ function restoreHistoryEntry(h) {
       historyAt: h.at,
     };
     S.segText = d.tags;
+    S.segOriginal = cloneData(d);
+    S.segEdited = false;
     if (S.segSentence) {
       $('#segSentence').value = S.segSentence;
       refreshCounter();
@@ -1469,6 +1492,8 @@ function restoreHistoryEntry(h) {
     at: h.at,
     stack: [parsed],
     historyAt: h.at,
+    original: cloneData(parsed),
+    edited: false,
   };
   S.style = STYLES.some((x) => x.id === h.style) ? h.style : 'sd';
   $('#styleSelect').value = S.style;
@@ -1646,6 +1671,7 @@ function renderCharacters(d) {
   if (d.en) badges.appendChild(badge(`${d.en.split(/\s+/).filter(Boolean).length} 词`, true));
   if (d.aspect) badges.appendChild(badge(d.aspect, false));
   badges.appendChild(badge('英文 + 中文对照', false));
+  if (S.charEdited) badges.appendChild(badge('已手改', true));
   head.appendChild(badges);
   wrap.appendChild(head);
 
@@ -1657,6 +1683,7 @@ function renderCharacters(d) {
   S.charText = d.en || '';
   $('#charRefineBar').hidden = false;
   updateCharRefineUi();
+  updateCharEditUi();
 }
 
 /* ============ 角色提示词的微调 ============ */
@@ -1772,6 +1799,8 @@ async function refineCharacter(instructionArg) {
     if (!parsed) throw new Error('模型返回的不是标准 JSON，再试一次或换个模型');
 
     S.charStack.push(parsed);
+    S.charOriginal = cloneData(parsed);
+    S.charEdited = false;
     renderCharacters(parsed);
     $('#charRefineInput').value = '';
     revealResult('#viewCharacter .result');
@@ -1793,7 +1822,11 @@ async function refineCharacter(instructionArg) {
 function undoCharRefine() {
   if (!S.charStack || S.charStack.length <= 1) return;
   S.charStack.pop();
-  renderCharacters(S.charStack[S.charStack.length - 1]);
+  const d = S.charStack[S.charStack.length - 1];
+  S.charData = d;
+  S.charOriginal = cloneData(d);
+  S.charEdited = false;
+  renderCharacters(d);
   hideCharErr();
 }
 
@@ -1888,6 +1921,8 @@ async function generateCharacters() {
     }
 
     S.charStack = [parsed];
+    S.charOriginal = cloneData(parsed);
+    S.charEdited = false;
     renderCharacters(parsed);
     S.charSentence = sentence;
     revealResult('#viewCharacter .result');
@@ -2041,6 +2076,8 @@ async function generateSegment() {
     S.segData = parsed;
     S.segSentence = sentence;
     S.segStack = [parsed];
+    S.segOriginal = cloneData(parsed);
+    S.segEdited = false;
     S.segMeta = {
       sentence,
       type: S.segType,
@@ -2104,6 +2141,7 @@ function renderSegment(d) {
   badges.appendChild(badge(segTypeLabel(type), true));
   badges.appendChild(badge(`${countTags(d.tags)} 个标签`, false));
   if (meta.targetModel && meta.targetModel !== '通用') badges.appendChild(badge(meta.targetModel, false));
+  if (S.segEdited) badges.appendChild(badge('已手改', true));
   head.appendChild(badges);
   wrap.appendChild(head);
 
@@ -2131,6 +2169,7 @@ function renderSegment(d) {
   $('#btnSegRegen').disabled = false;
   $('#btnSegAddBoard').disabled = false;
   updateSegRefineUi();
+  updateSegEditUi();
 }
 
 function segmentMarkdown() {
@@ -2278,6 +2317,8 @@ async function refineSegment(instructionArg) {
 
     S.segStack.push(parsed);
     S.segData = parsed;
+    S.segOriginal = cloneData(parsed);
+    S.segEdited = false;
     renderSegment(parsed);
     updateSegmentHistoryEntry();
     $('#segRefineInput').value = '';
@@ -2305,6 +2346,8 @@ function undoSegmentRefine() {
   stack.pop();
   const d = stack[stack.length - 1];
   S.segData = d;
+  S.segOriginal = cloneData(d);
+  S.segEdited = false;
   renderSegment(d);
   updateSegmentHistoryEntry();
   hideSegErr();
@@ -2612,6 +2655,209 @@ async function saveBoardToLibrary(btn) {
   }, btn);
 }
 
+/* ============ 结果编辑（直接改，不重新请求模型） ============ */
+
+function updatePromptEditUi() {
+  const can = !!S.current?.parsed?.positive;
+  $('#btnEditPrompt').disabled = !can;
+  $('#btnRestorePrompt').disabled = !can || !S.current?.edited;
+}
+
+function updateCharEditUi() {
+  const can = !!S.charData?.en;
+  $('#btnEditChar').disabled = !can;
+  $('#btnRestoreChar').disabled = !can || !S.charEdited;
+}
+
+function updateSegEditUi() {
+  const can = !!S.segData?.tags;
+  $('#btnEditSeg').disabled = !can;
+  $('#btnRestoreSeg').disabled = !can || !S.segEdited;
+}
+
+function editorField(labelText, control, extraClass) {
+  const wrap = document.createElement('label');
+  wrap.className = 'editor-field' + (extraClass ? ` ${extraClass}` : '');
+  const name = document.createElement('span');
+  name.textContent = labelText;
+  wrap.appendChild(name);
+  wrap.appendChild(control);
+  return wrap;
+}
+
+function editorTextarea(id, value, rows, mono) {
+  const ta = document.createElement('textarea');
+  ta.id = id;
+  ta.rows = rows;
+  ta.value = value || '';
+  ta.spellcheck = false;
+  if (mono) ta.className = 'mono';
+  return ta;
+}
+
+function editorInput(id, value, placeholder) {
+  const inp = document.createElement('input');
+  inp.id = id;
+  inp.value = value || '';
+  inp.autocomplete = 'off';
+  if (placeholder) inp.placeholder = placeholder;
+  return inp;
+}
+
+function openEditor(mode) {
+  let title = '';
+  let hint = '';
+  const box = $('#editorFields');
+  box.innerHTML = '';
+
+  if (mode === 'prompt') {
+    if (S.busy) return toast('正在生成，稍等一下再编辑', true);
+    const p = S.current?.parsed;
+    if (!p?.positive) return toast('还没有可以编辑的提示词', true);
+    title = '编辑提示词';
+    hint = S.current.pinsBaked
+      ? '这条内容来自保存库，正文已经包含置顶词，保存后不会再重复拼接。'
+      : '编辑的是不含置顶词的原文，保存后会自动重新拼接置顶词。';
+    box.appendChild(editorField('正向提示词', editorTextarea('editPositive', p.positive, 6, true), 'mono'));
+    box.appendChild(editorField('负向提示词', editorTextarea('editNegative', p.negative, 4, true), 'mono'));
+    box.appendChild(editorField('画面解读', editorTextarea('editTranslation', p.translation, 3, false)));
+    const grid = document.createElement('div');
+    grid.className = 'editor-grid';
+    grid.appendChild(editorField('画幅', editorInput('editAspect', p.params?.aspect_ratio, '如 2:3')));
+    grid.appendChild(editorField('建议模型', editorInput('editModel', p.params?.suggested_model, '如 SDXL / Flux.1')));
+    box.appendChild(grid);
+    box.appendChild(editorField('参数建议', editorTextarea('editExtra', p.params?.extra, 2, true), 'mono'));
+  } else if (mode === 'character') {
+    if (S.charBusy) return toast('正在生成，稍等一下再编辑', true);
+    const d = S.charData;
+    if (!d?.en) return toast('还没有可以编辑的角色提示词', true);
+    title = '编辑角色提示词';
+    hint = '英文和中文会一起更新；保存后直接替换当前结果，不会重新请求模型。';
+    box.appendChild(editorField('英文提示词', editorTextarea('editCharEn', d.en, 8, true), 'mono'));
+    box.appendChild(editorField('中文对照', editorTextarea('editCharZh', d.zh, 6, false)));
+    box.appendChild(editorField('画幅', editorInput('editCharAspect', d.aspect, '如 16:9')));
+  } else if (mode === 'segment') {
+    if (S.segBusy) return toast('正在生成，稍等一下再编辑', true);
+    const d = S.segData;
+    if (!d?.tags) return toast('还没有可以编辑的标签', true);
+    title = '编辑细分标签';
+    hint = '标签和中文对照会一起更新；保存后同步当前结果和历史。';
+    box.appendChild(editorField('标签组合', editorTextarea('editSegTags', d.tags, 6, true), 'mono'));
+    box.appendChild(editorField('中文对照', editorTextarea('editSegTranslation', d.translation, 3, false)));
+  } else {
+    return;
+  }
+
+  S.editorMode = mode;
+  $('#editorTitle').textContent = title;
+  $('#editorHint').textContent = hint;
+  $('#editorErr').hidden = true;
+  $('#editor').showModal();
+  const first = box.querySelector('textarea, input');
+  if (first) setTimeout(() => first.focus(), 40);
+}
+
+function closeEditor() {
+  S.editorMode = null;
+  if ($('#editor').open) $('#editor').close();
+}
+
+function saveEditor() {
+  const mode = S.editorMode;
+  if (!mode) return;
+  const val = (sel) => ($(sel)?.value ?? '').trim();
+
+  try {
+    if (mode === 'prompt') {
+      const cur = S.current;
+      if (!cur?.parsed) throw new Error('没有可编辑的提示词');
+      const positive = val('#editPositive');
+      if (!positive) throw new Error('正向提示词不能为空');
+      const next = {
+        ...cur.parsed,
+        positive,
+        negative: val('#editNegative'),
+        translation: val('#editTranslation'),
+        params: {
+          ...(cur.parsed.params || {}),
+          aspect_ratio: val('#editAspect'),
+          suggested_model: val('#editModel'),
+          extra: val('#editExtra'),
+        },
+      };
+      if (!cur.original) cur.original = cloneData(cur.parsed);
+      cur.parsed = next;
+      cur.edited = JSON.stringify(next) !== JSON.stringify(cur.original);
+      updateHistoryEntry(cur);
+      renderResult(next, { sentence: cur.sentence, language: cur.language });
+    } else if (mode === 'character') {
+      const en = val('#editCharEn');
+      if (!en) throw new Error('英文提示词不能为空');
+      const next = {
+        ...S.charData,
+        en,
+        zh: val('#editCharZh'),
+        aspect: val('#editCharAspect'),
+      };
+      if (!S.charOriginal) S.charOriginal = cloneData(S.charData);
+      S.charData = next;
+      S.charEdited = JSON.stringify(next) !== JSON.stringify(S.charOriginal);
+      renderCharacters(next);
+    } else if (mode === 'segment') {
+      const tags = val('#editSegTags');
+      if (!tags) throw new Error('标签组合不能为空');
+      const next = {
+        ...S.segData,
+        tags,
+        translation: val('#editSegTranslation'),
+      };
+      if (!S.segOriginal) S.segOriginal = cloneData(S.segData);
+      S.segData = next;
+      S.segText = tags;
+      S.segEdited = JSON.stringify(next) !== JSON.stringify(S.segOriginal);
+      updateSegmentHistoryEntry();
+      renderSegment(next);
+    } else {
+      return;
+    }
+
+    closeEditor();
+    toast('已保存修改');
+  } catch (err) {
+    const el = $('#editorErr');
+    el.textContent = err.message || String(err);
+    el.hidden = false;
+  }
+}
+
+function restorePromptOriginal() {
+  const cur = S.current;
+  if (!cur?.original) return;
+  cur.parsed = cloneData(cur.original);
+  cur.edited = false;
+  updateHistoryEntry(cur);
+  renderResult(cur.parsed, { sentence: cur.sentence, language: cur.language });
+  toast('已恢复模型原版');
+}
+
+function restoreCharOriginal() {
+  if (!S.charOriginal) return;
+  S.charData = cloneData(S.charOriginal);
+  S.charEdited = false;
+  renderCharacters(S.charData);
+  toast('已恢复模型原版');
+}
+
+function restoreSegOriginal() {
+  if (!S.segOriginal) return;
+  S.segData = cloneData(S.segOriginal);
+  S.segText = S.segData.tags || '';
+  S.segEdited = false;
+  updateSegmentHistoryEntry();
+  renderSegment(S.segData);
+  toast('已恢复模型原版');
+}
+
 /* ============ 微调 ============ */
 const REFINE_CHIPS = [
   '更暗一点', '更亮一点', '改成竖构图', '改成横构图', '去掉人物',
@@ -2732,6 +2978,8 @@ async function refine(instructionArg) {
 
     cur.stack.push(parsed);
     cur.parsed = parsed;
+    cur.original = cloneData(parsed);
+    cur.edited = false;
     cur.raw = acc;
     renderResult(parsed, { sentence: cur.sentence, language: cur.language });
     updateHistoryEntry(cur);
@@ -2757,6 +3005,8 @@ function undoRefine() {
   if (!cur?.stack || cur.stack.length <= 1) return;
   cur.stack.pop();
   cur.parsed = cur.stack[cur.stack.length - 1];
+  cur.original = cloneData(cur.parsed);
+  cur.edited = false;
   renderResult(cur.parsed, { sentence: cur.sentence, language: cur.language });
   updateHistoryEntry(cur);
   hideErr();
@@ -3032,6 +3282,23 @@ function bind() {
       prompt_zh: d.zh || '',
       aspect_ratio: d.aspect || '',
     }, $('#btnCharSave'));
+  });
+
+  /* 结果编辑 */
+  $('#btnEditPrompt').addEventListener('click', () => openEditor('prompt'));
+  $('#btnRestorePrompt').addEventListener('click', restorePromptOriginal);
+  $('#btnEditChar').addEventListener('click', () => openEditor('character'));
+  $('#btnRestoreChar').addEventListener('click', restoreCharOriginal);
+  $('#btnEditSeg').addEventListener('click', () => openEditor('segment'));
+  $('#btnRestoreSeg').addEventListener('click', restoreSegOriginal);
+  $('#btnEditorCancel').addEventListener('click', closeEditor);
+  $('#btnEditorSave').addEventListener('click', saveEditor);
+  $('#editorForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    saveEditor();
+  });
+  $('#editor').addEventListener('close', () => {
+    S.editorMode = null;
   });
 
   /* 保存库 */

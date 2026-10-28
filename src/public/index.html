@@ -153,6 +153,8 @@
         <div class="panel-title">
           <h2>生成结果</h2>
           <div class="result-tools">
+            <button class="btn tiny" id="btnEditPrompt" disabled title="直接修改生成结果，不重新请求模型">✎ 编辑</button>
+            <button class="btn tiny" id="btnRestorePrompt" disabled title="放弃手改，恢复模型原版">↺ 原版</button>
             <button class="btn tiny" id="btnCopyAll" disabled>复制全部</button>
             <button class="btn tiny" id="btnSavePrompt" disabled>💾 保存</button>
             <button class="btn tiny" id="btnRegen" disabled>↻ 重新生成</button>
@@ -295,6 +297,8 @@
         <div class="panel-title">
           <h2>角色提示词</h2>
           <div class="result-tools">
+            <button class="btn tiny" id="btnEditChar" disabled title="直接修改生成结果，不重新请求模型">✎ 编辑</button>
+            <button class="btn tiny" id="btnRestoreChar" disabled title="放弃手改，恢复模型原版">↺ 原版</button>
             <button class="btn tiny" id="btnCharCopyAll" disabled>复制英文</button>
             <button class="btn tiny" id="btnCharSave" disabled>💾 保存</button>
             <button class="btn tiny" id="btnCharRegen" disabled>↻ 重新生成</button>
@@ -371,6 +375,8 @@
         <div class="panel-title">
           <h2>标签结果</h2>
           <div class="result-tools">
+            <button class="btn tiny" id="btnEditSeg" disabled title="直接修改标签，不重新请求模型">✎ 编辑</button>
+            <button class="btn tiny" id="btnRestoreSeg" disabled title="放弃手改，恢复模型原版">↺ 原版</button>
             <button class="btn tiny" id="btnSegCopyAll" disabled>复制标签</button>
             <button class="btn tiny" id="btnSegAddBoard" disabled
               title="把当前这类标签放进拼装板，和别的类型拼成完整提示词">＋ 拼装板</button>
@@ -487,6 +493,21 @@
       </p>
     </div>
   </aside>
+
+  <!-- ============ 编辑结果（直接改，不重新请求模型） ============ -->
+  <dialog class="settings editor" id="editor">
+    <form id="editorForm" method="dialog">
+      <h3 id="editorTitle">编辑结果</h3>
+      <p class="editor-hint dim small" id="editorHint">编辑的是不含置顶词的原文，保存后会自动重新拼接。</p>
+      <div class="editor-fields" id="editorFields"></div>
+      <div class="dialog-err err" id="editorErr" hidden></div>
+      <div class="dialog-actions">
+        <span class="grow"></span>
+        <button class="btn ghost" type="button" id="btnEditorCancel">取消</button>
+        <button class="btn primary" type="button" id="btnEditorSave">保存修改</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- ============ 设置 ============ -->
   <dialog class="settings" id="settings">

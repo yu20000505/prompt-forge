@@ -319,6 +319,51 @@ async function main() {
   check('置顶提示词确实随请求发给了模型',
     transInitial.includes('MARKER-固定画风-ABC123'), transInitial.slice(0, 62));
 
+  // ---------- 3.1 直接编辑结果（不重新请求模型） ----------
+  await evalJs(`document.querySelector('#btnEditPrompt').click(); true`);
+  await sleep(300);
+  check('提示词编辑弹窗能打开', (await visible('#editor')) === true);
+  const editRawPositive = await evalJs(`document.querySelector('#editPositive').value`);
+  check('编辑框里是不含置顶词的原文',
+    editRawPositive.length > 50 && !editRawPositive.includes('masterpiece') && !editRawPositive.includes('absurdres'),
+    editRawPositive.slice(0, 50));
+
+  // 先试一次取消，内容不能被改
+  await evalJs(`(() => {
+    const el = document.querySelector('#editPositive');
+    el.value = 'CANCEL-SHOULD-NOT-SAVE';
+    document.querySelector('#btnEditorCancel').click();
+    return true;
+  })()`);
+  await sleep(300);
+  check('取消编辑不会改动结果',
+    (await evalJs(`S.current.parsed.positive`)) !== 'CANCEL-SHOULD-NOT-SAVE');
+  check('取消后编辑弹窗关闭', (await visible('#editor')) === false);
+
+  await evalJs(`document.querySelector('#btnEditPrompt').click(); true`);
+  await sleep(250);
+  await evalJs(`(() => {
+    const add = (sel, text) => { const el = document.querySelector(sel); el.value += text; };
+    add('#editPositive', ', manual-edit-marker');
+    add('#editNegative', ', manual-neg-marker');
+    add('#editTranslation', '（手改）');
+    document.querySelector('#editAspect').value = '1:1';
+    document.querySelector('#btnEditorSave').click();
+    return true;
+  })()`);
+  await sleep(450);
+  const posEdited = await evalJs(`document.querySelector('#outPositive').textContent`);
+  const editBadge = await evalJs(`[...document.querySelectorAll('#outBadges .badge')].map((e) => e.textContent).includes('已手改')`);
+  check('保存手改后结果立即更新', posEdited.includes('manual-edit-marker'), posEdited.slice(-60));
+  check('手改后置顶词只拼一次',
+    posEdited.startsWith(PIN + ', ') && (posEdited.match(/masterpiece/g) || []).length === 1,
+    posEdited.slice(0, 60));
+  check('手改后显示「已手改」标记', editBadge === true);
+  check('手改后恢复原版按钮可用',
+    (await evalJs(`document.querySelector('#btnRestorePrompt').disabled`)) === false);
+  const histEdited = await evalJs(`(JSON.parse(localStorage.getItem('prompt-forge-history-v1')||'[]')[0]||{}).positive||''`);
+  check('手改同步到历史', histEdited.includes('manual-edit-marker'), histEdited.slice(-48));
+
   // ---------- 3.2 保存到本地（提示词） ----------
   check('生成后保存按钮可用',
     (await evalJs(`document.querySelector('#btnSavePrompt').disabled`)) === false);
@@ -339,6 +384,7 @@ async function main() {
   check('文件里含画面解读', promptSaved.includes('## 画面解读'), '');
   check('保存的是带置顶词的实际版本',
     promptSaved.includes('masterpiece, best quality'), '');
+  check('保存文件用的是手改后的内容', promptSaved.includes('manual-edit-marker'), '');
   check('文件名带时间戳和类型', /^\d{8}-\d{6}_提示词_/.test(promptFile), promptFile);
 
   const filesBeforeCtrlS = savedFiles().length;
@@ -347,6 +393,19 @@ async function main() {
   const filesAfterCtrlS = savedFiles().length;
   check('Ctrl+S 也能保存当前结果', filesAfterCtrlS === filesBeforeCtrlS + 1, `${filesBeforeCtrlS} -> ${filesAfterCtrlS}`);
   check('生成后流式框已隐藏', (await visible('#stream')) === false);
+
+  // 恢复模型原版
+  await evalJs(`document.querySelector('#btnRestorePrompt').click(); true`);
+  await sleep(450);
+  const posRestored = await evalJs(`document.querySelector('#outPositive').textContent`);
+  const editBadgeGone = await evalJs(`[...document.querySelectorAll('#outBadges .badge')].map((e) => e.textContent).includes('已手改')`);
+  check('恢复原版能去掉手改内容',
+    !posRestored.includes('manual-edit-marker') && posRestored === pos, posRestored.slice(-60));
+  check('恢复后「已手改」标记消失', editBadgeGone === false);
+  check('恢复后恢复按钮重新禁用',
+    (await evalJs(`document.querySelector('#btnRestorePrompt').disabled`)) === true);
+  const histRestored = await evalJs(`(JSON.parse(localStorage.getItem('prompt-forge-history-v1')||'[]')[0]||{}).positive||''`);
+  check('恢复原版同步历史', !histRestored.includes('manual-edit-marker'), histRestored.slice(-48));
   const badgeP = await visible('#pinBadgeP');
   const badgeN = await visible('#pinBadgeN');
   const kwCount = await evalJs(`document.querySelectorAll('#outKeywords .kw').length`);
@@ -775,6 +834,29 @@ async function main() {
   check('每张卡都有自己的复制按钮',
     (await evalJs(`document.querySelectorAll('#charCards .card-head .copy').length`)) === 2);
 
+  // 直接编辑角色结果
+  await evalJs(`document.querySelector('#btnEditChar').click(); true`);
+  await sleep(300);
+  check('角色编辑弹窗能打开', (await visible('#editor')) === true);
+  const editCharEn = await evalJs(`document.querySelector('#editCharEn').value`);
+  check('角色编辑框带出英文原文', editCharEn.length > 50 && editCharEn === charEn);
+  await evalJs(`(() => {
+    document.querySelector('#editCharEn').value += ' manual-char-marker';
+    document.querySelector('#editCharZh').value += '（手改）';
+    document.querySelector('#editCharAspect').value = '1:1';
+    document.querySelector('#btnEditorSave').click();
+    return true;
+  })()`);
+  await sleep(450);
+  const charEditedText = await evalJs(`document.querySelectorAll('#charCards .card-body')[0].textContent`);
+  const charEditBadge = await evalJs(`[...document.querySelectorAll('#charCards .badges .badge')].map((e) => e.textContent).includes('已手改')`);
+  check('角色手改后英文立即更新', charEditedText.includes('manual-char-marker'), charEditedText.slice(-50));
+  check('角色手改后显示「已手改」', charEditBadge === true);
+  check('角色手改后复制英文拿到新内容',
+    (await evalJs(`S.charText`)).includes('manual-char-marker'));
+  check('角色手改后画幅徽章更新',
+    (await evalJs(`[...document.querySelectorAll('#charCards .badges .badge')].map((e) => e.textContent).includes('1:1')`)) === true);
+
   // ---------- 8.55 保存到本地（角色设定） ----------
   check('角色保存按钮可用',
     (await evalJs(`document.querySelector('#btnCharSave').disabled`)) === false);
@@ -789,6 +871,16 @@ async function main() {
     charSaved.includes('## 英文提示词') && charSaved.includes('## 中文对照'), charFile);
   check('文件里英文段是完整一段',
     (charSaved.split('## 英文提示词')[1] || '').split('## 中文对照')[0].trim().length > 300, '');
+  check('角色保存文件用的是手改后的内容',
+    charSaved.includes('manual-char-marker'), '');
+
+  // 恢复角色原版，后续微调断言仍用模型原文
+  await evalJs(`document.querySelector('#btnRestoreChar').click(); true`);
+  await sleep(400);
+  const charRestoredText = await evalJs(`document.querySelectorAll('#charCards .card-body')[0].textContent`);
+  check('角色恢复原版能去掉手改', charRestoredText === charEn, charRestoredText.slice(-50));
+  check('角色恢复后「已手改」消失',
+    (await evalJs(`[...document.querySelectorAll('#charCards .badges .badge')].map((e) => e.textContent).includes('已手改')`)) === false);
 
   // ---------- 8.6 角色提示词的微调 ----------
   check('生成后角色微调区出现', (await visible('#charRefineBar')) === true);
@@ -1352,6 +1444,35 @@ async function main() {
       && (await evalJs(`document.querySelector('#btnSegCancel').hidden`)) === true
       && (await evalJs(`S.segBusy`)) === false);
   await evalJs(`hideSegErr(); true`);
+
+  // 直接编辑细分标签
+  await evalJs(`document.querySelector('#btnEditSeg').click(); true`);
+  await sleep(300);
+  check('细分标签编辑弹窗能打开', (await visible('#editor')) === true);
+  check('细分编辑框带出原标签',
+    (await evalJs(`document.querySelector('#editSegTags').value`)) === segTags);
+  await evalJs(`(() => {
+    document.querySelector('#editSegTags').value += ', manual-seg-marker';
+    document.querySelector('#editSegTranslation').value += '（手改）';
+    document.querySelector('#btnEditorSave').click();
+    return true;
+  })()`);
+  await sleep(450);
+  const segEditedTags = await evalJs(`document.querySelectorAll('#segCards .card-body')[0].textContent`);
+  const segEditBadge = await evalJs(`[...document.querySelectorAll('#segCards .badges .badge')].map((e) => e.textContent).includes('已手改')`);
+  check('细分手改后标签立即更新', segEditedTags.includes('manual-seg-marker'), segEditedTags.slice(-50));
+  check('细分手改后显示「已手改」', segEditBadge === true);
+  check('细分手改后保存内容同步',
+    (await evalJs(`segmentMarkdown()`)).includes('manual-seg-marker'));
+  const segHistEdited = await evalJs(`JSON.parse(localStorage.getItem('prompt-forge-history-v1') || '[]').find((h) => h.kind === 'segment')`);
+  check('细分手改同步历史', /manual-seg-marker/.test(segHistEdited?.tags || ''), (segHistEdited?.tags || '').slice(-50));
+
+  await evalJs(`document.querySelector('#btnRestoreSeg').click(); true`);
+  await sleep(400);
+  check('细分恢复原版能去掉手改',
+    (await evalJs(`document.querySelectorAll('#segCards .card-body')[0].textContent`)) === segTags);
+  check('细分恢复后「已手改」消失',
+    (await evalJs(`[...document.querySelectorAll('#segCards .badges .badge')].map((e) => e.textContent).includes('已手改')`)) === false);
 
   // 细分标签微调
   check('细分结果出现微调区', (await visible('#segRefineBar')) === true);
