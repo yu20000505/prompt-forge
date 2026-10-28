@@ -4,11 +4,24 @@ import { fileURLToPath } from 'node:url';
 // 所以跑测试永远不会碰到用户真正的 config.json。
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 
-const APP_PORT = Number(process.env.PF_TEST_PORT || 43127);
-const MOCK_PORT = Number(process.env.PF_MOCK_PORT || 43199);
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const p = srv.address().port;
+      srv.close(() => resolve(p));
+    });
+  });
+}
+
+const APP_PORT = Number(process.env.PF_TEST_PORT) || await freePort();
+let MOCK_PORT = Number(process.env.PF_MOCK_PORT) || await freePort();
+while (MOCK_PORT === APP_PORT) MOCK_PORT = await freePort();
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CFG = path.join(os.tmpdir(), `pf-test-config-${process.pid}.json`);
 // 保存目录也指向临时位置，别把测试产生的文件写进用户真正的 saved/
@@ -24,10 +37,10 @@ const log = (...a) => console.log(...a);
 
 const children = [];
 
-function start(cmd, args, env = {}) {
+function start(cmd, args, env = {}, stdio = 'ignore') {
   const child = spawn(cmd, args, {
     cwd: ROOT,
-    stdio: 'ignore',
+    stdio,
     env: { ...process.env, NO_OPEN: '1', ...env },
   });
   children.push(child);
@@ -74,12 +87,26 @@ log(`临时配置: ${CFG}`);
 log(`启动假接口 :${MOCK_PORT} 与 应用实例 :${APP_PORT} …`);
 
 start(process.execPath, ['tests/mock-openai.mjs', String(MOCK_PORT)]);
-start(process.execPath, ['src/server.mjs', String(APP_PORT)], { PF_CONFIG: CFG, PF_SAVED: SAVED, PF_STATE: STATE });
+start(process.execPath, ['src/server.mjs', String(APP_PORT)], {
+  PF_CONFIG: CFG,
+  PF_SAVED: SAVED,
+  PF_STATE: STATE,
+  PF_STRICT_PORT: '1',
+});
 
 const okMock = await waitHttp(`http://127.0.0.1:${MOCK_PORT}/v1/models`);
 const okApp = await waitHttp(APP_URL);
 if (!okMock || !okApp) {
   log(`启动失败 mock=${okMock} app=${okApp}`);
+  stopAll();
+  process.exit(1);
+}
+
+// 防止端口冲突时连到用户正在用的实例，把真实 saved/ 当成测试目录
+const diag = await (await fetch(`${APP_URL}api/diagnostics`)).json().catch(() => ({}));
+if (path.resolve(diag?.paths?.saved || '') !== path.resolve(SAVED)
+  || path.resolve(diag?.paths?.config || '') !== path.resolve(CFG)) {
+  log(`测试实例不是临时目录，已中止。saved=${diag?.paths?.saved} config=${diag?.paths?.config}`);
   stopAll();
   process.exit(1);
 }
@@ -110,7 +137,7 @@ const code = await new Promise((resolve) => {
   const child = spawn(process.execPath, ['tests/verify-ui.mjs'], {
     cwd: ROOT,
     stdio: 'inherit',
-    env: { ...process.env, APP_URL, NO_OPEN: '1', PF_SAVED_DIR: SAVED },
+    env: { ...process.env, APP_URL, NO_OPEN: '1', PF_SAVED_DIR: SAVED, PF_MOCK_PORT: String(MOCK_PORT) },
   });
   children.push(child);
   child.on('exit', (c) => resolve(c ?? 1));

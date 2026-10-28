@@ -1,6 +1,6 @@
 {
   "name": "prompt-forge",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "一句话生成生图提示词。结果可手改、七类标签一键拼装、历史与保存库全文检索、备份导入、中英双语；纯本地、零运行时依赖。",
   "private": true,
   "type": "module",

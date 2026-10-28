@@ -97,10 +97,10 @@ jobs:
               } catch { }
               Start-Sleep -Milliseconds 500
             }
-            if (-not $ok) { throw "2.0 exe 没有在 20 秒内启动" }
-            if ($config.version -ne '2.0.0') { throw "版本号不对: $($config.version)" }
+            if (-not $ok) { throw "2.1 exe 没有在 20 秒内启动" }
+            if ($config.version -ne '2.1.0') { throw "版本号不对: $($config.version)" }
             $vi = (Get-Item "release\PromptForge.exe").VersionInfo
-            if ($vi.ProductName -ne 'Prompt Forge' -or $vi.FileVersion -notlike '2.0.0*') {
+            if ($vi.ProductName -ne 'Prompt Forge' -or $vi.FileVersion -notlike '2.1.0*') {
               throw "exe 版本资源不对: $($vi.ProductName) / $($vi.FileVersion)"
             }
             $home = Invoke-WebRequest "http://127.0.0.1:43211/" -UseBasicParsing

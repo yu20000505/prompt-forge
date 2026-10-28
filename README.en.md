@@ -4,7 +4,7 @@
 [![Latest release](https://img.shields.io/github/v/release/yu20000505/prompt-forge?color=6f7f66)](../../releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6f7f66.svg)](LICENSE)
 
-**One sentence in. A production-ready image prompt out. 2.0**
+**One sentence in. A production-ready image prompt out. 2.1**
 
 Prompt Forge is a local-first desktop tool that turns a single plain-language sentence into
 prompts you can paste straight into Stable Diffusion, NovelAI, Midjourney, Flux or DALL·E.
@@ -15,14 +15,29 @@ freely.
 Version 2.0 completes the workflow after generation: edit results by hand, keep every mode in one
 searchable history, generate all seven tag groups at once and splice them into a single prompt,
 full-text search and back up the library, retry flaky APIs automatically, and switch the whole UI
-between Chinese and English. No accounts, no telemetry, no cloud sync. It talks directly to whatever
+between Chinese and English. Version 2.1 adds multi-variant comparison, templates and aspect
+shortcuts, draft recovery, trash management, provider profiles and desktop window details.
+No accounts, no telemetry, no cloud sync. It talks directly to whatever
 **OpenAI-compatible API** you configure, and your key never leaves your machine.
 
 [中文说明](README.md) · [Download](../../releases) · [Changelog](CHANGELOG.md) · [Build from source](#build-from-source)
 
 ![Main window](docs/screenshots/01-main.png)
 
-## What's new in 2.0
+## What's new in 2.1
+
+- **Multi-variant generation** — generate three candidates from one sentence and compare them side by side.
+- **Version timeline** — prompt/character/segment history versions are selectable; prompts get a diff
+  view and copies as positive, negative, JSON or Midjourney parameters.
+- **Templates & presets** — ten subject templates, three negative presets, aspect/lens shortcuts and
+  custom templates.
+- **Draft autosave** — inputs and current results for all three modes survive a refresh or crash.
+- **Trash** — browse, restore or permanently delete files with a retention countdown.
+- **Provider profiles** — switch between saved BaseURL/key/model profiles; the desktop build tries
+  OS credential encryption, and diagnostics never contain the key.
+- **Desktop details** — single-instance lock, focus the existing window, restore window size/position.
+
+## 2.0 basics
 
 - **Hand editing** — edit the positive/negative prompt, interpretation, parameters, character text
   or segment tags directly, with a “manually edited” marker and one-click restore.
