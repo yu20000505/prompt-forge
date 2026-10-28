@@ -2715,6 +2715,15 @@ async function main() {
   check('条目详情框随文字展开且不内部滚动',
     (await visible('#entryDialog')) === true
       && (await evalJs(`getComputedStyle(document.querySelector('#entryFacts')).overflowY`)) === 'hidden');
+  await evalJs(`(() => {
+    const el = document.querySelector('#entryFacts');
+    el.value = Array.from({ length: 18 }, (_, i) => '字段' + i + '：这是第 ' + i + ' 行较长的设定内容').join('\\n');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(250);
+  check('长文字时字段框会继续变高而不是出现滚动',
+    (await evalJs(`(() => { const e = document.querySelector('#entryFacts'); return e.scrollHeight <= e.clientHeight + 4; })()`)) === true);
   await evalJs(`document.querySelector('#entryDialog .overlay-x').click(); true`);
   await sleep(200);
 

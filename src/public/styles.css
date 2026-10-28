@@ -2993,6 +2993,11 @@ mark {
   overflow-y: auto;
 }
 
+/* flex 列布局默认会压扁子项，导致 textarea 的自动高度失效 */
+.settings form>* {
+  flex-shrink: 0;
+}
+
 .settings h3 {
   margin: 0 0 2px;
   font-size: 15px;
