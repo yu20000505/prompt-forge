@@ -59,6 +59,8 @@ Prompt Forge 负责翻译，然后让你用一句人话继续微调，而不是�
   批量选择删除、改名、重新载入；删除先进 `saved/.trash` 回收站，可撤销，7 天后自动清理。
 - **备份与导入** —— 一键导出 JSON 备份（保存库文件、历史、拼装板、脱敏设置，不含 API Key）；
   导入时可选择合并（重名自动加后缀）或覆盖（旧文件先移入回收站）。
+- **中英双语界面** —— 右上角一键切换中文 / English，语言选择会记住；
+  界面文案、按钮、设置、保存库、历史、导入/备份弹窗和常见错误提示都有英文版本。
 - **七套莫兰迪皮肤** —— 六套低饱和浅色 + 一套深色，配色都经过 WCAG 对比度校验。
 - **运行时零依赖** —— 服务端只用 Node 内置模块，不需要 `npm install`。
 
@@ -137,7 +139,7 @@ CI 里配置 `WINDOWS_PFX_BASE64` 和 `WINDOWS_PFX_PASSWORD` 两个 Secret，打
 
 ```bash
 npm run test:static    # id 引用、prompt 模板、主题对比度，不需要浏览器
-npm test               # 完整 UI 回归：无头 Chrome 里跑 419 条断言
+npm test               # 完整 UI 回归：无头 Chrome 里跑 428 条断言
 ```
 
 UI 套件会用假接口起一个临时实例，验证真实行为：全部皮肤下每个文字节点的对比度、
@@ -150,7 +152,7 @@ PASS  微调结果仍带置顶词（只带一次）
 PASS  保存的是带置顶词的实际版本
 PASS  载入时置顶词没有被二次拼接
 ...
-419 项通过，0 失败
+428 项通过，0 失败
 ```
 
 `docs/` 里的截图由 `node tests/make-screenshots.mjs` 生成，不是手工裁剪。
@@ -161,7 +163,7 @@ PASS  载入时置顶词没有被二次拼接
 src/
   server.mjs         HTTP 服务 + OpenAI 兼容代理（SSE 流式），配置与保存库读写
   styles.mjs         各模式的 system prompt 模板
-  public/            index.html、styles.css（主题 token）、app.js
+  public/            index.html、styles.css（主题 token）、i18n.js（中英文案）、app.js
 build/
   build-exe.mjs      SEA 打包
   build-desktop.mjs  Electron 打包

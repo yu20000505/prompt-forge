@@ -2188,6 +2188,56 @@ async function main() {
       && (await evalJs(`S.board[0].type`)) === 'outfit');
   check('覆盖导入后回收站里有旧文件', trashedFiles().length > 0);
 
+  // ---------- 12.14 中英双语界面 ----------
+  await evalJs(`localStorage.setItem('pf-lang', 'en'); location.reload(); true`);
+  await sleep(1600);
+  for (let i = 0; i < 40; i++) {
+    if (await evalJs(`!!document.querySelector('#styleSelect option')`)) break;
+    await sleep(200);
+  }
+  check('切换到英文后 html lang 正确',
+    (await evalJs(`document.documentElement.lang`)) === 'en');
+  check('英文界面页签已翻译',
+    (await evalJs(`[...document.querySelectorAll('#mainTabs .tab')].map((t) => t.textContent).join('|')`))
+      === 'Prompt Studio|Character|Segment tags');
+  check('英文界面标题已翻译',
+    /One sentence to image prompt/.test(await evalJs(`document.title`)));
+  check('英文界面顶部按钮已翻译',
+    /Theme/.test(await evalJs(`document.querySelector('#btnTheme').textContent`))
+      && /Settings/.test(await evalJs(`document.querySelector('#btnSettings').textContent`)));
+  check('英文界面生成按钮已翻译',
+    (await evalJs(`document.querySelector('#btnGenerateText').textContent`)) === 'Generate prompt');
+  check('英文界面通用设置已翻译',
+    /Prompt style/.test(await evalJs(`document.querySelector('#globalOpts').textContent`))
+      && /Target model/.test(await evalJs(`document.querySelector('#globalOpts').textContent`))
+      && !/提示词风格|目标模型/.test(await evalJs(`document.querySelector('#globalOpts').textContent`)));
+
+  await evalJs(`document.querySelector('#btnSettings').click(); true`);
+  await sleep(400);
+  check('英文界面设置弹窗已翻译',
+    (await evalJs(`document.querySelector('#settings h3').textContent`)) === 'API settings'
+      && /Max output tokens/.test(await evalJs(`document.querySelector('label[for="cfgMaxTokens"]').textContent`)));
+  await evalJs(`document.querySelector('#btnCancelSettings').click(); true`);
+  await sleep(200);
+
+  await evalJs(`document.querySelector('#btnLibrary').click(); true`);
+  await sleep(700);
+  check('英文界面保存库搜索框已翻译',
+    /Full-text search/.test(await evalJs(`document.querySelector('#libFilter').placeholder`)));
+  await evalJs(`document.querySelector('#btnLibClose').click(); true`);
+  await sleep(200);
+
+  await evalJs(`localStorage.setItem('pf-lang', 'zh'); location.reload(); true`);
+  await sleep(1600);
+  for (let i = 0; i < 40; i++) {
+    if (await evalJs(`!!document.querySelector('#styleSelect option')`)) break;
+    await sleep(200);
+  }
+  check('切回中文后界面恢复',
+    (await evalJs(`document.querySelector('#btnGenerateText').textContent`)) === '生成提示词'
+      && (await evalJs(`[...document.querySelectorAll('#mainTabs .tab')].map((t) => t.textContent).join('|')`))
+        === '提示词工坊|角色设定|细分提示词');
+
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------
   // 先验一下错误栏的「重试」按钮

@@ -75,6 +75,7 @@ function main() {
     assets: {
       'index.html': path.join(ROOT, 'src', 'public', 'index.html'),
       'styles.css': path.join(ROOT, 'src', 'public', 'styles.css'),
+      'i18n.js': path.join(ROOT, 'src', 'public', 'i18n.js'),
       'app.js': path.join(ROOT, 'src', 'public', 'app.js'),
     },
   };

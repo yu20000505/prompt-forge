@@ -1,12 +1,169 @@
 /* Prompt Forge 前端逻辑 */
 const $ = (s) => document.querySelector(s);
 
+/* ============ 界面语言（中文 / English） ============ */
+let i18nObserver = null;
+
+function tr(text) {
+  const s = String(text ?? '');
+  if (S.lang !== 'en' || !s.trim()) return s;
+  const key = s.replace(/\s+/g, ' ').trim();
+  const dict = (window.PF_I18N && window.PF_I18N.en) || {};
+  let out = dict[key];
+
+  if (!out) {
+    let m;
+    if ((m = key.match(/^(\d+) 字$/))) out = `${m[1]} chars`;
+    else if ((m = key.match(/^已微调 (\d+) 次$/))) out = `Refined ×${m[1]}`;
+    else if ((m = key.match(/^(\d+) 个标签$/))) out = `${m[1]} tags`;
+    else if ((m = key.match(/^(\d+) 词$/))) out = `${m[1]} words`;
+    else if ((m = key.match(/^(\d+) \/ (\d+) 类$/))) out = `${m[1]} / ${m[2]} types`;
+    else if ((m = key.match(/^(\d+) 类$/))) out = `${m[1]} types`;
+    else if ((m = key.match(/^(\d+) 秒$/))) out = `${m[1]}s`;
+    else if ((m = key.match(/^已选 (\d+) 个$/))) out = `${m[1]} selected`;
+    else if ((m = key.match(/^(\d+) \/ (\d+) 条$/))) out = `${m[1]} / ${m[2]} items`;
+    else if ((m = key.match(/^(\d+) 条$/))) out = `${m[1]} items`;
+    else if ((m = key.match(/^第 (\d+) 次重试…?$/))) out = `Retry #${m[1]}…`;
+    else if ((m = key.match(/^接口暂时失败，第 (\d+) 次重试…?$/))) out = `Upstream hiccup, retry #${m[1]}…`;
+    else if ((m = key.match(/^正在生成… (\d+) 字（Esc 取消）$/))) out = `Generating… ${m[1]} chars (Esc to cancel)`;
+    else if ((m = key.match(/^正在改写… (\d+) 字（Esc 取消）$/))) out = `Rewriting… ${m[1]} chars (Esc to cancel)`;
+    else if ((m = key.match(/^正在生成 (\d+)\/(\d+)：(.+?) · (\d+) 字（Esc 取消）$/))) out = `Generating ${m[1]}/${m[2]}: ${tr(m[3])} · ${m[4]} chars (Esc to cancel)`;
+    else if ((m = key.match(/^正在生成 (\d+)\/(\d+)：(.+?) · 已用 (\d+) 秒（Esc 取消）$/))) out = `Generating ${m[1]}/${m[2]}: ${tr(m[3])} · ${m[4]}s elapsed (Esc to cancel)`;
+    else if ((m = key.match(/^模型思考中… (\d+) 字$/))) out = `Model thinking… ${m[1]} chars`;
+    else if ((m = key.match(/^模型现编了 (\d+) 条 · 点一条填进输入框$/))) out = `Model generated ${m[1]} ideas · click one to fill the input`;
+    else if ((m = key.match(/^微调中… (\d+) 字$/))) out = `Refining… ${m[1]} chars`;
+    else if ((m = key.match(/^已保存：saved\/(.+)$/))) out = `Saved: saved/${m[1]}`;
+    else if ((m = key.match(/^已载入：(.+)$/))) out = `Loaded: ${m[1]}`;
+    else if ((m = key.match(/^已重命名为：(.+)$/))) out = `Renamed to: ${m[1]}`;
+    else if ((m = key.match(/^已删除 (\d+) 个文件（7 天内可撤销）$/))) out = `Deleted ${m[1]} files (undo within 7 days)`;
+    else if ((m = key.match(/^已加入拼装板：(.+?)（(\d+) 个标签）$/))) out = `Added to board: ${tr(m[1])} (${m[2]} tags)`;
+    else if ((m = key.match(/^已更新拼装板的「(.+?)」$/))) out = `Updated board: ${tr(m[1])}`;
+    else if ((m = key.match(/^已从拼装板移除「(.+?)」$/))) out = `Removed from board: ${tr(m[1])}`;
+    else if ((m = key.match(/^已清空拼装板的 (\d+) 类标签$/))) out = `Cleared ${m[1]} board categories`;
+    else if ((m = key.match(/^已删除 (\d+) 个文件（7 天内可撤销）$/))) out = `Deleted ${m[1]} files (undo within 7 days)`;
+    else if ((m = key.match(/^已删除 (\d+) 个，(\d+) 个失败$/))) out = `Deleted ${m[1]}, ${m[2]} failed`;
+    else if ((m = key.match(/^已取消，已完成 (\d+) 类并加入拼装板$/))) out = `Canceled; ${m[1]} categories finished and added to the board`;
+    else if ((m = key.match(/^第 (\d+) 类生成失败：(.*)$/))) out = `Category ${m[1]} failed: ${tr(m[2])}`;
+    else if ((m = key.match(/^接口返回 (\d+)（(.*?)）：(.*)$/))) {
+      const hints = {
+        'API Key 无效或没有权限': 'invalid key or permission',
+        'API Key 无效或已过期': 'invalid or expired key',
+        'BaseURL 或模型名不对': 'wrong base URL or model',
+        '请求太频繁或余额不足': 'rate limited or out of quota',
+        '上游服务端暂时不可用': 'upstream unavailable',
+      };
+      out = `API returned ${m[1]} (${hints[m[2]] || m[2]}): ${tr(m[3])}`;
+    } else if ((m = key.match(/^无法连接到 (.+?)，请检查 BaseURL 和网络：(.*)$/))) {
+      out = `Cannot connect to ${m[1]}. Check the base URL and network: ${tr(m[2])}`;
+    } else if ((m = key.match(/^接口 (\d+) 秒没有返回任何数据，已自动中止。请重试，或在设置里换一个模型。$/))) {
+      out = `No data from the API for ${m[1]}s; aborted. Retry or choose another model in Settings.`;
+    } else if ((m = key.match(/^备份包含 (\d+) 个文件、(\d+) 条历史、(\d+) 类拼装板(?:；其中 (\d+) 个文件与现有同名)?。$/))) {
+      out = `Backup: ${m[1]} files, ${m[2]} history entries, ${m[3]} board categories${m[4] ? `; ${m[4]} name conflicts` : ''}.`;
+    }
+  }
+
+  if (!out) return s;
+  const lead = s.match(/^\s*/)[0];
+  const trail = s.match(/\s*$/)[0];
+  return `${lead}${out}${trail}`;
+}
+
+function i18nSkip(el) {
+  if (!el || el.nodeType !== 1) return false;
+  return !!el.closest('script,style,textarea,input,pre,[data-no-i18n],.card-body,.lib-title,.lib-summary,.h-sentence,.h-prompt,.batch-tags,.board-slot-tags,.board-preview-text,.keywords,#outTitle,#btnLang');
+}
+
+function translateTextNode(node) {
+  if (!node || node.nodeType !== 3) return;
+  const parent = node.parentElement;
+  if (!parent || i18nSkip(parent)) return;
+  const next = tr(node.nodeValue);
+  if (next !== node.nodeValue) node.nodeValue = next;
+}
+
+function translateAttrs(el) {
+  if (!el || el.nodeType !== 1) return;
+  const formControl = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
+  if (!formControl && i18nSkip(el)) return;
+  for (const name of ['placeholder', 'title', 'aria-label']) {
+    const v = el.getAttribute(name);
+    if (!v) continue;
+    const next = tr(v);
+    if (next !== v) el.setAttribute(name, next);
+  }
+}
+
+function walkI18n(root) {
+  if (!root) return;
+  if (root.nodeType === 3) {
+    translateTextNode(root);
+    return;
+  }
+  if (root.nodeType !== 1) return;
+  translateAttrs(root);
+  if (i18nSkip(root)) return;
+  for (const child of root.childNodes) walkI18n(child);
+}
+
+function applyI18nDom(root = document.body) {
+  if (S.lang !== 'en') return;
+  walkI18n(root);
+}
+
+function startI18nObserver() {
+  if (S.lang !== 'en' || i18nObserver) return;
+  i18nObserver = new MutationObserver((muts) => {
+    for (const m of muts) {
+      if (m.type === 'characterData') translateTextNode(m.target);
+      else if (m.type === 'attributes') translateAttrs(m.target);
+      else for (const n of m.addedNodes) walkI18n(n);
+    }
+  });
+  i18nObserver.observe(document.body, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ['placeholder', 'title', 'aria-label'],
+  });
+}
+
+function initLanguage() {
+  try {
+    const v = localStorage.getItem('pf-lang');
+    if (v === 'en' || v === 'zh') S.lang = v;
+  } catch {
+    /* 默认中文 */
+  }
+  document.documentElement.lang = S.lang === 'en' ? 'en' : 'zh-CN';
+  const btn = $('#btnLang');
+  if (btn) {
+    btn.textContent = S.lang === 'en' ? '中文' : 'EN';
+    btn.title = S.lang === 'en' ? '切换到中文' : 'Switch to English';
+  }
+  if (S.lang === 'en') {
+    document.title = 'Prompt Forge · One sentence to image prompt';
+    applyI18nDom(document.body);
+    startI18nObserver();
+  }
+}
+
+function toggleLanguage() {
+  try {
+    localStorage.setItem('pf-lang', S.lang === 'en' ? 'zh' : 'en');
+  } catch {
+    /* 存不下就只本次生效 */
+  }
+  location.reload();
+}
+
+
 const STYLES = [
-  { id: 'sd', label: 'SD / SDXL / Flux', desc: '结构化英文短语' },
-  { id: 'anime', label: 'NovelAI 动漫', desc: 'Danbooru 标签流' },
-  { id: 'mj', label: 'Midjourney', desc: '自然语言 + 参数' },
-  { id: 'photo', label: '写实摄影', desc: '镜头 / 光线 / 胶片' },
-  { id: 'natural', label: '自然语言', desc: 'Flux / DALL·E' },
+  { id: 'sd', label: 'SD / SDXL / Flux', desc: '结构化英文短语', descEn: 'Structured English phrases' },
+  { id: 'anime', label: 'NovelAI 动漫', desc: 'Danbooru 标签流', descEn: 'Danbooru tag flow' },
+  { id: 'mj', label: 'Midjourney', desc: '自然语言 + 参数', descEn: 'Natural language + parameters' },
+  { id: 'photo', label: '写实摄影', desc: '镜头 / 光线 / 胶片', descEn: 'Lens / light / film' },
+  { id: 'natural', label: '自然语言', desc: 'Flux / DALL·E', descEn: 'Flux / DALL·E' },
 ];
 
 // 细分标签类型，和 src/styles.mjs 里的 SEGMENT_LIST 保持一致
@@ -55,6 +212,7 @@ const IDEAS = [
 ];
 
 const S = {
+  lang: 'zh',
   style: 'sd',
   busy: false,
   config: null,
@@ -127,6 +285,7 @@ const TARGET_PRESETS = [
 
 /* ============ 启动 ============ */
 document.addEventListener('DOMContentLoaded', () => {
+  initLanguage();
   renderStyleOptions();
   renderRefineChips();
   renderCharRefineChips();
@@ -150,7 +309,9 @@ function renderStyleOptions() {
   for (const st of STYLES) {
     const o = document.createElement('option');
     o.value = st.id;
-    o.textContent = `${st.label} — ${st.desc}`;
+    o.textContent = S.lang === 'en'
+      ? `${st.label} — ${st.descEn}`
+      : `${st.label} — ${st.desc}`;
     sel.appendChild(o);
   }
   sel.value = S.style;
@@ -168,7 +329,7 @@ function renderSegTypeChips() {
     b.type = 'button';
     b.className = 'chip' + (t.id === S.segType ? ' active' : '');
     b.dataset.id = t.id;
-    b.innerHTML = `<b>${t.label}</b><small>${t.desc}</small>`;
+    b.innerHTML = `<b>${segTypeLabel(t.id)}</b><small>${segTypeDesc(t.id)}</small>`;
     b.addEventListener('click', () => {
       S.segType = t.id;
       box.querySelectorAll('.chip').forEach((c) => c.classList.toggle('active', c.dataset.id === t.id));
@@ -178,20 +339,46 @@ function renderSegTypeChips() {
 }
 
 function segTypeLabel(id) {
-  return (SEG_TYPES.find((t) => t.id === id) || SEG_TYPES[0]).label;
+  const t = SEG_TYPES.find((x) => x.id === id) || SEG_TYPES[0];
+  return S.lang === 'en' ? (SEG_EN_LABELS[t.id] || t.label) : t.label;
 }
+
+function segTypeDesc(id) {
+  const t = SEG_TYPES.find((x) => x.id === id) || SEG_TYPES[0];
+  return S.lang === 'en' ? (SEG_EN_DESCS[t.id] || t.desc) : t.desc;
+}
+
+const SEG_EN_LABELS = {
+  outfit: 'Outfit',
+  character: 'Character look',
+  scene: 'Scene',
+  pose: 'Pose & expression',
+  props: 'Props',
+  lighting: 'Lighting',
+  style: 'Style & texture',
+};
+const SEG_EN_DESCS = {
+  outfit: 'Clothes / materials / accessories',
+  character: 'Face / hair / build',
+  scene: 'Place / weather / background',
+  pose: 'Pose / hands / expression',
+  props: 'Held / placed / key objects',
+  lighting: 'Light / color / atmosphere',
+  style: 'Medium / lens / quality',
+};
 
 function renderSegRefineChips() {
   const box = $('#segRefineChips');
   if (!box) return;
   box.innerHTML = '';
   for (const text of SEG_REFINE_CHIPS) {
+    const label = S.lang === 'en' ? tr(text) : text;
     const b = document.createElement('button');
     b.type = 'button';
-    b.textContent = text;
+    b.textContent = label;
     b.addEventListener('click', () => {
-      $('#segRefineInput').value = text;
-      refineSegment(text);
+      $('#segRefineInput').value = label;
+      refineSegment(label);
     });
     box.appendChild(b);
   }
@@ -248,7 +435,7 @@ function renderThemeSwatches() {
 
     const name = document.createElement('span');
     name.className = 'theme-name';
-    name.textContent = t.name;
+    name.textContent = tr(t.name);
     b.appendChild(name);
 
     const check = document.createElement('span');
@@ -271,7 +458,7 @@ function applyTheme(id) {
   }
   themeName = t.name;
   renderThemeSwatches();
-  toast(`已切换皮肤：${t.name}`);
+  toast(`已切换皮肤：${tr(t.name)}`);
 }
 
 function openThemePop() {
@@ -2225,6 +2412,7 @@ function renderCharacters(d) {
   head.className = 'result-title-row';
   const h3 = document.createElement('h3');
   h3.textContent = d.title || '角色提示词';
+  h3.dataset.noI18n = '1';
   head.appendChild(h3);
 
   const badges = document.createElement('div');
@@ -2258,12 +2446,13 @@ function renderCharRefineChips() {
   const box = $('#charRefineChips');
   box.innerHTML = '';
   for (const text of CHAR_REFINE_CHIPS) {
+    const label = S.lang === 'en' ? tr(text) : text;
     const b = document.createElement('button');
     b.type = 'button';
-    b.textContent = text;
+    b.textContent = label;
     b.addEventListener('click', () => {
-      $('#charRefineInput').value = text;
-      refineCharacter(text);
+      $('#charRefineInput').value = label;
+      refineCharacter(label);
     });
     box.appendChild(b);
   }
@@ -2712,6 +2901,7 @@ function renderSegment(d) {
   head.className = 'result-title-row';
   const h3 = document.createElement('h3');
   h3.textContent = d.title || '细分标签';
+  h3.dataset.noI18n = '1';
   head.appendChild(h3);
 
   const badges = document.createElement('div');
@@ -3706,12 +3896,13 @@ function renderRefineChips() {
   const box = $('#refineChips');
   box.innerHTML = '';
   for (const text of REFINE_CHIPS) {
+    const label = S.lang === 'en' ? tr(text) : text;
     const b = document.createElement('button');
     b.type = 'button';
-    b.textContent = text;
+    b.textContent = label;
     b.addEventListener('click', () => {
-      $('#refineInput').value = text;
-      refine(text);
+      $('#refineInput').value = label;
+      refine(label);
     });
     box.appendChild(b);
   }
@@ -4289,6 +4480,7 @@ function bind() {
   });
   /* 设置弹窗 */
   $('#btnSettings').addEventListener('click', openSettings);
+  $('#btnLang').addEventListener('click', toggleLanguage);
   $('#btnCancelSettings').addEventListener('click', () => $('#settings').close());
   $('#btnSaveSettings').addEventListener('click', saveSettings);
   $('#btnTest').addEventListener('click', testConnection);

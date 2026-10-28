@@ -10,6 +10,8 @@
     try {
       var savedTheme = localStorage.getItem('pf-theme');
       if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+      var savedLang = localStorage.getItem('pf-lang');
+      if (savedLang === 'en') document.documentElement.lang = 'en';
     } catch (e) { /* 隐私模式等取不到就算了 */ }
   </script>
   <link rel="stylesheet" href="/styles.css" />
@@ -30,6 +32,7 @@
       </div>
       <div class="topbar-right">
         <span class="status" id="status"><i></i><span id="statusText">未配置</span></span>
+        <button class="btn ghost" id="btnLang" title="Switch to English">EN</button>
         <div class="theme-wrap">
           <button class="btn ghost" id="btnTheme" aria-haspopup="dialog" aria-expanded="false" aria-controls="themePop">
             🎨 皮肤
@@ -655,6 +658,7 @@
     </form>
   </dialog>
 
+  <script src="/i18n.js"></script>
   <script src="/app.js"></script>
 </body>
 

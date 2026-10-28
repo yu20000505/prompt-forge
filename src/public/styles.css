@@ -2326,6 +2326,15 @@ mark {
 }
 
 @media (max-width: 560px) {
+  .topbar {
+    flex-wrap: wrap;
+  }
+
+  .topbar-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
   .opts,
   .opts.two {
     grid-template-columns: 1fr;
