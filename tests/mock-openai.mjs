@@ -66,6 +66,15 @@ const SEG_REFINED = {
   keywords: ['黑蕾丝', '金线刺绣', '华丽', '哥特'],
 };
 
+// 导入改写示例：用 marker 让测试能确认走的是 /api/import
+const IMPORT_SAMPLE = {
+  ...SAMPLE,
+  title: '导入改写：霓虹女剑客',
+  positive: `imported-rewrite-marker, ${SAMPLE.positive}`,
+  negative: `imported-negative-marker, ${SAMPLE.negative}`,
+  translation: `【导入改写】${SAMPLE.translation}`,
+};
+
 // 灵感接口返回的内容（一次 6 条）
 const MOCK_IDEAS = [
   '凌晨四点的便利店门口，一个值夜班的人蹲在台阶上吃关东煮',
@@ -97,6 +106,9 @@ function pickSample(payload) {
   // 细分标签：微调优先于首次生成
   if (sys.includes('细分标签修改器')) return SEG_REFINED;
   if (sys.includes('细分标签工程师')) return SEG_SAMPLE;
+
+  // 导入已有提示词改写
+  if (sys.includes('改写已有提示词')) return IMPORT_SAMPLE;
 
   // 角色提示词的微调（注意要排在角色设定之前，前者的系统提示词里也含「多角色同框」）
   if (sys.includes('角色提示词修改器')) {

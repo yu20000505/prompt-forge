@@ -1798,6 +1798,63 @@ async function main() {
   await evalJs(`document.querySelector('#mainTabs .tab[data-view="prompt"]').click(); true`);
   await sleep(300);
 
+  // ---------- 12.8 导入已有提示词改写 ----------
+  await evalJs(`document.querySelector('#btnImportPrompt').click(); true`);
+  await sleep(300);
+  check('导入改写弹窗能打开', (await visible('#importDialog')) === true);
+  await evalJs(`(() => {
+    document.querySelector('#importText').value = '1girl, silver hair, black lace dress, gothic church, cinematic lighting, 8k, masterpiece, best quality';
+    document.querySelector('#importExtra').value = '保留竖构图';
+    document.querySelector('#btnImportRun').click();
+    return true;
+  })()`);
+  let importDone = false;
+  for (let i = 0; i < 120; i++) {
+    importDone = await visible('#cards');
+    if (importDone) break;
+    await sleep(200);
+  }
+  const importErr = await evalJs(`document.querySelector('#err').hidden ? '' : document.querySelector('#err').textContent`);
+  check('导入改写生成成功', importDone, importErr);
+  const importedPositive = await evalJs(`document.querySelector('#outPositive').textContent`);
+  const importedNegative = await evalJs(`document.querySelector('#outNegative').textContent`);
+  check('导入改写走的是 /api/import',
+    importedPositive.includes('imported-rewrite-marker') && importedNegative.includes('imported-negative-marker'),
+    importedPositive.slice(0, 60));
+  check('导入结果进入历史',
+    (await evalJs(`JSON.parse(localStorage.getItem('prompt-forge-history-v1') || '[]').some((h) => h.imported === true)`)) === true);
+  const importHistory = await evalJs(`JSON.parse(localStorage.getItem('prompt-forge-history-v1') || '[]').find((h) => h.imported === true)`);
+  check('历史里保留了原始提示词',
+    /1girl, silver hair, black lace dress/.test(importHistory?.importPrompt || ''));
+  check('导入结果带中文解读',
+    /导入改写/.test(await evalJs(`document.querySelector('#outTranslation').textContent`)));
+  check('导入结果的保存内容用「原始提示词」',
+    /原始提示词：/.test(await evalJs(`promptMarkdown()`)));
+
+  const filesBeforeImportSave = savedFiles().length;
+  await evalJs(`document.querySelector('#btnSavePrompt').click(); true`);
+  await sleep(1100);
+  const importFile = savedFiles().find((f) => f.includes('_提示词_导入改写')) || '';
+  check('导入结果可以保存',
+    savedFiles().length === filesBeforeImportSave + 1 && !!importFile, importFile);
+  check('导入结果保存文件带改写内容',
+    readSaved(importFile).includes('imported-rewrite-marker'), '');
+
+  // 空内容时留在弹窗里报错
+  await evalJs(`document.querySelector('#btnImportPrompt').click(); true`);
+  await sleep(250);
+  await evalJs(`(() => {
+    document.querySelector('#importText').value = '';
+    document.querySelector('#btnImportRun').click();
+    return true;
+  })()`);
+  await sleep(250);
+  check('导入空提示词会在弹窗里报错',
+    (await evalJs(`document.querySelector('#importErr').hidden`)) === false
+      && (await evalJs(`document.querySelector('#importDialog').open`)) === true);
+  await evalJs(`document.querySelector('#btnImportCancel').click(); true`);
+  await sleep(200);
+
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------
   // 先验一下错误栏的「重试」按钮

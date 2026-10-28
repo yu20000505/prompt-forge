@@ -147,6 +147,49 @@ export function buildMessages(opts = {}) {
   ];
 }
 
+/* ============ 导入改写：把已有提示词重构为当前风格 ============ */
+
+export function buildImportMessages(opts = {}) {
+  const style = STYLE_PROMPTS[opts.style] ? opts.style : 'sd';
+  const detail = DETAIL[opts.detail] ? opts.detail : 'standard';
+  const language = opts.language === 'zh' ? 'zh' : 'en';
+  const target = String(opts.targetModel || '').trim();
+
+  const langRule = language === 'zh'
+    ? '语言：positive 与 negative 都用中文书写（标签类专有名词可保留英文）。'
+    : '语言：positive 与 negative 都用英文书写，translation 字段用中文。';
+  const targetRule = target
+    ? `目标模型：${target}。请严格按该模型的语法习惯和提示词长度偏好输出。${TARGET_HINT[target] || ''}`
+    : '目标模型：通用图像生成模型，按风格最通用的写法输出。';
+
+  const system = [
+    `# 你的角色
+你是一位顶级的文生图提示词工程师，专精「改写已有提示词」。用户会粘贴一段来自别的工具或网上的提示词，可能中英混杂、格式混乱、有重复或缺失。你的任务不是从零创作，而是保留原意，把它改写成当前风格的、可直接出图的提示词。`,
+    `# 改写规则
+1. 保留原文的主体、身份、服装、场景、构图和风格意图，不要凭空换掉主体或场景。
+2. 补全缺失的可见信息：材质、光线方向、镜头焦段、景深、色彩和氛围。
+3. 删除重复标签、互相矛盾的描述、空泛形容词（好看、高级、氛围感之类）。
+4. 原文里明确「不要出现」的内容，放进 negative。
+5. translation 用中文说明改写后的画面，并用一句话说明主要改了什么。
+6. 提示词正文里禁止出现「原文」「用户」「这张图」这类解释性语言。`,
+    STYLE_PROMPTS[style],
+    DETAIL[detail],
+    langRule,
+    targetRule,
+    CONTRACT,
+  ].join('\n\n');
+
+  const lines = [`已有提示词：\n${String(opts.prompt || '').trim()}`];
+  const extra = String(opts.extra || '').trim();
+  if (extra) lines.push(`附加要求（优先满足）：${extra}`);
+  lines.push('请按要求只输出 JSON。');
+
+  return [
+    { role: 'system', content: applyApiPinned(system, opts.apiPinned) },
+    { role: 'user', content: lines.join('\n') },
+  ];
+}
+
 /* ============ 灵感激点子（让模型现编起始句） ============ */
 
 export function buildIdeaMessages(opts = {}) {

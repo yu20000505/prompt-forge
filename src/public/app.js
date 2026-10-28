@@ -360,11 +360,48 @@ function restorePromptResult() {
   }
 }
 
+function showImportErr(msg) {
+  const el = $('#importErr');
+  el.textContent = msg;
+  el.hidden = false;
+}
+
+function openImportDialog() {
+  if (S.busy) return toast('正在生成，稍等一下再导入', true);
+  $('#importErr').hidden = true;
+  $('#importDialog').showModal();
+  setTimeout(() => $('#importText').focus(), 40);
+}
+
+function runImport() {
+  const prompt = $('#importText').value.trim();
+  if (!prompt) {
+    showImportErr('先粘贴一段已有的提示词');
+    $('#importText').focus();
+    return;
+  }
+  const extra = $('#importExtra').value.trim();
+  $('#importDialog').close();
+  generate({ imported: true, prompt, extra });
+}
+
 /* ============ 生成 ============ */
-async function generate() {
+async function generate(opts = {}) {
   if (S.busy) return;
-  const sentence = $('#sentence').value.trim();
-  if (!sentence) {
+  const imported = !!opts.imported;
+  const importPrompt = imported ? String(opts.prompt || $('#importText').value || '').trim() : '';
+  const importExtra = imported
+    ? String(opts.extra ?? $('#importExtra').value ?? '').trim()
+    : '';
+  const sentence = imported
+    ? `导入改写：${importPrompt.replace(/\s+/g, ' ').slice(0, 42)}${importPrompt.length > 42 ? '…' : ''}`
+    : $('#sentence').value.trim();
+
+  if (imported && !importPrompt) {
+    showImportErr('先粘贴一段已有的提示词');
+    return;
+  }
+  if (!imported && !sentence) {
     showErr('先写一句话描述你想要的画面');
     $('#sentence').focus();
     return;
@@ -374,12 +411,12 @@ async function generate() {
   S.busy = true;
   const btn = $('#btnGenerate');
   btn.disabled = true;
-  $('#btnGenerateText').textContent = '生成中…';
+  $('#btnGenerateText').textContent = imported ? '改写中…' : '生成中…';
   $('#empty').hidden = true;
   $('#cards').hidden = true;
   $('#stream').hidden = false;
   $('#streamText').textContent = '';
-  $('#streamLabel').textContent = '正在生成…（Esc 取消）';
+  $('#streamLabel').textContent = imported ? '正在改写…（Esc 取消）' : '正在生成…（Esc 取消）';
   $('#btnCancel').hidden = false;
   $('#btnRegen').disabled = true;
 
@@ -389,21 +426,33 @@ async function generate() {
   let gotError = null;
 
   try {
-    const res = await fetch('/api/generate', {
+    const res = await fetch(imported ? '/api/import' : '/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sentence,
-        style: S.style,
-        targetModel: $('#targetModel').value.trim(),
-        language: $('#language').value,
-        detail: $('#detail').value,
-        extra: $('#extra').value.trim(),
-      }),
+      body: JSON.stringify(imported
+        ? {
+          prompt: importPrompt,
+          style: S.style,
+          targetModel: $('#targetModel').value.trim(),
+          language: $('#language').value,
+          detail: $('#detail').value,
+          extra: importExtra,
+        }
+        : {
+          sentence,
+          style: S.style,
+          targetModel: $('#targetModel').value.trim(),
+          language: $('#language').value,
+          detail: $('#detail').value,
+          extra: $('#extra').value.trim(),
+        }),
       signal: S.abort.signal,
     });
 
     if (!res.ok) {
+      if (imported && res.status === 404) {
+        throw new Error('检测到服务端还是旧进程：没有 /api/import。请重启服务后再试。');
+      }
       const e = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
       throw new Error(e.error || `HTTP ${res.status}`);
     }
@@ -431,7 +480,7 @@ async function generate() {
           acc += evt.text;
           $('#streamText').textContent = acc;
           $('#streamText').scrollTop = $('#streamText').scrollHeight;
-          $('#streamLabel').textContent = `正在生成… ${acc.length} 字（Esc 取消）`;
+          $('#streamLabel').textContent = `${imported ? '正在改写' : '正在生成'}… ${acc.length} 字（Esc 取消）`;
         } else if (evt.type === 'error') {
           gotError = evt.message;
         }
@@ -456,6 +505,9 @@ async function generate() {
       historyAt: null,
       original: parsed ? cloneData(parsed) : null,
       edited: false,
+      imported,
+      importPrompt: imported ? importPrompt : '',
+      importExtra: imported ? importExtra : '',
     };
     if (!parsed) {
       // 解析失败就原样展示，别让用户白等
@@ -478,7 +530,9 @@ async function generate() {
     if (err.name === 'AbortError') {
       showErr('已取消本次生成');
     } else {
-      showErr(err.message || String(err), generate);
+      showErr(err.message || String(err), imported
+        ? () => generate({ imported: true, prompt: importPrompt, extra: importExtra })
+        : generate);
     }
     restorePromptResult();
   } finally {
@@ -750,7 +804,8 @@ function promptMarkdown() {
   const r = S.rendered || {};
   const lines = [];
 
-  if (cur?.sentence) lines.push(`> 原始描述：${cur.sentence}`);
+  if (cur?.imported && cur.importPrompt) lines.push(`> 原始提示词：${cur.importPrompt}`);
+  else if (cur?.sentence) lines.push(`> 原始描述：${cur.sentence}`);
   const st = STYLES.find((x) => x.id === (cur?.style || S.style));
   if (st) lines.push(`> 风格：${st.label}`);
   if (cur?.targetModel) lines.push(`> 目标模型：${cur.targetModel}`);
@@ -1357,6 +1412,9 @@ function pushHistory(item) {
     targetModel: item.targetModel,
     language: item.language,
     favorite: false,
+    imported: !!item.imported,
+    importPrompt: item.importPrompt || '',
+    importExtra: item.importExtra || '',
     at: item.at,
   });
   S.history = S.history.slice(0, 60);
@@ -1411,7 +1469,7 @@ function renderHistory() {
   const filter = S.histFilter || 'all';
   const inFilter = filter === 'all' ? all : all.filter((h) => historyKind(h) === filter);
   const list = q
-    ? inFilter.filter((h) => `${h.title || ''} ${h.sentence || ''} ${h.positive || ''} ${h.tags || ''} ${h.prompt_en || ''} ${h.prompt_zh || ''}`
+    ? inFilter.filter((h) => `${h.title || ''} ${h.sentence || ''} ${h.positive || ''} ${h.tags || ''} ${h.prompt_en || ''} ${h.prompt_zh || ''} ${h.importPrompt || ''}`
       .toLowerCase().includes(q))
     : inFilter;
   // 收藏的永远排在最前，其余按时间倒序
@@ -1622,6 +1680,9 @@ function restoreHistoryEntry(h) {
     historyAt: h.at,
     original: cloneData(parsed),
     edited: false,
+    imported: !!h.imported,
+    importPrompt: h.importPrompt || '',
+    importExtra: h.importExtra || '',
   };
   S.style = STYLES.some((x) => x.id === h.style) ? h.style : 'sd';
   $('#styleSelect').value = S.style;
@@ -3228,6 +3289,10 @@ function bind() {
     if (S.abort) S.abort.abort();
   });
   $('#btnRegen').addEventListener('click', () => {
+    if (S.current?.imported) {
+      generate({ imported: true, prompt: S.current.importPrompt, extra: S.current.importExtra });
+      return;
+    }
     if (S.current?.sentence) {
       $('#sentence').value = S.current.sentence;
       refreshCounter();
@@ -3236,6 +3301,13 @@ function bind() {
   });
 
   $('#btnRandom').addEventListener('click', () => requestIdeas(IDEA_UI.prompt));
+  $('#btnImportPrompt').addEventListener('click', openImportDialog);
+  $('#btnImportCancel').addEventListener('click', () => $('#importDialog').close());
+  $('#btnImportRun').addEventListener('click', runImport);
+  $('#importForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    runImport();
+  });
   $('#btnIdeaClose').addEventListener('click', () => {
     $('#ideaBar').hidden = true;
   });

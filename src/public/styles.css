@@ -2114,6 +2114,16 @@ select {
   width: min(680px, 94vw);
 }
 
+.settings.import-dialog {
+  width: min(720px, 94vw);
+}
+
+.import-dialog textarea {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .editor-hint {
   margin: 0 0 8px !important;
   line-height: 1.6;

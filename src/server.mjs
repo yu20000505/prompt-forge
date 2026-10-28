@@ -8,6 +8,7 @@ import os from 'node:os';
 import {
   buildMessages,
   buildRefineMessages,
+  buildImportMessages,
   buildIdeaMessages,
   buildCharacterMessages,
   buildCharacterRefineMessages,
@@ -157,7 +158,7 @@ function publicConfig(cfg) {
     apiPinnedPrompt: cfg.apiPinnedPrompt,
     apiPinnedForIdea: !!cfg.apiPinnedForIdea,
     // 前端用它判断后端是不是旧进程（改了 server.mjs 但没重启时很常见）
-    features: { segment: true },
+    features: { segment: true, import: true },
   };
 }
 
@@ -408,6 +409,28 @@ async function handleGenerate(req, res) {
   });
 
   return proxyChatStream(req, res, { ...ctx, messages });
+}
+
+// 导入改写：把用户粘贴的已有提示词重构为当前风格
+async function handleImport(req, res) {
+  const ctx = await resolveUpstream(req, res);
+  if (!ctx) return;
+
+  const prompt = String(ctx.body.prompt || '').trim();
+  if (!prompt) return json(res, 400, { error: '请先粘贴已有的提示词' });
+  if (prompt.length > 20000) return json(res, 400, { error: '提示词太长了，请控制在 2 万字以内' });
+
+  const messages = buildImportMessages({
+    prompt,
+    extra: ctx.body.extra,
+    style: ctx.body.style,
+    targetModel: ctx.body.targetModel,
+    language: ctx.body.language,
+    detail: ctx.body.detail,
+    apiPinned: ctx.apiPinned,
+  });
+
+  return proxyChatStream(req, res, { ...ctx, messages, maxTokens: 2600 });
 }
 
 // 微调：拿已有提示词 + 一句话修改要求，产出改好的完整提示词
@@ -1065,6 +1088,7 @@ const server = http.createServer(async (req, res) => {
   const { pathname } = new URL(req.url, `http://${HOST}`);
   try {
     if (pathname === '/api/generate' && req.method === 'POST') return await handleGenerate(req, res);
+    if (pathname === '/api/import' && req.method === 'POST') return await handleImport(req, res);
     if (pathname === '/api/refine' && req.method === 'POST') return await handleRefine(req, res);
     if (pathname === '/api/idea' && req.method === 'POST') return await handleIdea(req, res);
     if (pathname === '/api/characters' && req.method === 'POST') return await handleCharacters(req, res);

@@ -103,6 +103,7 @@
         <div class="row-between">
           <div class="mini-actions">
             <button class="btn tiny" id="btnRandom">🎲 随机灵感</button>
+            <button class="btn tiny" id="btnImportPrompt" title="粘贴现成提示词，按当前风格改写">📥 导入改写</button>
             <button class="btn tiny" id="btnClear">清空</button>
           </div>
           <span class="counter" id="counter">0 字</span>
@@ -499,6 +500,25 @@
       </p>
     </div>
   </aside>
+
+  <!-- ============ 导入已有提示词改写 ============ -->
+  <dialog class="settings import-dialog" id="importDialog">
+    <form id="importForm" method="dialog">
+      <h3>导入已有提示词</h3>
+      <p class="dim small">粘贴一段现成的提示词（中英混杂也可以）。模型会保留主体和画面意图，按当前风格重写，并补负面词、中文解读和参数建议。</p>
+      <label for="importText">已有提示词</label>
+      <textarea id="importText" rows="10" spellcheck="false"
+        placeholder="例如：1girl, silver hair, black lace dress, gothic church, cinematic lighting, 8k"></textarea>
+      <label for="importExtra">附加要求（可选）</label>
+      <input id="importExtra" autocomplete="off" placeholder="例如：保留竖构图 / 改成夜景 / 不要出现人物" />
+      <div class="dialog-err err" id="importErr" hidden></div>
+      <div class="dialog-actions">
+        <span class="grow"></span>
+        <button class="btn ghost" type="button" id="btnImportCancel">取消</button>
+        <button class="btn primary" type="button" id="btnImportRun">开始改写</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- ============ 编辑结果（直接改，不重新请求模型） ============ -->
   <dialog class="settings editor" id="editor">
