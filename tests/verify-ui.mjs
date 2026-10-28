@@ -141,6 +141,9 @@ async function main() {
     await sleep(200);
   }
 
+  // 浏览器 profile 是复用的，上一次跑留下的历史会让计数/收藏类断言不稳定
+  await evalJs(`try { localStorage.removeItem('prompt-forge-history-v1'); } catch {} S.history = []; S.histFilter = 'all'; saveHistory(); true`);
+
   // ---------- 1. 基础结构 ----------
   const styleOptions = await evalJs(`[...document.querySelectorAll('#styleSelect option')].map(o => o.value)`);
   check('风格下拉有 5 个选项',
@@ -1854,6 +1857,59 @@ async function main() {
       && (await evalJs(`document.querySelector('#importDialog').open`)) === true);
   await evalJs(`document.querySelector('#btnImportCancel').click(); true`);
   await sleep(200);
+
+  // ---------- 12.9 一键生成七类标签 ----------
+  await evalJs(`document.querySelector('#mainTabs .tab[data-view="segment"]').click(); true`);
+  await sleep(300);
+  await evalJs(`(() => {
+    const s = document.querySelector('#segSentence');
+    s.value = '银发吸血鬼贵族少女，穿黑色蕾丝长裙';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#btnSegAll').click();
+    return true;
+  })()`);
+  let batchDone = false;
+  for (let i = 0; i < 250; i++) {
+    const rows = await evalJs(`document.querySelectorAll('#segCards .batch-row').length`);
+    if (rows === 7 && (await evalJs(`Object.keys(S.segBatch?.results || {}).length`)) === 7) { batchDone = true; break; }
+    await sleep(200);
+  }
+  check('一键七类生成完成', batchDone,
+    await evalJs(`document.querySelector('#segErr').hidden ? '' : document.querySelector('#segErr').textContent`));
+  check('批量结果展示七类标签',
+    (await evalJs(`document.querySelectorAll('#segCards .batch-row').length`)) === 7);
+  check('批量结果每类都有标签',
+    (await evalJs(`[...document.querySelectorAll('#segCards .batch-row')].every((r) => r.querySelectorAll('.batch-tags').length === 1)`)) === true);
+  const boardTypesAfterBatch = await evalJs(`JSON.parse(localStorage.getItem('pf-board-v1') || '{}').items.map((x) => x.type).sort()`);
+  check('七类结果自动加入拼装板',
+    boardTypesAfterBatch.length === 7
+      && ['character', 'lighting', 'outfit', 'pose', 'props', 'scene', 'style'].every((t) => boardTypesAfterBatch.includes(t)),
+    JSON.stringify(boardTypesAfterBatch));
+  check('批量模式下单条保存/编辑不可用',
+    (await evalJs(`document.querySelector('#btnSegSave').disabled`)) === true
+      && (await evalJs(`document.querySelector('#btnEditSeg').disabled`)) === true
+      && (await evalJs(`document.querySelector('#btnSegAddBoard').disabled`)) === true);
+
+  // 取消后再补齐
+  await evalJs(`document.querySelector('#btnSegAll').click(); true`);
+  await sleep(500);
+  await evalJs(`document.querySelector('#btnSegCancel').click(); true`);
+  await sleep(900);
+  const batchCancelMsg = await evalJs(`document.querySelector('#segErr').hidden ? '' : document.querySelector('#segErr').textContent`);
+  const partialCount = await evalJs(`Object.keys(S.segBatch?.results || {}).length`);
+  check('取消批量生成保留已完成类型',
+    /已取消/.test(batchCancelMsg) && partialCount > 0 && partialCount < 7,
+    `${partialCount} 类 / ${batchCancelMsg}`);
+  await evalJs(`document.querySelector('#segErr .err-retry').click(); true`);
+  let batchResumed = false;
+  for (let i = 0; i < 250; i++) {
+    if ((await evalJs(`Object.keys(S.segBatch?.results || {}).length`)) === 7) { batchResumed = true; break; }
+    await sleep(200);
+  }
+  check('补齐剩余能完成七类', batchResumed);
+
+  await evalJs(`document.querySelector('#mainTabs .tab[data-view="prompt"]').click(); true`);
+  await sleep(300);
 
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------

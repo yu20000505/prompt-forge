@@ -86,6 +86,8 @@ const S = {
   segStack: [],
   segOriginal: null,
   segEdited: false,
+  segBatch: null,
+  segBatchMode: false,
   editorMode: null,
   serverStale: false,
   lib: [],
@@ -2183,8 +2185,11 @@ async function generateSegment() {
   hideSegErr();
 
   S.segBusy = true;
+  S.segBatchMode = false;
+  S.segBatch = null;
   const btn = $('#btnSegGenerate');
   btn.disabled = true;
+  $('#btnSegAll').disabled = true;
   $('#btnSegGenerateText').textContent = '生成中…';
   $('#segEmpty').hidden = true;
   $('#segCards').hidden = true;
@@ -2302,6 +2307,7 @@ async function generateSegment() {
     S.segBusy = false;
     S.segAbort = null;
     btn.disabled = false;
+    $('#btnSegAll').disabled = false;
     $('#btnSegGenerateText').textContent = '生成标签组合';
     $('#btnSegRegen').disabled = !S.segData;
     $('#btnSegCopyAll').disabled = !S.segData;
@@ -2313,6 +2319,7 @@ async function generateSegment() {
 
 function renderSegment(d) {
   hideSegErr();
+  S.segBatchMode = false;
   const wrap = $('#segCards');
   wrap.innerHTML = '';
   $('#segEmpty').hidden = true;
@@ -2546,6 +2553,255 @@ function undoSegmentRefine() {
   hideSegErr();
 }
 
+/* ============ 一键生成七类标签 ============ */
+
+async function requestSegmentOnce(type, sentence, extra, onDelta) {
+  const res = await fetch('/api/segment', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sentence,
+      segmentType: type,
+      targetModel: $('#targetModel').value.trim(),
+      detail: $('#detail').value,
+      style: S.style,
+      extra,
+    }),
+    signal: S.segAbort.signal,
+  });
+
+  if (!res.ok) {
+    if (res.status === 404) throw new Error(STALE_SERVER_MSG);
+    const e = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(e.error || `HTTP ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  let acc = '';
+  let gotError = null;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith('data:')) continue;
+      let evt;
+      try {
+        evt = JSON.parse(line.slice(5).trim());
+      } catch {
+        continue;
+      }
+      if (evt.type === 'delta') {
+        acc += evt.text;
+        if (onDelta) onDelta(acc);
+      } else if (evt.type === 'error') {
+        gotError = evt.message;
+      }
+    }
+  }
+
+  if (gotError) throw new Error(gotError);
+  if (!acc.trim()) throw new Error('模型没有返回内容，再试一次');
+  const parsed = normalizeSegment(parseJsonLoose(acc));
+  if (!parsed) throw new Error('模型返回的不是标准 JSON，再试一次或换个模型');
+  return parsed;
+}
+
+async function generateAllSegments(resume = false) {
+  if (S.segBusy) return;
+  if (S.serverStale) {
+    showSegErr(STALE_SERVER_MSG);
+    return;
+  }
+  const sentence = $('#segSentence').value.trim();
+  if (!sentence) {
+    showSegErr('先写一句话描述要生成的对象');
+    $('#segSentence').focus();
+    return;
+  }
+
+  if (!resume || !S.segBatch || S.segBatch.sentence !== sentence) {
+    S.segBatch = { sentence, results: {}, startedAt: Date.now() };
+  }
+  S.segBatchMode = true;
+  S.segBusy = true;
+  S.segData = null;
+  S.segText = '';
+  S.segSentence = sentence;
+  hideSegErr();
+
+  const btnAll = $('#btnSegAll');
+  btnAll.disabled = true;
+  $('#btnSegGenerate').disabled = true;
+  $('#btnSegGenerateText').textContent = '批量生成中…';
+  $('#segEmpty').hidden = true;
+  $('#segCards').hidden = true;
+  $('#segRefineBar').hidden = true;
+  $('#segStream').hidden = false;
+  $('#segStreamText').textContent = '';
+  $('#segStreamLabel').textContent = '准备生成七类标签…';
+  $('#btnSegCancel').hidden = false;
+  ['#btnSegRegen', '#btnSegCopyAll', '#btnSegSave', '#btnSegAddBoard', '#btnEditSeg', '#btnRestoreSeg']
+    .forEach((sel) => { $(sel).disabled = true; });
+  updateSegRefineUi();
+  updateSegEditUi();
+
+  S.segAbort = new AbortController();
+  const started = Date.now();
+  let failed = null;
+
+  try {
+    const types = resume
+      ? SEG_TYPES.filter((t) => !S.segBatch.results[t.id])
+      : SEG_TYPES;
+
+    for (const t of types) {
+      const done = Object.keys(S.segBatch.results).length;
+      const elapsed = Math.round((Date.now() - started) / 1000);
+      $('#segStreamLabel').textContent = `正在生成 ${done + 1}/7：${t.label} · 已用 ${elapsed} 秒（Esc 取消）`;
+      $('#segStreamText').textContent = '';
+      const parsed = await requestSegmentOnce(t.id, sentence, $('#segExtra').value.trim(), (acc) => {
+        $('#segStreamText').textContent = acc;
+        $('#segStreamText').scrollTop = $('#segStreamText').scrollHeight;
+        $('#segStreamLabel').textContent = `正在生成 ${done + 1}/7：${t.label} · ${acc.length} 字（Esc 取消）`;
+      });
+      S.segBatch.results[t.id] = parsed;
+      addToBoard({ type: t.id, tags: parsed.tags, title: parsed.title, sentence }, { silent: true });
+      $('#segStreamText').textContent = parsed.tags || '';
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') failed = err.message || String(err);
+  } finally {
+    S.segBusy = false;
+    S.segAbort = null;
+    $('#btnSegCancel').hidden = true;
+    $('#btnSegGenerate').disabled = false;
+    $('#btnSegGenerateText').textContent = '生成标签组合';
+    btnAll.disabled = false;
+    $('#segStream').hidden = true;
+    renderSegmentBatch({ failed, elapsed: Math.round((Date.now() - started) / 1000) });
+    revealResult('#viewSegment .result');
+
+    const done = Object.keys(S.segBatch?.results || {}).length;
+    if (failed) {
+      showSegErr(`第 ${done + 1} 类生成失败：${failed}`, () => generateAllSegments(true));
+    } else if (done < SEG_TYPES.length) {
+      showSegErr(`已取消，已完成 ${done} 类并加入拼装板`, () => generateAllSegments(true));
+    }
+  }
+}
+
+function renderSegmentBatch(meta = {}) {
+  const results = S.segBatch?.results || {};
+  const done = Object.keys(results).length;
+  const totalTags = Object.values(results).reduce((n, d) => n + countTags(d.tags), 0);
+
+  const wrap = $('#segCards');
+  wrap.innerHTML = '';
+  wrap.hidden = false;
+  $('#segEmpty').hidden = true;
+  $('#segStream').hidden = true;
+  $('#segNote').hidden = true;
+  $('#segRefineBar').hidden = true;
+
+  const head = document.createElement('div');
+  head.className = 'result-title-row';
+  const h3 = document.createElement('h3');
+  h3.textContent = '七类标签';
+  head.appendChild(h3);
+
+  const badges = document.createElement('div');
+  badges.className = 'badges';
+  badges.appendChild(badge(`${done} / ${SEG_TYPES.length} 类`, true));
+  badges.appendChild(badge(`${totalTags} 个标签`, false));
+  if (meta.elapsed) badges.appendChild(badge(`${meta.elapsed} 秒`, false));
+  if (meta.failed) badges.appendChild(badge('有失败', false));
+  if (S.segEdited) badges.appendChild(badge('已手改', true));
+  head.appendChild(badges);
+  wrap.appendChild(head);
+
+  const list = document.createElement('div');
+  list.className = 'batch-list';
+  for (const t of SEG_TYPES) {
+    const d = results[t.id];
+    const row = document.createElement('div');
+    row.className = 'batch-row';
+    row.dataset.type = t.id;
+
+    const rh = document.createElement('div');
+    rh.className = 'batch-head';
+    const label = document.createElement('span');
+    label.className = 'batch-type';
+    label.textContent = t.label;
+    rh.appendChild(label);
+
+    const cnt = document.createElement('span');
+    cnt.className = 'dim small';
+    cnt.textContent = d ? `${countTags(d.tags)} 个标签` : '未生成';
+    rh.appendChild(cnt);
+
+    const grow = document.createElement('span');
+    grow.className = 'grow';
+    rh.appendChild(grow);
+
+    if (d) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn tiny copy';
+      b.textContent = '复制';
+      b.addEventListener('click', () => copyText(d.tags, b));
+      rh.appendChild(b);
+    }
+    row.appendChild(rh);
+
+    if (d) {
+      const tags = document.createElement('p');
+      tags.className = 'batch-tags mono';
+      tags.textContent = d.tags;
+      row.appendChild(tags);
+    } else {
+      const miss = document.createElement('p');
+      miss.className = 'batch-missing';
+      miss.textContent = '这一类还没生成，可以点「补齐剩余」继续。';
+      row.appendChild(miss);
+    }
+    list.appendChild(row);
+  }
+  wrap.appendChild(list);
+
+  const actions = document.createElement('div');
+  actions.className = 'batch-actions';
+  if (done < SEG_TYPES.length) {
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'btn tiny';
+    more.textContent = '补齐剩余';
+    more.addEventListener('click', () => generateAllSegments(true));
+    actions.appendChild(more);
+  }
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'btn tiny primary';
+  open.textContent = '打开拼装板';
+  open.addEventListener('click', openBoard);
+  actions.appendChild(open);
+  wrap.appendChild(actions);
+
+  S.segData = null;
+  S.segText = '';
+  S.segBatchMode = true;
+  ['#btnSegRegen', '#btnSegCopyAll', '#btnSegSave', '#btnSegAddBoard', '#btnEditSeg', '#btnRestoreSeg']
+    .forEach((sel) => { $(sel).disabled = true; });
+  updateSegRefineUi();
+  updateSegEditUi();
+}
+
 /* ============ 拼装板（把多次生成的细分标签拼成一条完整提示词） ============ */
 
 // 固定顺序：不管先加入哪一类，拼出来的 tag 串顺序都稳定
@@ -2615,7 +2871,7 @@ function boardCombined() {
   return out.join(', ');
 }
 
-function addToBoard({ type, tags, title, sentence } = {}) {
+function addToBoard({ type, tags, title, sentence } = {}, opts = {}) {
   const id = SEG_TYPES.some((t) => t.id === type) ? type : '';
   const body = str(tags).trim();
   if (!id) {
@@ -2641,9 +2897,11 @@ function addToBoard({ type, tags, title, sentence } = {}) {
   saveBoard();
   if (!$('#boardDrawer').hidden) renderBoard();
 
-  toast(replaced
-    ? `已更新拼装板的「${segTypeLabel(id)}」`
-    : `已加入拼装板：${segTypeLabel(id)}（${countTags(body)} 个标签）`);
+  if (!opts.silent) {
+    toast(replaced
+      ? `已更新拼装板的「${segTypeLabel(id)}」`
+      : `已加入拼装板：${segTypeLabel(id)}（${countTags(body)} 个标签）`);
+  }
   return true;
 }
 
@@ -3371,6 +3629,7 @@ function bind() {
     }
   });
   $('#btnSegGenerate').addEventListener('click', generateSegment);
+  $('#btnSegAll').addEventListener('click', () => generateAllSegments(false));
   $('#btnSegCancel').addEventListener('click', () => {
     if (S.segAbort) S.segAbort.abort();
   });
