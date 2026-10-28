@@ -145,7 +145,13 @@ async function main() {
     await sleep(200);
   }
 
-  // 浏览器 profile 是复用的，上一次跑留下的历史会让计数/收藏类断言不稳定
+  // 浏览器 profile 是复用的，上一次跑留下的历史和草稿会让计数/初始状态断言不稳定
+  await evalJs(`localStorage.removeItem('prompt-forge-history-v1'); clearDrafts(); location.reload(); true`);
+  await sleep(1400);
+  for (let i = 0; i < 60; i++) {
+    if (await evalJs(`!!document.querySelector('#styleSelect option')`)) break;
+    await sleep(200);
+  }
   for (let i = 0; i < 60; i++) {
     if (await evalJs(`S.historyLoaded === true && S.boardLoaded === true`)) break;
     await sleep(200);
@@ -620,7 +626,9 @@ async function main() {
   check('刷新后开关状态仍在', enabledAfterReload === true);
 
   const posAfterReload = await evalJs(`document.querySelector('#outPositive').textContent`);
-  check('刷新后结果区回到空状态', posAfterReload.trim() === '', JSON.stringify(posAfterReload));
+  check('刷新后当前结果从草稿恢复',
+    posAfterReload.includes('cinematic portrait') && (await visible('#cards')) === true,
+    posAfterReload.slice(0, 60));
 
   // ---------- 6. 风格切换 ----------
   await evalJs(`(() => {
@@ -2469,6 +2477,64 @@ async function main() {
     (await evalJs(`JSON.parse(localStorage.getItem('pf-templates-v1') || '[]').length`)) === 0);
   await evalJs(`document.querySelector('#btnTemplateClose').click(); true`);
   await sleep(200);
+
+  // ---------- 12.19 草稿自动保存 ----------
+  await evalJs(`(() => {
+    const set = (sel, v) => { const el = document.querySelector(sel); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+    set('#sentence', '草稿恢复测试画面');
+    set('#extra', 'draft-extra-marker');
+    set('#promptAspect', '16:9');
+    set('#promptShot', 'wide shot');
+    set('#charSentence', '角色草稿测试');
+    set('#charExtra', 'char-draft-extra');
+    set('#charAspect', '16:9');
+    set('#segSentence', '细分草稿测试');
+    set('#segExtra', 'seg-draft-extra');
+    return true;
+  })()`);
+  await sleep(700);
+  const draftRaw = await evalJs(`localStorage.getItem('pf-drafts-v1')`);
+  check('三个模式的输入都写入了草稿', !!draftRaw && /草稿恢复测试画面/.test(draftRaw)
+    && /角色草稿测试/.test(draftRaw) && /细分草稿测试/.test(draftRaw));
+  check('草稿不包含 API Key', !/sk-test-1234/.test(draftRaw || ''));
+  check('草稿记录了当前提示词结果',
+    (await evalJs(`!!JSON.parse(localStorage.getItem('pf-drafts-v1')).prompt.result`)) === true);
+
+  await evalJs(`location.reload(); true`);
+  await sleep(1600);
+  for (let i = 0; i < 60; i++) {
+    if (await evalJs(`!!document.querySelector('#styleSelect option')`)) break;
+    await sleep(200);
+  }
+  check('刷新后提示词草稿恢复',
+    (await evalJs(`document.querySelector('#sentence').value`)) === '草稿恢复测试画面'
+      && (await evalJs(`document.querySelector('#extra').value`)) === 'draft-extra-marker'
+      && (await evalJs(`document.querySelector('#promptAspect').value`)) === '16:9'
+      && (await evalJs(`document.querySelector('#promptShot').value`)) === 'wide shot');
+  check('刷新后角色 / 细分草稿恢复',
+    (await evalJs(`document.querySelector('#charSentence').value`)) === '角色草稿测试'
+      && (await evalJs(`document.querySelector('#segSentence').value`)) === '细分草稿测试');
+  check('刷新后当前结果也恢复',
+    (await evalJs(`!!S.current`)) === true && (await visible('#cards')) === true);
+
+  await evalJs(`document.querySelector('#btnSettings').click(); true`);
+  await sleep(300);
+  await evalJs(`document.querySelector('#btnClearDrafts').click(); true`);
+  await sleep(250);
+  check('清空草稿会删除本地存储',
+    (await evalJs(`localStorage.getItem('pf-drafts-v1')`)) === null);
+  await evalJs(`document.querySelector('#btnCancelSettings').click(); true`);
+  await sleep(200);
+  await evalJs(`location.reload(); true`);
+  await sleep(1500);
+  for (let i = 0; i < 60; i++) {
+    if (await evalJs(`!!document.querySelector('#styleSelect option')`)) break;
+    await sleep(200);
+  }
+  check('清空草稿后刷新不再恢复当前结果',
+    (await evalJs(`localStorage.getItem('pf-drafts-v1')`)) === null
+      && (await evalJs(`S.current`)) === null
+      && (await visible('#cards')) === false);
 
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------

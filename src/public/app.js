@@ -264,6 +264,7 @@ const S = {
   boardTitle: '',
   boardLoaded: false,
   customTemplates: [],
+  draftsSuppressed: false,
 };
 
 // 没拉取过列表时先给几个常用的，避免下拉框一开始是空的
@@ -386,7 +387,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initLibraryPrefs();
   bind();
   loadHistory();
-  loadConfig();
+  loadConfig().then(() => loadDrafts());
   refreshCounter();
   refreshLibraryCount();
 });
@@ -445,6 +446,7 @@ function applyPromptTemplate(t) {
   $('#promptAspect').value = t.aspect || 'auto';
   $('#promptShot').value = t.shot || 'auto';
   refreshCounter();
+  scheduleDraftSave(true);
   closeTemplateDialog();
   toast(`已填入模板：${templateLabel(t)}`);
 }
@@ -837,9 +839,245 @@ function runImport() {
   generate({ imported: true, prompt, extra });
 }
 
+/* ============ 本机草稿 ============ */
+const DRAFT_KEY = 'pf-drafts-v1';
+let draftTimer = null;
+function draftStack(stack) {
+  return (Array.isArray(stack) ? stack : []).slice(-20).map((x) => cloneData(x));
+}
+
+function collectDraftSnapshot() {
+  const prompt = {
+    sentence: $('#sentence')?.value || '',
+    extra: $('#extra')?.value || '',
+    style: S.style,
+    targetModel: $('#targetModel')?.value || '',
+    language: $('#language')?.value || 'en',
+    detail: $('#detail')?.value || 'standard',
+    aspect: $('#promptAspect')?.value || 'auto',
+    shot: $('#promptShot')?.value || 'auto',
+  };
+  if (S.current) {
+    prompt.result = {
+      stack: draftStack(S.current.stack),
+      vIndex: Number(S.current.vIndex) || 0,
+      original: cloneData(S.current.original),
+      edited: !!S.current.edited,
+      historyAt: S.current.historyAt || null,
+      pinsBaked: !!S.current.pinsBaked,
+      imported: !!S.current.imported,
+      importPrompt: S.current.importPrompt || '',
+      importExtra: S.current.importExtra || '',
+      sentence: S.current.sentence || '',
+      language: S.current.language || prompt.language,
+    };
+  }
+
+  const character = {
+    sentence: $('#charSentence')?.value || '',
+    extra: $('#charExtra')?.value || '',
+    count: $('#charCount')?.value || 'auto',
+    aspect: $('#charAspect')?.value || 'auto',
+  };
+  if (S.charData) {
+    character.result = {
+      stack: draftStack(S.charStack),
+      vIndex: Number(S.charVIndex) || 0,
+      original: cloneData(S.charOriginal),
+      edited: !!S.charEdited,
+      historyAt: S.charHistoryAt || null,
+    };
+  }
+
+  const segment = {
+    sentence: $('#segSentence')?.value || '',
+    extra: $('#segExtra')?.value || '',
+    type: S.segType,
+  };
+  if (S.segData) {
+    segment.result = {
+      stack: draftStack(S.segStack),
+      vIndex: Number(S.segVIndex) || 0,
+      original: cloneData(S.segOriginal),
+      edited: !!S.segEdited,
+      historyAt: S.segMeta?.historyAt || null,
+      targetModel: S.segMeta?.targetModel || '',
+      style: S.segMeta?.style || S.style,
+    };
+  }
+  if (S.segBatch?.results && Object.keys(S.segBatch.results).length) {
+    segment.batch = {
+      sentence: S.segBatch.sentence || '',
+      results: cloneData(S.segBatch.results),
+      startedAt: S.segBatch.startedAt || Date.now(),
+    };
+  }
+
+  return { at: Date.now(), prompt, character, segment };
+}
+
+function saveDraftsNow() {
+  if (S.draftsSuppressed) return;
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(collectDraftSnapshot()));
+  } catch {
+    /* 存不下就算了 */
+  }
+}
+
+function scheduleDraftSave(force = false) {
+  if (force) S.draftsSuppressed = false;
+  if (S.draftsSuppressed) return;
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(saveDraftsNow, 400);
+}
+
+function restoreDraftStack(raw, fallback) {
+  const stack = Array.isArray(raw?.stack) && raw.stack.length ? raw.stack.map(cloneData) : (fallback ? [cloneData(fallback)] : []);
+  const vIndex = Math.min(Math.max(0, Number(raw?.vIndex) || 0), Math.max(0, stack.length - 1));
+  return { stack, vIndex, current: stack[vIndex] || fallback || null };
+}
+
+function loadDrafts() {
+  let d;
+  try {
+    d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+  } catch {
+    return;
+  }
+  if (!d || typeof d !== 'object') return;
+
+  const p = d.prompt || {};
+  if (p.sentence) {
+    $('#sentence').value = p.sentence;
+    refreshCounter();
+  }
+  if (p.extra) $('#extra').value = p.extra;
+  if (STYLES.some((x) => x.id === p.style)) {
+    S.style = p.style;
+    $('#styleSelect').value = p.style;
+  }
+  if (p.targetModel) $('#targetModel').value = p.targetModel;
+  if (['en', 'zh'].includes(p.language)) $('#language').value = p.language;
+  if (['short', 'standard', 'rich'].includes(p.detail)) $('#detail').value = p.detail;
+  if (p.aspect) $('#promptAspect').value = p.aspect;
+  if (p.shot) $('#promptShot').value = p.shot;
+  if (p.result) {
+    const stack = restoreDraftStack(p.result);
+    if (stack.current) {
+      S.current = {
+        sentence: p.result.sentence || p.sentence || '',
+        style: S.style,
+        targetModel: p.targetModel || '',
+        language: p.result.language || $('#language').value,
+        detail: p.detail || 'standard',
+        parsed: stack.current,
+        raw: '',
+        at: Date.now(),
+        ms: 0,
+        stack: stack.stack,
+        vIndex: stack.vIndex,
+        historyAt: p.result.historyAt || null,
+        original: p.result.original ? cloneData(p.result.original) : cloneData(stack.current),
+        edited: !!p.result.edited,
+        pinsBaked: !!p.result.pinsBaked,
+        imported: !!p.result.imported,
+        importPrompt: p.result.importPrompt || '',
+        importExtra: p.result.importExtra || '',
+      };
+      renderResult(S.current.parsed, { sentence: S.current.sentence, language: S.current.language });
+      $('#btnCopyAll').disabled = false;
+      $('#btnSavePrompt').disabled = false;
+      $('#btnRegen').disabled = false;
+    }
+  }
+
+  const c = d.character || {};
+  if (c.sentence) {
+    $('#charSentence').value = c.sentence;
+    refreshCounter();
+  }
+  if (c.extra) $('#charExtra').value = c.extra;
+  if (c.count) $('#charCount').value = c.count;
+  if (c.aspect) $('#charAspect').value = c.aspect;
+  S.charSentence = c.sentence || '';
+  if (c.result) {
+    const stack = restoreDraftStack(c.result);
+    if (stack.current) {
+      S.charStack = stack.stack;
+      S.charVIndex = stack.vIndex;
+      S.charData = stack.current;
+      S.charOriginal = c.result.original ? cloneData(c.result.original) : cloneData(stack.current);
+      S.charEdited = !!c.result.edited;
+      S.charHistoryAt = c.result.historyAt || null;
+      renderCharacters(S.charData);
+      $('#btnCharSave').disabled = false;
+      $('#btnCharCopyAll').disabled = false;
+      $('#btnCharRegen').disabled = false;
+    }
+  }
+
+  const s = d.segment || {};
+  if (s.sentence) {
+    $('#segSentence').value = s.sentence;
+    refreshCounter();
+  }
+  if (s.extra) $('#segExtra').value = s.extra;
+  if (SEG_TYPES.some((t) => t.id === s.type)) {
+    S.segType = s.type;
+    document.querySelectorAll('#segTypeChips .chip').forEach((c2) => c2.classList.toggle('active', c2.dataset.id === s.type));
+  }
+  S.segSentence = s.sentence || '';
+  if (s.result) {
+    const stack = restoreDraftStack(s.result);
+    if (stack.current) {
+      S.segStack = stack.stack;
+      S.segVIndex = stack.vIndex;
+      S.segData = stack.current;
+      S.segText = stack.current.tags || '';
+      S.segOriginal = s.result.original ? cloneData(s.result.original) : cloneData(stack.current);
+      S.segEdited = !!s.result.edited;
+      S.segMeta = {
+        sentence: s.sentence || '',
+        type: S.segType,
+        targetModel: s.result.targetModel || '',
+        style: s.result.style || S.style,
+        at: Date.now(),
+        historyAt: s.result.historyAt || null,
+      };
+      renderSegment(S.segData);
+      $('#btnSegSave').disabled = false;
+      $('#btnSegCopyAll').disabled = false;
+      $('#btnSegRegen').disabled = false;
+      $('#btnSegAddBoard').disabled = false;
+    }
+  } else if (s.batch?.results && Object.keys(s.batch.results).length) {
+    S.segBatch = {
+      sentence: s.batch.sentence || s.sentence || '',
+      results: s.batch.results,
+      startedAt: s.batch.startedAt || Date.now(),
+    };
+    S.segBatchMode = true;
+    renderSegmentBatch({});
+  }
+}
+
+function clearDrafts() {
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  S.draftsSuppressed = true;
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    /* 忽略 */
+  }
+  toast('已清空本机草稿；继续编辑会重新开始保存');
+}
+
 /* ============ 生成 ============ */
 async function generate(opts = {}) {
   if (S.busy) return;
+  S.draftsSuppressed = false;
   const imported = !!opts.imported;
   const importPrompt = imported ? String(opts.prompt || $('#importText').value || '').trim() : '';
   const importExtra = imported
@@ -1153,6 +1391,7 @@ function renderResult(parsed, meta = {}) {
   $('#refineBar').hidden = false;
   updateRefineUi();
   updatePromptEditUi();
+  scheduleDraftSave();
 }
 
 function renderRaw(raw) {
@@ -2747,6 +2986,7 @@ function renderCharacters(d) {
   $('#charRefineBar').hidden = false;
   updateCharRefineUi();
   updateCharEditUi();
+  scheduleDraftSave();
 }
 
 /* ============ 角色提示词的微调 ============ */
@@ -2814,6 +3054,7 @@ function updateCharRefineUi() {
 
 async function refineCharacter(instructionArg) {
   if (S.charBusy) return;
+  S.draftsSuppressed = false;
   const instruction = String(instructionArg ?? $('#charRefineInput').value).trim();
   if (!instruction) {
     showCharErr('先写一句要改什么，比如「改成夜景」');
@@ -2931,6 +3172,7 @@ function undoCharRefine() {
 
 async function generateCharacters() {
   if (S.charBusy) return;
+  S.draftsSuppressed = false;
   const sentence = $('#charSentence').value.trim();
   if (!sentence) {
     showCharErr('先写一句话描述你想要的这组角色');
@@ -3082,6 +3324,7 @@ function countTags(tags) {
 
 async function generateSegment() {
   if (S.segBusy) return;
+  S.draftsSuppressed = false;
   if (S.serverStale) {
     showSegErr(STALE_SERVER_MSG);
     return;
@@ -3284,6 +3527,7 @@ function renderSegment(d) {
   $('#btnSegAddBoard').disabled = false;
   updateSegRefineUi();
   updateSegEditUi();
+  scheduleDraftSave();
 }
 
 function segmentMarkdown() {
@@ -3380,6 +3624,7 @@ function updateSegRefineUi() {
 
 async function refineSegment(instructionArg) {
   if (S.segBusy) return;
+  S.draftsSuppressed = false;
   const instruction = String(instructionArg ?? $('#segRefineInput').value).trim();
   if (!instruction) {
     showSegErr('先写一句要改什么，比如「更华丽」');
@@ -3753,6 +3998,7 @@ function renderSegmentBatch(meta = {}) {
     .forEach((sel) => { $(sel).disabled = true; });
   updateSegRefineUi();
   updateSegEditUi();
+  scheduleDraftSave();
 }
 
 /* ============ 拼装板（把多次生成的细分标签拼成一条完整提示词） ============ */
@@ -3823,7 +4069,11 @@ function scheduleBoardSave() {
 
 // 关页面/切后台时，把还没到防抖时间的状态用 sendBeacon 补发一次
 function flushStateBeacons() {
-  if (historySaveTimer) {
+  if (draftTimer) {
+    clearTimeout(draftTimer);
+    draftTimer = null;
+    saveDraftsNow();
+  }  if (historySaveTimer) {
     clearTimeout(historySaveTimer);
     historySaveTimer = null;
     try {
@@ -4237,6 +4487,7 @@ function closeEditor() {
 function saveEditor() {
   const mode = S.editorMode;
   if (!mode) return;
+  S.draftsSuppressed = false;
   const val = (sel) => ($(sel)?.value ?? '').trim();
 
   try {
@@ -4541,6 +4792,7 @@ function updateRefineUi() {
 // 微调只把「没拼置顶词的原始提示词」发给模型，避免置顶词被改写或重复拼接
 async function refine(instructionArg) {
   if (S.busy) return;
+  S.draftsSuppressed = false;
   const instruction = String(instructionArg ?? $('#refineInput').value).trim();
   if (!instruction) {
     showErr('先写一句要改什么，比如「改成竖构图」');
@@ -4778,6 +5030,17 @@ function closeDrawer() {
 /* ============ 事件绑定 ============ */
 function bind() {
   window.addEventListener('pagehide', flushStateBeacons);
+
+  // 三个模式的输入变化都进本机草稿
+  ['#sentence', '#extra', '#styleSelect', '#targetModel', '#language', '#detail', '#promptAspect', '#promptShot',
+    '#charSentence', '#charExtra', '#charCount', '#charAspect',
+    '#segSentence', '#segExtra'].forEach((sel) => {
+    const el = $(sel);
+    if (!el) return;
+    el.addEventListener('input', () => scheduleDraftSave(true));
+    el.addEventListener('change', () => scheduleDraftSave(true));
+  });
+  $('#segTypeChips').addEventListener('click', () => scheduleDraftSave(true));
   $('#sentence').addEventListener('input', refreshCounter);
   $('#sentence').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -5167,6 +5430,7 @@ function bind() {
   /* 设置弹窗 */
   $('#btnSettings').addEventListener('click', openSettings);
   $('#btnLang').addEventListener('click', toggleLanguage);
+  $('#btnClearDrafts').addEventListener('click', clearDrafts);
   $('#btnShortcuts').addEventListener('click', openShortcuts);
   $('#btnShortcutsClose').addEventListener('click', () => $('#shortcuts').close());
   $('#btnCancelSettings').addEventListener('click', () => $('#settings').close());

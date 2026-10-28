@@ -737,6 +737,12 @@
         默认关闭：灵感只要一句中文，附带整段规范会白白消耗 token。生成提示词、微调、角色设定始终会发送。
       </p>
 
+      <label>本机草稿</label>
+      <p class="field-hint">三个模式的输入和当前结果会自动保存在本机，刷新或崩溃后可恢复；不包含 API Key。</p>
+      <div>
+        <button class="btn tiny ghost" type="button" id="btnClearDrafts">清空三个模式的草稿</button>
+      </div>
+
       <div class="dialog-err err" id="cfgErr" hidden></div>
 
       <div class="dialog-actions">
