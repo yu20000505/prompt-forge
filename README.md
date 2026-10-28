@@ -87,7 +87,7 @@ Prompt Forge 负责翻译，然后让你用一句人话继续微调，而不是�
 | 版本 | 体积 | 行为 |
 | --- | --- | --- |
 | `PromptForge-Desktop.exe` | ~105 MB | 真正的桌面窗口（Electron），不开浏览器、没有命令行窗口 |
-| `PromptForge.exe` | ~88 MB | 起本地服务并打开浏览器 |
+| `PromptForge.exe` | ~73 MB | 起本地服务并打开浏览器 |
 
 两者都自带运行时，**目标电脑不需要装 Node**。到 [Releases](../../releases) 下载。
 

@@ -105,7 +105,7 @@ instead of hand-splicing tags.
 | Build | Size | Behavior |
 | --- | --- | --- |
 | `PromptForge-Desktop.exe` | ~105 MB | Real desktop window (Electron). No browser, no console. |
-| `PromptForge.exe` | ~88 MB | Starts a local server and opens your browser. |
+| `PromptForge.exe` | ~73 MB | Starts a local server and opens your browser. |
 
 Both are self-contained — no Node.js required on the target machine.
 Grab them from [Releases](../../releases).
