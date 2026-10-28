@@ -5900,10 +5900,17 @@ async function openSettings() {
   $('#settings').showModal();
 }
 
+function validateProviderFields(baseURL, model) {
+  if (!baseURL) throw new Error('BaseURL 不能为空');
+  if (!/^https?:\/\//i.test(baseURL)) throw new Error('BaseURL 需要以 http:// 或 https:// 开头');
+  if (!model) throw new Error('模型名不能为空');
+}
+
 async function saveSettings() {
   const btn = $('#btnSaveSettings');
   btn.disabled = true;
   try {
+    validateProviderFields($('#cfgBase').value.trim(), $('#cfgModel').value.trim());
     const patch = {
       baseURL: $('#cfgBase').value.trim(),
       model: $('#cfgModel').value.trim(),
@@ -5954,6 +5961,11 @@ async function saveProfile() {
   if (!name) {
     $('#profileName').focus();
     return toast('先给档案起个名字', true);
+  }
+  try {
+    validateProviderFields($('#cfgBase').value.trim(), $('#cfgModel').value.trim());
+  } catch (err) {
+    return toast(err.message, true);
   }
   try {
     const r = await fetch('/api/profiles', {
