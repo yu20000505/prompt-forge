@@ -50,6 +50,7 @@
       <button class="tab active" data-view="prompt" type="button">提示词工坊</button>
       <button class="tab" data-view="character" type="button">角色设定</button>
       <button class="tab" data-view="segment" type="button">细分提示词</button>
+      <button class="tab" data-view="worlds" type="button">设定集</button>
     </nav>
 
     <!-- ============ 通用设置（三栏之外） ============ -->
@@ -479,6 +480,131 @@
       </section>
     </main>
 
+    <!-- ============ 设定集 ============ -->
+    <main class="worlds-page" id="viewWorlds" hidden>
+      <section id="worldListView">
+        <div class="worlds-head">
+          <div>
+            <h2>设定集</h2>
+            <p class="dim small">先定世界观，再在这个世界里生成提示词。结果只留在设定集里。</p>
+          </div>
+          <div class="worlds-actions">
+            <button class="btn tiny" type="button" id="btnWorldAiCreate">✨ AI 创建</button>
+            <button class="btn tiny" type="button" id="btnWorldNew">+ 新建</button>
+            <button class="btn tiny ghost" type="button" id="btnWorldImport">导入</button>
+            <input type="file" id="worldImportFile" accept="application/json,.json" hidden />
+          </div>
+        </div>
+        <input id="worldSearch" class="world-search" placeholder="搜索设定集…" autocomplete="off" />
+        <div class="world-grid" id="worldGrid"></div>
+        <p class="world-empty" id="worldEmpty" hidden>还没有设定集。新建一个，或用 AI 从种子词起草。</p>
+      </section>
+
+      <section id="worldDetailView" hidden>
+        <div class="world-detail-head">
+          <button class="btn tiny ghost" type="button" id="btnWorldBack">← 返回</button>
+          <div class="grow"></div>
+          <button class="btn tiny ghost" type="button" id="btnWorldExport">导出</button>
+          <button class="btn tiny ghost" type="button" id="btnWorldDelete">删除</button>
+        </div>
+        <div class="world-title-row">
+          <div>
+            <h2 id="worldName"></h2>
+            <p class="dim small" id="worldMeta"></p>
+          </div>
+          <button class="btn tiny" type="button" id="btnWorldEdit">编辑世界</button>
+        </div>
+        <div class="subtabs" id="worldSubtabs">
+          <button class="subtab active" data-world-tab="settings" type="button">设定</button>
+          <button class="subtab" data-world-tab="generate" type="button">生成</button>
+        </div>
+
+        <div id="worldSettings">
+          <div class="world-core" id="worldCore"></div>
+          <div class="world-cat-tabs" id="worldCatTabs">
+            <button class="chip active" data-cat="all" type="button">全部</button>
+            <button class="chip" data-cat="character" type="button">人物</button>
+            <button class="chip" data-cat="item" type="button">物品</button>
+            <button class="chip" data-cat="creature" type="button">生物</button>
+            <button class="chip" data-cat="location" type="button">地点</button>
+            <button class="chip" data-cat="faction" type="button">势力</button>
+          </div>
+          <div class="world-entry-tools">
+            <input id="worldEntrySearch" placeholder="搜索条目…" autocomplete="off" />
+            <button class="btn tiny" type="button" id="btnWorldEntryAi">✨ AI 生成条目</button>
+            <button class="btn tiny" type="button" id="btnWorldEntryNew">+ 新建条目</button>
+          </div>
+          <div class="world-entry-grid" id="worldEntryGrid"></div>
+        </div>
+
+        <div id="worldGenerate" hidden>
+          <div class="world-gen-grid">
+            <section class="panel world-gen-composer">
+              <label for="worldGenTask">生成类型</label>
+              <select id="worldGenTask">
+                <option value="free">自由生成</option>
+                <option value="character">人物立绘</option>
+                <option value="item">物品展示</option>
+                <option value="creature">生物设定</option>
+                <option value="location">场景概念</option>
+                <option value="faction">势力 / 徽记</option>
+              </select>
+              <label>关联条目 <span class="dim small">最多 3 个</span></label>
+              <div class="world-gen-entries" id="worldGenEntries"></div>
+              <label for="worldGenSentence">写一句画面</label>
+              <textarea id="worldGenSentence" rows="4" placeholder="雪夜里，她拔刀指向远处的旧神残影"></textarea>
+              <div class="prompt-quick">
+                <label for="worldGenStyle">风格</label>
+                <select id="worldGenStyle"></select>
+                <label for="worldGenAspect">画幅</label>
+                <select id="worldGenAspect">
+                  <option value="auto">自动</option>
+                  <option value="1:1">1:1</option>
+                  <option value="3:4">3:4</option>
+                  <option value="2:3">2:3</option>
+                  <option value="16:9">16:9</option>
+                  <option value="9:16">9:16</option>
+                </select>
+                <label for="worldGenShot">镜头</label>
+                <select id="worldGenShot">
+                  <option value="auto">自动</option>
+                  <option value="close-up">特写</option>
+                  <option value="medium shot">中景</option>
+                  <option value="full body">全身</option>
+                  <option value="wide shot">远景</option>
+                </select>
+              </div>
+              <div class="world-gen-actions">
+                <button class="btn primary" type="button" id="btnWorldGenerate">生成提示词</button>
+                <button class="btn ghost" type="button" id="btnWorldGenCancel" hidden>取消</button>
+              </div>
+              <div class="err" id="worldGenErr" hidden></div>
+            </section>
+
+            <section class="panel world-gen-result">
+              <h3>结果 <span class="dim small" id="worldGenStatus"></span></h3>
+              <div class="world-gen-empty" id="worldGenEmpty">选择条目、写一句画面，然后生成。</div>
+              <div id="worldGenResult" hidden>
+                <div class="world-gen-based" id="worldGenBased"></div>
+                <h4>正向提示词</h4>
+                <div class="variant-text" id="worldGenPositive"></div>
+                <h4>负向提示词</h4>
+                <div class="variant-text" id="worldGenNegative"></div>
+                <h4>画面解读</h4>
+                <div class="variant-translation" id="worldGenTranslation"></div>
+                <div class="world-gen-result-actions">
+                  <select id="worldRefEntry"></select>
+                  <button class="btn tiny" type="button" id="btnWorldWriteRef">写入条目参考</button>
+                  <button class="btn tiny ghost" type="button" id="btnWorldCopyGen">复制</button>
+                </div>
+              </div>
+              <div class="world-gen-history" id="worldGenHistory"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+
     <footer class="foot">
       <span class="dim small">Ctrl+Enter 生成 · Ctrl+1 / 2 / 3 切页签 · Ctrl+S 保存结果</span>
       <div class="foot-right">
@@ -800,6 +926,117 @@
         <button class="btn ghost" type="button" id="btnCancelSettings">取消</button>
         <button class="btn primary" type="button" id="btnSaveSettings">保存</button>
       </div>
+    </form>
+  </dialog>
+
+  <!-- ============ 设定集：世界编辑 ============ -->
+  <dialog class="settings" id="worldEditDialog">
+    <form method="dialog">
+      <h3 id="worldEditTitle">新建设定集</h3>
+      <label for="worldEditName">世界名</label>
+      <input id="worldEditName" maxlength="80" autocomplete="off" placeholder="例如：九霄残卷" />
+      <label for="worldEditGenre">类型</label>
+      <input id="worldEditGenre" maxlength="40" autocomplete="off" placeholder="东方玄幻 / 西幻 / 蒸汽朋克…" />
+      <label for="worldEditLogline">一句话概念</label>
+      <textarea id="worldEditLogline" rows="2" maxlength="500"></textarea>
+      <label for="worldEditTone">整体基调</label>
+      <input id="worldEditTone" maxlength="300" placeholder="冷峻、低饱和、宿命感" />
+      <label for="worldEditVisual">视觉风格</label>
+      <input id="worldEditVisual" maxlength="500" placeholder="青灰、朱砂、旧木、雾气" />
+      <label for="worldEditRules">世界规则</label>
+      <textarea id="worldEditRules" rows="3" maxlength="3000"></textarea>
+      <label for="worldEditTaboos">禁止元素</label>
+      <input id="worldEditTaboos" maxlength="1000" placeholder="现代服装、霓虹、塑料材质" />
+      <div class="dialog-actions">
+        <span class="grow"></span>
+        <button class="btn ghost" type="button" id="btnWorldEditCancel">取消</button>
+        <button class="btn primary" type="button" id="btnWorldEditSave">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ 设定集：AI 世界 ============ -->
+  <dialog class="settings" id="worldAiDialog">
+    <form method="dialog">
+      <h3>AI 起草世界</h3>
+      <p class="dim small">给几个种子词，AI 会给 3 个世界方向；选一个后自动生成世界核心。</p>
+      <label for="worldAiSeeds">种子词</label>
+      <textarea id="worldAiSeeds" rows="3" placeholder="东方玄幻、灵气枯竭、旧神、雪原"></textarea>
+      <div class="dialog-actions">
+        <span class="grow"></span>
+        <button class="btn ghost" type="button" id="btnWorldAiClose">关闭</button>
+        <button class="btn primary" type="button" id="btnWorldAiSeed">生成方向</button>
+      </div>
+      <div class="world-ai-results" id="worldAiResults"></div>
+    </form>
+  </dialog>
+
+  <!-- ============ 设定集：条目编辑 ============ -->
+  <dialog class="settings" id="entryDialog">
+    <form method="dialog">
+      <h3 id="entryDialogTitle">新建条目</h3>
+      <input type="hidden" id="entryId" />
+      <label for="entryCategory">分类</label>
+      <select id="entryCategory">
+        <option value="character">人物</option>
+        <option value="item">物品</option>
+        <option value="creature">生物</option>
+        <option value="location">地点</option>
+        <option value="faction">势力 / 组织</option>
+      </select>
+      <label for="entryName">名称</label>
+      <input id="entryName" maxlength="80" autocomplete="off" />
+      <label for="entrySummary">一句话摘要</label>
+      <textarea id="entrySummary" rows="2"></textarea>
+      <label for="entryFacts">详细设定 <span class="dim small">每行「字段：内容」</span></label>
+      <textarea id="entryFacts" rows="6" placeholder="身份：守夜人末裔&#10;外貌：银发，左眼旧伤&#10;服装：灰白长袍"></textarea>
+      <label for="entryVisual">视觉锚点</label>
+      <input id="entryVisual" maxlength="1000" placeholder="银发、灰白长袍、断水刀" />
+      <label for="entryTaboos">禁止项</label>
+      <input id="entryTaboos" maxlength="1000" placeholder="现代服装、霓虹、塑料材质" />
+      <label for="entryStatus">状态</label>
+      <select id="entryStatus">
+        <option value="suggested">AI 建议</option>
+        <option value="canon">正式设定</option>
+        <option value="locked">锁定</option>
+      </select>
+      <div class="err" id="entryErr" hidden></div>
+      <div class="dialog-actions">
+        <button class="btn tiny ghost" type="button" id="btnEntryExpand">AI 扩写</button>
+        <button class="btn tiny ghost" type="button" id="btnEntryDelete">删除</button>
+        <span class="grow"></span>
+        <button class="btn ghost" type="button" id="btnEntryCancel">取消</button>
+        <button class="btn primary" type="button" id="btnEntrySave">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ 设定集：AI 条目 ============ -->
+  <dialog class="settings" id="entryAiDialog">
+    <form method="dialog">
+      <h3>AI 生成条目</h3>
+      <label for="entryAiCategory">分类</label>
+      <select id="entryAiCategory">
+        <option value="character">人物</option>
+        <option value="item">物品</option>
+        <option value="creature">生物</option>
+        <option value="location">地点</option>
+        <option value="faction">势力 / 组织</option>
+      </select>
+      <label for="entryAiHint">补充提示</label>
+      <textarea id="entryAiHint" rows="2" placeholder="主要角色，三男两女，其中一个反派"></textarea>
+      <label for="entryAiCount">数量</label>
+      <select id="entryAiCount">
+        <option value="3">3 条</option>
+        <option value="1">1 条</option>
+        <option value="5">5 条</option>
+      </select>
+      <div class="dialog-actions">
+        <span class="grow"></span>
+        <button class="btn ghost" type="button" id="btnEntryAiClose">关闭</button>
+        <button class="btn primary" type="button" id="btnEntryAiRun">生成</button>
+      </div>
+      <div class="world-ai-results" id="entryAiResults"></div>
     </form>
   </dialog>
 

@@ -163,8 +163,9 @@ async function main() {
   check('风格下拉有 5 个选项',
     styleOptions.length === 5 && styleOptions.includes('anime'), JSON.stringify(styleOptions));
   const tabLabels = await evalJs(`[...document.querySelectorAll('#mainTabs .tab')].map(t => t.textContent)`);
-  check('页签包含提示词 / 角色 / 细分三个模式',
-    tabLabels.length === 3 && tabLabels.some((t) => t.includes('细分提示词')), JSON.stringify(tabLabels));
+  check('页签包含提示词 / 角色 / 细分 / 设定集',
+    tabLabels.length === 4 && tabLabels.some((t) => t.includes('细分提示词'))
+      && tabLabels.some((t) => t.includes('设定集')), JSON.stringify(tabLabels));
 
   // ---------- 1.5 初始可见性（hidden 必须真的不可见） ----------
   check('初始状态：抽屉不可见', (await visible('#drawer')) === false);
@@ -287,7 +288,7 @@ async function main() {
   const serverFeatures = await evalJs(`fetch('/api/config').then(r=>r.json()).then(j=>j.features)`);
   check('服务端声明细分接口可用', serverFeatures?.segment === true, JSON.stringify(serverFeatures));
   check('服务端声明收藏 / 落盘 / 备份接口可用',
-    ['segment', 'import', 'state', 'favorite', 'savedSearch', 'backup', 'trash', 'profiles', 'variants']
+    ['segment', 'import', 'state', 'favorite', 'savedSearch', 'backup', 'trash', 'profiles', 'variants', 'worlds']
       .every((k) => serverFeatures?.[k] === true),
     JSON.stringify(serverFeatures));
 
@@ -2278,7 +2279,7 @@ async function main() {
     (await evalJs(`document.documentElement.lang`)) === 'en');
   check('英文界面页签已翻译',
     (await evalJs(`[...document.querySelectorAll('#mainTabs .tab')].map((t) => t.textContent).join('|')`))
-      === 'Prompt Studio|Character|Segment tags');
+      === 'Prompt Studio|Character|Segment tags|Worlds');
   check('英文界面标题已翻译',
     /One sentence to image prompt/.test(await evalJs(`document.title`)));
   check('英文界面顶部按钮已翻译',
@@ -2315,7 +2316,7 @@ async function main() {
   check('切回中文后界面恢复',
     (await evalJs(`document.querySelector('#btnGenerateText').textContent`)) === '生成提示词'
       && (await evalJs(`[...document.querySelectorAll('#mainTabs .tab')].map((t) => t.textContent).join('|')`))
-        === '提示词工坊|角色设定|细分提示词');
+        === '提示词工坊|角色设定|细分提示词|设定集');
 
   // ---------- 12.15 历史与拼装板服务端落盘 ----------
   const serverHistory = await evalJs(`fetch('/api/history').then((r) => r.json())`);
@@ -2656,6 +2657,82 @@ async function main() {
       && (await evalJs(`[...document.querySelectorAll('#variantGrid .variant-card')].some((c) => /已取消/.test(c.textContent))`)) === true);
   await evalJs(`document.querySelector('#btnVariantClose').click(); true`);
   await sleep(200);
+
+  // ---------- 12.23 设定集 ----------
+  await evalJs(`document.querySelector('#mainTabs .tab[data-view="worlds"]').click(); true`);
+  await sleep(500);
+  check('设定集 Tab 能打开', (await visible('#viewWorlds')) === true);
+  await evalJs(`document.querySelector('#btnWorldAiCreate').click(); true`);
+  await sleep(250);
+  await evalJs(`(() => {
+    document.querySelector('#worldAiSeeds').value = '东方玄幻、灵气枯竭、旧神、雪原';
+    document.querySelector('#btnWorldAiSeed').click();
+    return true;
+  })()`);
+  for (let i = 0; i < 60; i++) {
+    if (await evalJs(`document.querySelectorAll('#worldAiResults .world-ai-card').length`)) break;
+    await sleep(200);
+  }
+  check('AI 能给出 3 个世界方向',
+    (await evalJs(`document.querySelectorAll('#worldAiResults .world-ai-card').length`)) === 3);
+  await evalJs(`document.querySelector('#worldAiResults .world-ai-card button').click(); true`);
+  for (let i = 0; i < 60; i++) {
+    if (await evalJs(`document.querySelector('#worldName').textContent === '九霄残卷'`)) break;
+    await sleep(200);
+  }
+  check('选择方向后生成世界核心',
+    (await evalJs(`document.querySelector('#worldName').textContent`)) === '九霄残卷'
+      && (await evalJs(`document.querySelector('#worldCore').textContent.includes('旧神残卷')`)) === true);
+
+  const worldId = await evalJs(`S.currentWorld.id`);
+  const exportedWorld = await evalJs(`fetch('/api/worlds/${worldId}').then((r) => r.json())`);
+  const importedWorld = await evalJs(`fetch('/api/worlds', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ importWorld: ${JSON.stringify(exportedWorld.world)} })
+  }).then((r) => r.json())`);
+  check('设定集能导出并重新导入',
+    importedWorld.ok && importedWorld.world.name === '九霄残卷' && importedWorld.world.id !== worldId);
+  await evalJs(`fetch('/api/worlds/${importedWorld.world.id}', { method: 'DELETE' })`);
+
+  await evalJs(`document.querySelector('#btnWorldEntryAi').click(); true`);
+  await sleep(250);
+  await evalJs(`document.querySelector('#btnEntryAiRun').click(); true`);
+  for (let i = 0; i < 60; i++) {
+    if (await evalJs(`document.querySelectorAll('#entryAiResults .world-ai-card').length`)) break;
+    await sleep(200);
+  }
+  check('AI 能生成 3 个条目候选',
+    (await evalJs(`document.querySelectorAll('#entryAiResults .world-ai-card').length`)) === 3);
+  await evalJs(`document.querySelector('#entryAiResults .world-ai-card button').click(); true`);
+  await sleep(700);
+  check('采纳后条目进入设定集',
+    (await evalJs(`S.currentWorld.entries.length`)) === 1
+      && (await evalJs(`document.querySelectorAll('#worldEntryGrid .world-entry-card').length`)) === 1);
+  await evalJs(`document.querySelector('#btnEntryAiClose').click(); true`);
+
+  const histBeforeWorldGen = Number(await evalJs(`document.querySelector('#historyCount').textContent`));
+  await evalJs(`document.querySelector('#worldSubtabs .subtab[data-world-tab="generate"]').click(); true`);
+  await sleep(300);
+  await evalJs(`(() => {
+    document.querySelector('#worldGenEntries .world-gen-entry-chip').click();
+    document.querySelector('#worldGenSentence').value = '雪夜里，她拔刀指向远处的旧神残影';
+    document.querySelector('#btnWorldGenerate').click();
+    return true;
+  })()`);
+  for (let i = 0; i < 80; i++) {
+    if (await evalJs(`!!document.querySelector('#worldGenPositive').textContent`)) break;
+    await sleep(200);
+  }
+  check('设定集内能生成提示词',
+    (await evalJs(`document.querySelector('#worldGenPositive').textContent.length`)) > 30
+      && (await evalJs(`document.querySelector('#worldGenBased').textContent.includes('九霄残卷')`)) === true);
+  check('设定集生成不污染首页历史',
+    Number(await evalJs(`document.querySelector('#historyCount').textContent`)) === histBeforeWorldGen);
+  await evalJs(`document.querySelector('#btnWorldWriteRef').click(); true`);
+  await sleep(700);
+  check('结果能写入条目参考提示词',
+    (await evalJs(`S.currentWorld.entries[0].refPrompt.includes('Positive prompt')`)) === true);
 
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------

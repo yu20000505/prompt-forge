@@ -270,6 +270,16 @@ const S = {
   variantAbort: null,
   variantResults: [],
   variantPayload: null,
+  worlds: [],
+  currentWorld: null,
+  worldCat: 'all',
+  worldTab: 'settings',
+  worldBusy: false,
+  worldGenAbort: null,
+  worldGen: null,
+  worldAiDirections: [],
+  entryAiCandidates: [],
+  worldGenEntryIds: [],
 };
 
 // 没拉取过列表时先给几个常用的，避免下拉框一开始是空的
@@ -762,7 +772,7 @@ function applyConfig(cfg, opts = {}) {
   const features = cfg.features || {};
   S.serverStale = !(features.segment && features.import && features.state
     && features.favorite && features.savedSearch && features.backup
-    && features.trash && features.profiles && features.variants);
+    && features.trash && features.profiles && features.variants && features.worlds);
   if (S.serverStale) {
     if (!S.staleNotified) {
       S.staleNotified = true;
@@ -1305,6 +1315,699 @@ function selectVariant(i) {
   updateRefineUi();
   revealResult('#viewPrompt .result');
   toast('已选用方案，可继续微调');
+}
+
+/* ============ 设定集 ============ */
+const WORLD_CAT = {
+  character: '人物', item: '物品', creature: '生物', location: '地点', faction: '势力',
+};
+const WORLD_STATUS = { suggested: 'AI 建议', canon: '正式', locked: '锁定' };
+
+function worldApi(path, opts) {
+  return fetch(`/api/worlds${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  }).then(async (r) => {
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    return j;
+  });
+}
+
+async function loadWorlds() {
+  try {
+    const j = await worldApi('');
+    S.worlds = j.items || [];
+    renderWorlds();
+  } catch (err) {
+    toast(`设定集读取失败：${err.message}`, true);
+  }
+}
+
+function renderWorlds() {
+  const grid = $('#worldGrid');
+  const q = $('#worldSearch').value.trim().toLowerCase();
+  const items = S.worlds.filter((w) => !q || `${w.name} ${w.genre} ${w.logline}`.toLowerCase().includes(q));
+  grid.innerHTML = '';
+  $('#worldEmpty').hidden = items.length > 0;
+  for (const w of items) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'world-card';
+    b.innerHTML = `<h3></h3><p></p><div class="world-card-meta"><span></span><span></span></div>`;
+    b.querySelector('h3').textContent = w.name;
+    b.querySelector('p').textContent = w.logline || '还没有世界概念';
+    b.querySelector('.world-card-meta span:first-child').textContent = `${w.genre || '未分类'} · ${w.entries || 0} 条设定`;
+    b.querySelector('.world-card-meta span:last-child').textContent = fmtTime(w.updatedAt);
+    b.addEventListener('click', () => openWorld(w.id));
+    grid.appendChild(b);
+  }
+}
+
+async function openWorld(id) {
+  try {
+    const j = await worldApi(`/${encodeURIComponent(id)}`);
+    S.currentWorld = j.world;
+    S.worldTab = 'settings';
+    S.worldCat = 'all';
+    S.worldGen = null;
+    S.worldGenEntryIds = [];
+    $('#worldGenSentence').value = '';
+    $('#worldGenEntries').innerHTML = '';
+    $('#worldGenResult').hidden = true;
+    $('#worldGenEmpty').hidden = false;
+    $('#worldListView').hidden = true;
+    $('#worldDetailView').hidden = false;
+    renderWorldDetail();
+  } catch (err) {
+    toast(`打开设定集失败：${err.message}`, true);
+  }
+}
+
+function backToWorlds() {
+  S.currentWorld = null;
+  $('#worldDetailView').hidden = true;
+  $('#worldListView').hidden = false;
+  loadWorlds();
+}
+
+function renderWorldDetail() {
+  const w = S.currentWorld;
+  if (!w) return;
+  $('#worldName').textContent = w.name;
+  $('#worldMeta').textContent = [w.genre, w.logline].filter(Boolean).join(' · ') || '还没有世界概念';
+  document.querySelectorAll('#worldSubtabs .subtab').forEach((b) => {
+    b.classList.toggle('active', b.dataset.worldTab === S.worldTab);
+  });
+  $('#worldSettings').hidden = S.worldTab !== 'settings';
+  $('#worldGenerate').hidden = S.worldTab !== 'generate';
+  if (S.worldTab === 'settings') renderWorldSettings();
+  else renderWorldGenerate();
+}
+
+function renderWorldSettings() {
+  const w = S.currentWorld;
+  $('#worldCore').innerHTML = '';
+  const lines = [
+    ['概念', w.logline], ['基调', w.tone], ['视觉', w.visual],
+    ['规则', w.rules], ['禁止', w.taboos],
+  ].filter(([, v]) => v);
+  if (!lines.length) {
+    $('#worldCore').textContent = '还没有世界核心设定，点「编辑世界」补上。';
+  } else {
+    for (const [k, v] of lines) {
+      const p = document.createElement('div');
+      p.innerHTML = `<b>${k}：</b>`;
+      p.appendChild(document.createTextNode(v));
+      $('#worldCore').appendChild(p);
+    }
+  }
+  document.querySelectorAll('#worldCatTabs .chip').forEach((b) => {
+    b.classList.toggle('active', b.dataset.cat === S.worldCat);
+  });
+  const q = $('#worldEntrySearch').value.trim().toLowerCase();
+  const entries = (w.entries || []).filter((e) => {
+    if (S.worldCat !== 'all' && e.category !== S.worldCat) return false;
+    if (!q) return true;
+    return `${e.name} ${e.summary} ${e.visualAnchors}`.toLowerCase().includes(q);
+  });
+  const grid = $('#worldEntryGrid');
+  grid.innerHTML = '';
+  if (!entries.length) {
+    const p = document.createElement('p');
+    p.className = 'world-empty';
+    p.textContent = '还没有条目。';
+    grid.appendChild(p);
+  }
+  for (const e of entries) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'world-entry-card';
+    b.innerHTML = `<b></b><small></small><span class="badge"></span>`;
+    b.querySelector('b').textContent = e.name;
+    b.querySelector('small').textContent = e.summary || e.visualAnchors || '暂无摘要';
+    b.querySelector('.badge').textContent = `${WORLD_CAT[e.category] || e.category} · ${WORLD_STATUS[e.status] || e.status}`;
+    b.addEventListener('click', () => openEntryDialog(e.id));
+    grid.appendChild(b);
+  }
+}
+
+function openWorldEdit() {
+  const w = S.currentWorld || {};
+  $('#worldEditTitle').textContent = w.id ? '编辑世界' : '新建设定集';
+  for (const [id, val] of [
+    ['#worldEditName', w.name || ''], ['#worldEditGenre', w.genre || ''],
+    ['#worldEditLogline', w.logline || ''], ['#worldEditTone', w.tone || ''],
+    ['#worldEditVisual', w.visual || ''], ['#worldEditRules', w.rules || ''],
+    ['#worldEditTaboos', w.taboos || ''],
+  ]) $(id).value = val;
+  $('#worldEditDialog').showModal();
+  setTimeout(() => $('#worldEditName').focus(), 50);
+}
+
+async function saveWorldEdit() {
+  const payload = {
+    name: $('#worldEditName').value.trim(),
+    genre: $('#worldEditGenre').value.trim(),
+    logline: $('#worldEditLogline').value.trim(),
+    tone: $('#worldEditTone').value.trim(),
+    visual: $('#worldEditVisual').value.trim(),
+    rules: $('#worldEditRules').value.trim(),
+    taboos: $('#worldEditTaboos').value.trim(),
+  };
+  if (!payload.name) return toast('先给设定集起个名字', true);
+  try {
+    let j;
+    if (S.currentWorld?.id) {
+      j = await worldApi(`/${encodeURIComponent(S.currentWorld.id)}`, { method: 'PUT', body: JSON.stringify(payload) });
+      S.currentWorld = j.world;
+    } else {
+      j = await worldApi('', { method: 'POST', body: JSON.stringify(payload) });
+      S.currentWorld = j.world;
+    }
+    $('#worldEditDialog').close();
+    $('#worldListView').hidden = true;
+    $('#worldDetailView').hidden = false;
+    renderWorldDetail();
+    loadWorlds();
+    toast('设定集已保存');
+  } catch (err) {
+    toast(`保存失败：${err.message}`, true);
+  }
+}
+
+async function deleteWorld() {
+  if (!S.currentWorld?.id) return;
+  if (!confirm(`删除设定集「${S.currentWorld.name}」？所有条目和生成记录都会删除。`)) return;
+  try {
+    await worldApi(`/${encodeURIComponent(S.currentWorld.id)}`, { method: 'DELETE' });
+    toast('已删除设定集');
+    backToWorlds();
+  } catch (err) {
+    toast(`删除失败：${err.message}`, true);
+  }
+}
+
+async function exportWorld() {
+  if (!S.currentWorld) return;
+  const blob = new Blob([JSON.stringify(S.currentWorld, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${safeDownloadName(S.currentWorld.name)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function safeDownloadName(s) {
+  return String(s || 'world').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
+}
+
+async function importWorldFile(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const j = await worldApi('', { method: 'POST', body: JSON.stringify({ importWorld: data }) });
+    toast('设定集已导入');
+    await loadWorlds();
+    openWorld(j.world.id);
+  } catch (err) {
+    toast(`导入失败：${err.message}`, true);
+  }
+}
+
+// ----- AI 世界 -----
+async function ensureWorldDraft() {
+  if (S.currentWorld?.id) return S.currentWorld;
+  const j = await worldApi('', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'AI 世界草稿', genre: '', logline: '正在生成…' }),
+  });
+  S.currentWorld = j.world;
+  return j.world;
+}
+
+async function runWorldAiSeed() {
+  const seeds = $('#worldAiSeeds').value.trim();
+  if (!seeds) return toast('先写几个种子词', true);
+  const btn = $('#btnWorldAiSeed');
+  btn.disabled = true;
+  btn.textContent = '生成中…';
+  try {
+    const w = await ensureWorldDraft();
+    const j = await worldApi(`/${encodeURIComponent(w.id)}/ai`, {
+      method: 'POST',
+      body: JSON.stringify({ task: 'seed', seeds }),
+    });
+    S.worldAiDirections = j.directions || [];
+    renderWorldAiDirections();
+  } catch (err) {
+    toast(`AI 生成失败：${err.message}`, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '生成方向';
+  }
+}
+
+function renderWorldAiDirections() {
+  const box = $('#worldAiResults');
+  box.innerHTML = '';
+  S.worldAiDirections.forEach((d, i) => {
+    const card = document.createElement('div');
+    card.className = 'world-ai-card';
+    card.innerHTML = `<b></b><p></p><button class="btn tiny primary" type="button">用这个方向</button>`;
+    card.querySelector('b').textContent = d.name || `方向 ${i + 1}`;
+    card.querySelector('p').textContent = [d.genre, d.logline, d.tone].filter(Boolean).join(' · ');
+    card.querySelector('button').addEventListener('click', () => chooseWorldDirection(d));
+    box.appendChild(card);
+  });
+}
+
+async function chooseWorldDirection(direction) {
+  try {
+    const w = await ensureWorldDraft();
+    const j = await worldApi(`/${encodeURIComponent(w.id)}/ai`, {
+      method: 'POST',
+      body: JSON.stringify({ task: 'core', direction }),
+    });
+    const core = j || {};
+    const updated = await worldApi(`/${encodeURIComponent(w.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: core.name || direction.name || w.name,
+        genre: core.genre || direction.genre || '',
+        logline: core.logline || direction.logline || '',
+        tone: core.tone || direction.tone || '',
+        visual: core.visual || direction.visual || '',
+        rules: core.rules || direction.rules || '',
+        taboos: core.taboos || direction.taboos || '',
+      }),
+    });
+    S.currentWorld = updated.world;
+    $('#worldAiDialog').close();
+    S.worldTab = 'settings';
+    $('#worldListView').hidden = true;
+    $('#worldDetailView').hidden = false;
+    renderWorldDetail();
+    loadWorlds();
+    toast('AI 世界已创建');
+  } catch (err) {
+    toast(`生成世界核心失败：${err.message}`, true);
+  }
+}
+
+// ----- 条目 -----
+function factsToText(facts) {
+  return (facts || []).map((f) => `${f.label}：${f.value}`).join('\n');
+}
+
+function textToFacts(text) {
+  return String(text || '').split('\n').map((line) => {
+    const i = line.indexOf('：') >= 0 ? line.indexOf('：') : line.indexOf(':');
+    if (i < 0) return null;
+    return { label: line.slice(0, i).trim(), value: line.slice(i + 1).trim() };
+  }).filter((x) => x && (x.label || x.value));
+}
+
+function openEntryDialog(id) {
+  const e = (S.currentWorld?.entries || []).find((x) => x.id === id) || {
+    category: S.worldCat === 'all' ? 'character' : S.worldCat,
+    name: '', summary: '', facts: [], visualAnchors: '', taboos: '', status: 'suggested',
+  };
+  $('#entryId').value = e.id || '';
+  $('#entryDialogTitle').textContent = e.id ? '编辑条目' : '新建条目';
+  $('#entryCategory').value = e.category || 'character';
+  $('#entryName').value = e.name || '';
+  $('#entrySummary').value = e.summary || '';
+  $('#entryFacts').value = factsToText(e.facts);
+  $('#entryVisual').value = e.visualAnchors || '';
+  $('#entryTaboos').value = e.taboos || '';
+  $('#entryStatus').value = e.status || 'suggested';
+  $('#entryErr').hidden = true;
+  $('#btnEntryDelete').hidden = !e.id;
+  $('#entryDialog').showModal();
+}
+
+function entryFromDialog() {
+  return {
+    id: $('#entryId').value || undefined,
+    category: $('#entryCategory').value,
+    name: $('#entryName').value.trim(),
+    summary: $('#entrySummary').value.trim(),
+    facts: textToFacts($('#entryFacts').value),
+    visualAnchors: $('#entryVisual').value.trim(),
+    taboos: $('#entryTaboos').value.trim(),
+    status: $('#entryStatus').value,
+  };
+}
+
+async function saveEntry() {
+  const e = entryFromDialog();
+  if (!e.name) return toast('条目名称不能为空', true);
+  const w = S.currentWorld;
+  const list = [...(w.entries || [])];
+  const idx = list.findIndex((x) => x.id === e.id);
+  if (idx >= 0) list[idx] = { ...list[idx], ...e };
+  else list.push(e);
+  try {
+    const j = await worldApi(`/${encodeURIComponent(w.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ entries: list }),
+    });
+    S.currentWorld = j.world;
+    $('#entryDialog').close();
+    renderWorldSettings();
+    toast('条目已保存');
+  } catch (err) {
+    toast(`保存条目失败：${err.message}`, true);
+  }
+}
+
+async function deleteEntry() {
+  const id = $('#entryId').value;
+  if (!id) return;
+  if (!confirm('删除这个条目？')) return;
+  const w = S.currentWorld;
+  const list = (w.entries || []).filter((e) => e.id !== id);
+  try {
+    const j = await worldApi(`/${encodeURIComponent(w.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ entries: list, generations: (w.generations || []).filter((g) => g.entryId !== id) }),
+    });
+    S.currentWorld = j.world;
+    $('#entryDialog').close();
+    renderWorldSettings();
+    toast('条目已删除');
+  } catch (err) {
+    toast(`删除失败：${err.message}`, true);
+  }
+}
+
+async function expandEntry() {
+  const id = $('#entryId').value;
+  if (!id) return toast('先保存条目，再让 AI 扩写', true);
+  const btn = $('#btnEntryExpand');
+  btn.disabled = true;
+  btn.textContent = '扩写中…';
+  try {
+    const j = await worldApi(`/${encodeURIComponent(S.currentWorld.id)}/ai`, {
+      method: 'POST',
+      body: JSON.stringify({ task: 'expand', entryId: id }),
+    });
+    if (j.summary) $('#entrySummary').value = j.summary;
+    if (Array.isArray(j.facts) && j.facts.length) $('#entryFacts').value = factsToText(j.facts);
+    if (j.visualAnchors) $('#entryVisual').value = j.visualAnchors;
+    if (j.taboos) $('#entryTaboos').value = j.taboos;
+    toast('AI 建议已填入，确认后点保存');
+  } catch (err) {
+    toast(`AI 扩写失败：${err.message}`, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'AI 扩写';
+  }
+}
+
+// ----- AI 条目 -----
+async function runEntryAi() {
+  const btn = $('#btnEntryAiRun');
+  btn.disabled = true;
+  btn.textContent = '生成中…';
+  try {
+    const j = await worldApi(`/${encodeURIComponent(S.currentWorld.id)}/ai`, {
+      method: 'POST',
+      body: JSON.stringify({
+        task: 'entry',
+        category: $('#entryAiCategory').value,
+        hint: $('#entryAiHint').value.trim(),
+        count: Number($('#entryAiCount').value),
+      }),
+    });
+    S.entryAiCandidates = j.entries || [];
+    renderEntryAiCandidates();
+  } catch (err) {
+    toast(`AI 生成失败：${err.message}`, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '生成';
+  }
+}
+
+function renderEntryAiCandidates() {
+  const box = $('#entryAiResults');
+  box.innerHTML = '';
+  S.entryAiCandidates.forEach((e, i) => {
+    const card = document.createElement('div');
+    card.className = 'world-ai-card';
+    card.innerHTML = `<b></b><p></p><button class="btn tiny primary" type="button">采纳</button>`;
+    card.querySelector('b').textContent = e.name || `候选 ${i + 1}`;
+    card.querySelector('p').textContent = e.summary || factsToText(e.facts);
+    card.querySelector('button').addEventListener('click', () => adoptEntryAi(i, card));
+    box.appendChild(card);
+  });
+}
+
+async function adoptEntryAi(index, card) {
+  const e = S.entryAiCandidates[index];
+  if (!e) return;
+  const w = S.currentWorld;
+  const entries = [...(w.entries || []), {
+    ...e,
+    category: $('#entryAiCategory').value,
+    status: 'suggested',
+  }];
+  try {
+    const j = await worldApi(`/${encodeURIComponent(w.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ entries }),
+    });
+    S.currentWorld = j.world;
+    renderWorldSettings();
+    card.querySelector('button').disabled = true;
+    card.querySelector('button').textContent = '已采纳';
+    toast('已加入设定集');
+  } catch (err) {
+    toast(`采纳失败：${err.message}`, true);
+  }
+}
+
+// ----- 设定集生成 -----
+function worldSelectedEntryIds() {
+  return S.worldGenEntryIds || [];
+}
+
+function renderWorldGenerate() {
+  const w = S.currentWorld;
+  const sel = $('#worldGenStyle');
+  if (!sel.options.length) {
+    for (const s of STYLES) {
+      const o = document.createElement('option');
+      o.value = s.id;
+      o.textContent = S.lang === 'en' ? (s.nameEn || s.name) : s.name;
+      sel.appendChild(o);
+    }
+    sel.value = S.style || 'sd';
+  }
+  $('#worldGenEntries').innerHTML = '';
+  for (const e of w.entries || []) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'world-gen-entry-chip' + (S.worldGenEntryIds.includes(e.id) ? ' active' : '');
+    b.dataset.id = e.id;
+    b.textContent = `${e.name} · ${WORLD_CAT[e.category] || e.category}`;
+    b.addEventListener('click', () => {
+      if (b.classList.contains('active')) {
+        S.worldGenEntryIds = S.worldGenEntryIds.filter((id) => id !== e.id);
+      } else {
+        if (S.worldGenEntryIds.length >= 3) return toast('最多选 3 个条目', true);
+        S.worldGenEntryIds.push(e.id);
+      }
+      b.classList.toggle('active');
+      refreshWorldGenBased();
+    });
+    $('#worldGenEntries').appendChild(b);
+  }
+  renderWorldGenHistory();
+  refreshWorldGenBased();
+}
+
+function refreshWorldGenBased() {
+  const w = S.currentWorld;
+  const ids = worldSelectedEntryIds();
+  const names = (w?.entries || []).filter((e) => ids.includes(e.id)).map((e) => e.name);
+  $('#worldGenBased').textContent = `基于：${w?.name || ''}${names.length ? ' / ' + names.join(' / ') : ''}`;
+  const sel = $('#worldRefEntry');
+  sel.innerHTML = '';
+  for (const e of w?.entries || []) {
+    const o = document.createElement('option');
+    o.value = e.id;
+    o.textContent = e.name;
+    sel.appendChild(o);
+  }
+}
+
+async function readWorldStream(res) {
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  let acc = '';
+  let gotError = null;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith('data:')) continue;
+      let evt;
+      try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
+      if (evt.type === 'delta') {
+        acc += evt.text;
+        $('#worldGenStatus').textContent = `生成中… ${acc.length} 字`;
+      } else if (evt.type === 'error') {
+        gotError = evt.message;
+      }
+    }
+  }
+  if (gotError) throw new Error(gotError);
+  if (!acc.trim()) throw new Error('模型没有返回内容');
+  return acc;
+}
+
+async function generateWorldPrompt() {
+  if (S.worldGenAbort) return;
+  const sentence = $('#worldGenSentence').value.trim();
+  if (!sentence) return toast('先写一句画面', true);
+  const w = S.currentWorld;
+  const entryIds = worldSelectedEntryIds();
+  const ac = new AbortController();
+  S.worldGenAbort = ac;
+  S.worldBusy = true;
+  $('#btnWorldGenerate').disabled = true;
+  $('#btnWorldGenCancel').hidden = false;
+  $('#worldGenErr').hidden = true;
+  $('#worldGenStatus').textContent = '正在生成…';
+  try {
+    const res = await fetch(`/api/worlds/${encodeURIComponent(w.id)}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: ac.signal,
+      body: JSON.stringify({
+        sentence,
+        entryIds,
+        task: $('#worldGenTask').value,
+        style: $('#worldGenStyle').value,
+        aspect: $('#worldGenAspect').value,
+        shot: $('#worldGenShot').value,
+      }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || `HTTP ${res.status}`);
+    }
+    const raw = await readWorldStream(res);
+    const parsed = parseResult(raw);
+    if (!parsed || !parsed.positive) throw new Error('模型返回的不是标准 JSON');
+    const gen = {
+      id: `g-${Date.now()}`,
+      entryId: entryIds[0] || '',
+      task: $('#worldGenTask').value,
+      sentence,
+      positive: parsed.positive,
+      negative: parsed.negative || '',
+      params: parsed.params || {},
+      translation: parsed.translation || '',
+      createdAt: Date.now(),
+    };
+    S.worldGen = { ...gen, parsed };
+    renderWorldGenResult();
+    await appendWorldGeneration(gen);
+    toast('已生成');
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      $('#worldGenStatus').textContent = '已取消';
+    } else {
+      $('#worldGenErr').textContent = err.message;
+      $('#worldGenErr').hidden = false;
+      $('#worldGenStatus').textContent = '生成失败';
+    }
+  } finally {
+    S.worldBusy = false;
+    S.worldGenAbort = null;
+    $('#btnWorldGenerate').disabled = false;
+    $('#btnWorldGenCancel').hidden = true;
+    refreshWorldGenBased();
+  }
+}
+
+async function appendWorldGeneration(gen) {
+  const w = S.currentWorld;
+  const generations = [...(w.generations || []), gen].slice(-50);
+  try {
+    const j = await worldApi(`/${encodeURIComponent(w.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ generations }),
+    });
+    S.currentWorld = j.world;
+    renderWorldGenHistory();
+  } catch {
+    /* 记录失败不影响结果展示 */
+  }
+}
+
+function renderWorldGenResult() {
+  const g = S.worldGen;
+  if (!g) return;
+  $('#worldGenEmpty').hidden = true;
+  $('#worldGenResult').hidden = false;
+  $('#worldGenPositive').textContent = g.positive;
+  $('#worldGenNegative').textContent = g.negative;
+  $('#worldGenTranslation').textContent = g.translation || '';
+  $('#worldGenStatus').textContent = '';
+  const names = (S.currentWorld.entries || []).filter((e) => worldSelectedEntryIds().includes(e.id)).map((e) => e.name);
+  $('#worldGenBased').textContent = `基于：${S.currentWorld.name}${names.length ? ' / ' + names.join(' / ') : ''}`;
+}
+
+function renderWorldGenHistory() {
+  const box = $('#worldGenHistory');
+  box.innerHTML = '';
+  const list = (S.currentWorld?.generations || []).slice().reverse().slice(0, 8);
+  if (!list.length) return;
+  const title = document.createElement('div');
+  title.className = 'dim small';
+  title.textContent = '最近生成';
+  box.appendChild(title);
+  for (const g of list) {
+    const row = document.createElement('div');
+    row.className = 'world-gen-history-item';
+    row.textContent = `${fmtTime(g.createdAt)} · ${(g.sentence || '').slice(0, 36)}`;
+    row.addEventListener('click', () => {
+      S.worldGen = { ...g, parsed: { positive: g.positive, negative: g.negative, params: g.params } };
+      renderWorldGenResult();
+    });
+    box.appendChild(row);
+  }
+}
+
+async function writeWorldRef() {
+  if (!S.worldGen) return;
+  const id = $('#worldRefEntry').value;
+  const w = S.currentWorld;
+  const entry = (w.entries || []).find((e) => e.id === id);
+  if (!entry) return;
+  entry.refPrompt = `Positive prompt: ${S.worldGen.positive}\nNegative prompt: ${S.worldGen.negative}`;
+  try {
+    const j = await worldApi(`/${encodeURIComponent(w.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ entries: w.entries }),
+    });
+    S.currentWorld = j.world;
+    toast(`已写入「${entry.name}」的参考提示词`);
+  } catch (err) {
+    toast(`写入失败：${err.message}`, true);
+  }
 }
 
 /* ============ 生成 ============ */
@@ -3262,6 +3965,8 @@ function switchView(view) {
   $('#viewPrompt').hidden = view !== 'prompt';
   $('#viewCharacter').hidden = view !== 'character';
   $('#viewSegment').hidden = view !== 'segment';
+  $('#viewWorlds').hidden = view !== 'worlds';
+  if (view === 'worlds' && !S.currentWorld) loadWorlds();
   document.querySelectorAll('#mainTabs .tab').forEach((t) => {
     t.classList.toggle('active', t.dataset.view === view);
   });
@@ -5462,6 +6167,84 @@ function bind() {
   /* ---------- 视图切换 ---------- */
   document.querySelectorAll('#mainTabs .tab').forEach((t) => {
     t.addEventListener('click', () => switchView(t.dataset.view));
+  });
+
+  /* ---------- 设定集 ---------- */
+  $('#btnWorldNew').addEventListener('click', () => {
+    S.currentWorld = null;
+    openWorldEdit();
+  });
+  $('#btnWorldAiCreate').addEventListener('click', () => {
+    S.currentWorld = null;
+    S.worldAiDirections = [];
+    $('#worldAiSeeds').value = '';
+    $('#worldAiResults').innerHTML = '';
+    $('#worldAiDialog').showModal();
+  });
+  $('#btnWorldAiClose').addEventListener('click', () => $('#worldAiDialog').close());
+  $('#btnWorldAiSeed').addEventListener('click', runWorldAiSeed);
+  $('#btnWorldEditCancel').addEventListener('click', () => $('#worldEditDialog').close());
+  $('#btnWorldEditSave').addEventListener('click', saveWorldEdit);
+  $('#btnWorldBack').addEventListener('click', backToWorlds);
+  $('#btnWorldEdit').addEventListener('click', openWorldEdit);
+  $('#btnWorldExport').addEventListener('click', exportWorld);
+  $('#btnWorldDelete').addEventListener('click', deleteWorld);
+  $('#worldImportFile').addEventListener('change', (e) => {
+    importWorldFile(e.target.files?.[0]);
+    e.target.value = '';
+  });
+  $('#btnWorldImport').addEventListener('click', () => $('#worldImportFile').click());
+  $('#worldSearch').addEventListener('input', renderWorlds);
+  document.querySelectorAll('#worldSubtabs .subtab').forEach((b) => {
+    b.addEventListener('click', () => {
+      S.worldTab = b.dataset.worldTab;
+      renderWorldDetail();
+    });
+  });
+  document.querySelectorAll('#worldCatTabs .chip').forEach((b) => {
+    b.addEventListener('click', () => {
+      S.worldCat = b.dataset.cat;
+      renderWorldSettings();
+    });
+  });
+  $('#worldEntrySearch').addEventListener('input', renderWorldSettings);
+  $('#btnWorldEntryNew').addEventListener('click', () => openEntryDialog(null));
+  $('#btnWorldEntryAi').addEventListener('click', () => {
+    S.entryAiCandidates = [];
+    $('#entryAiHint').value = '';
+    $('#entryAiResults').innerHTML = '';
+    $('#entryAiCategory').value = S.worldCat === 'all' ? 'character' : S.worldCat;
+    $('#entryAiDialog').showModal();
+  });
+  $('#btnEntryAiClose').addEventListener('click', () => $('#entryAiDialog').close());
+  $('#btnEntryAiRun').addEventListener('click', runEntryAi);
+  $('#btnEntryCancel').addEventListener('click', () => $('#entryDialog').close());
+  $('#btnEntrySave').addEventListener('click', saveEntry);
+  $('#btnEntryDelete').addEventListener('click', deleteEntry);
+  $('#btnEntryExpand').addEventListener('click', expandEntry);
+
+  $('#btnWorldGenerate').addEventListener('click', generateWorldPrompt);
+  $('#btnWorldGenCancel').addEventListener('click', () => {
+    if (S.worldGenAbort) S.worldGenAbort.abort();
+  });
+  $('#btnWorldWriteRef').addEventListener('click', writeWorldRef);
+  $('#btnWorldCopyGen').addEventListener('click', (e) => {
+    if (S.worldGen) copyText(`Positive prompt: ${S.worldGen.positive}\n\nNegative prompt: ${S.worldGen.negative}`, e.currentTarget);
+  });
+  $('#worldGenTask').addEventListener('change', () => {
+    const cat = $('#worldGenTask').value;
+    if (cat === 'free') return;
+    const target = (S.currentWorld?.entries || []).find((e) => e.category === cat);
+    if (target) {
+      S.worldGenEntryIds = [target.id];
+      document.querySelectorAll('#worldGenEntries .world-gen-entry-chip').forEach((b) => {
+        b.classList.toggle('active', b.dataset.id === target.id);
+      });
+      if (!$('#worldGenSentence').value.trim()) {
+        $('#worldGenSentence').value = [target.summary, target.visualAnchors].filter(Boolean).join('，');
+      }
+      refreshWorldGenBased();
+    }
   });
 
   /* ---------- 角色设定 ---------- */

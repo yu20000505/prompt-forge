@@ -27,6 +27,7 @@ const CFG = path.join(os.tmpdir(), `pf-test-config-${process.pid}.json`);
 // 保存目录也指向临时位置，别把测试产生的文件写进用户真正的 saved/
 const SAVED = path.join(os.tmpdir(), `pf-test-saved-${process.pid}`);
 const STATE = path.join(os.tmpdir(), `pf-test-state-${process.pid}`);
+const WORLDS = path.join(os.tmpdir(), `pf-test-worlds-${process.pid}`);
 const APP_URL = `http://127.0.0.1:${APP_PORT}/`;
 // 这个值会被写进配置，再由服务端拼进系统提示词发给模型；
 // verify-ui 里靠它断言「置顶提示词确实发给了 API」
@@ -64,6 +65,9 @@ function stopAll() {
   try {
     fs.rmSync(STATE, { recursive: true, force: true });
   } catch { /* 不存在 */ }
+  try {
+    fs.rmSync(WORLDS, { recursive: true, force: true });
+  } catch { /* 不存在 */ }
 }
 
 async function waitHttp(url, tries = 60) {
@@ -91,6 +95,7 @@ start(process.execPath, ['src/server.mjs', String(APP_PORT)], {
   PF_CONFIG: CFG,
   PF_SAVED: SAVED,
   PF_STATE: STATE,
+  PF_WORLDS: WORLDS,
   PF_STRICT_PORT: '1',
 });
 
@@ -105,8 +110,9 @@ if (!okMock || !okApp) {
 // 防止端口冲突时连到用户正在用的实例，把真实 saved/ 当成测试目录
 const diag = await (await fetch(`${APP_URL}api/diagnostics`)).json().catch(() => ({}));
 if (path.resolve(diag?.paths?.saved || '') !== path.resolve(SAVED)
-  || path.resolve(diag?.paths?.config || '') !== path.resolve(CFG)) {
-  log(`测试实例不是临时目录，已中止。saved=${diag?.paths?.saved} config=${diag?.paths?.config}`);
+  || path.resolve(diag?.paths?.config || '') !== path.resolve(CFG)
+  || path.resolve(diag?.paths?.worlds || '') !== path.resolve(WORLDS)) {
+  log(`测试实例不是临时目录，已中止。saved=${diag?.paths?.saved} config=${diag?.paths?.config} worlds=${diag?.paths?.worlds}`);
   stopAll();
   process.exit(1);
 }

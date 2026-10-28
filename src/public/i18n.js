@@ -464,6 +464,7 @@ window.PF_I18N = {
     '导入失败': 'Import failed',
     '打不开目录': 'Cannot open the folder',
     '快捷键': 'Keyboard shortcuts',
+    '设定集': 'Worlds',
     '版本': 'Version',
     '对比上一版': 'Compare previous',
     '收起对比': 'Hide diff',

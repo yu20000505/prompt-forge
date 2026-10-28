@@ -69,6 +69,9 @@ const FAVORITES_PATH = path.join(SAVED_DIR, '.favorites.json');
 const STATE_DIR = process.env.PF_STATE ? path.resolve(process.env.PF_STATE) : DATA_DIR;
 const HISTORY_PATH = path.join(STATE_DIR, 'history.json');
 const BOARD_PATH = path.join(STATE_DIR, 'board.json');
+const WORLDS_DIR = process.env.PF_WORLDS
+  ? path.resolve(process.env.PF_WORLDS)
+  : path.join(DATA_DIR, 'worlds');
 const TRASH_RETENTION_DAYS = 7;
 const TRASH_MAX_FILES = 100;
 const HOST = '127.0.0.1';
@@ -353,7 +356,7 @@ async function handleDiagnostics(req, res) {
       arch: process.arch,
       node: process.versions.node,
       keyStorage: storage ? 'os-encrypted' : 'plaintext',
-      paths: { dataDir: DATA_DIR, config: CONFIG_PATH, saved: SAVED_DIR, state: STATE_DIR },
+      paths: { dataDir: DATA_DIR, config: CONFIG_PATH, saved: SAVED_DIR, state: STATE_DIR, worlds: WORLDS_DIR },
       counts: { saved: savedCount, trash: trashCount },
       features: pub.features,
       activeProfile: pub.profiles.find((p) => p.active) || pub.activeProfile || '',
@@ -410,6 +413,7 @@ function publicConfig(cfg) {
       trash: true,
       profiles: true,
       variants: true,
+      worlds: true,
     },
   };
 }
@@ -1470,6 +1474,318 @@ async function handleTrashDelete(req, res) {
   }
 }
 
+// ---------- 设定集 ----------
+const WORLD_CATEGORIES = new Set(['character', 'item', 'creature', 'location', 'faction']);
+const WORLD_LIMIT = 100;
+
+function newId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function cleanFacts(facts) {
+  return (Array.isArray(facts) ? facts : [])
+    .filter((f) => f && (f.label || f.value))
+    .slice(0, 30)
+    .map((f) => ({
+      label: String(f.label || '').slice(0, 40),
+      value: String(f.value || '').slice(0, 2000),
+    }));
+}
+
+function cleanEntry(raw, prior = {}) {
+  const category = WORLD_CATEGORIES.has(raw.category) ? raw.category : (prior.category || 'character');
+  return {
+    id: String(prior.id || raw.id || newId('e')),
+    category,
+    name: String(raw.name || prior.name || '未命名条目').slice(0, 80),
+    summary: String(raw.summary ?? prior.summary ?? '').slice(0, 1000),
+    status: ['suggested', 'canon', 'locked'].includes(raw.status) ? raw.status : (prior.status || 'suggested'),
+    facts: cleanFacts(raw.facts ?? prior.facts),
+    visualAnchors: String(raw.visualAnchors ?? prior.visualAnchors ?? '').slice(0, 1000),
+    taboos: String(raw.taboos ?? prior.taboos ?? '').slice(0, 1000),
+    refPrompt: String(raw.refPrompt ?? prior.refPrompt ?? '').slice(0, 4000),
+    createdAt: Number(prior.createdAt) || Number(raw.createdAt) || Date.now(),
+    updatedAt: Date.now(),
+  };
+}
+
+function cleanGeneration(raw, prior = {}) {
+  return {
+    id: String(prior.id || raw.id || newId('g')),
+    entryId: String(raw.entryId ?? prior.entryId ?? ''),
+    task: String(raw.task || prior.task || 'free').slice(0, 30),
+    sentence: String(raw.sentence ?? prior.sentence ?? '').slice(0, 2000),
+    positive: String(raw.positive ?? prior.positive ?? '').slice(0, 8000),
+    negative: String(raw.negative ?? prior.negative ?? '').slice(0, 4000),
+    translation: String(raw.translation ?? prior.translation ?? '').slice(0, 4000),
+    params: raw.params && typeof raw.params === 'object' ? raw.params : (prior.params || {}),
+    createdAt: Number(prior.createdAt) || Number(raw.createdAt) || Date.now(),
+  };
+}
+
+function cleanWorld(raw, prior = {}) {
+  const now = Date.now();
+  return {
+    id: String(prior.id || raw.id || newId('w')),
+    name: String(raw.name ?? prior.name ?? '').trim().slice(0, 80),
+    genre: String(raw.genre ?? prior.genre ?? '').trim().slice(0, 40),
+    logline: String(raw.logline ?? prior.logline ?? '').trim().slice(0, 500),
+    tone: String(raw.tone ?? prior.tone ?? '').trim().slice(0, 300),
+    visual: String(raw.visual ?? prior.visual ?? '').trim().slice(0, 500),
+    rules: String(raw.rules ?? prior.rules ?? '').trim().slice(0, 3000),
+    taboos: String(raw.taboos ?? prior.taboos ?? '').trim().slice(0, 1000),
+    entries: (Array.isArray(raw.entries) ? raw.entries : (prior.entries || []))
+      .slice(0, 500)
+      .map((e) => cleanEntry(e)),
+    generations: (Array.isArray(raw.generations) ? raw.generations : (prior.generations || []))
+      .slice(-50)
+      .map((g) => cleanGeneration(g)),
+    createdAt: Number(prior.createdAt) || Number(raw.createdAt) || now,
+    updatedAt: now,
+  };
+}
+
+function worldPath(id) {
+  const safe = String(id || '').replace(/[^\w-]/g, '');
+  return safe ? path.join(WORLDS_DIR, `${safe}.json`) : null;
+}
+
+async function listWorlds() {
+  try {
+    await fsp.mkdir(WORLDS_DIR, { recursive: true });
+    const names = (await fsp.readdir(WORLDS_DIR)).filter((n) => n.endsWith('.json'));
+    const out = [];
+    for (const name of names) {
+      try {
+        const w = JSON.parse(await fsp.readFile(path.join(WORLDS_DIR, name), 'utf8'));
+        out.push({
+          id: w.id,
+          name: w.name,
+          genre: w.genre,
+          logline: w.logline,
+          entries: Array.isArray(w.entries) ? w.entries.length : 0,
+          updatedAt: w.updatedAt || w.createdAt || 0,
+        });
+      } catch {
+        /* 坏文件跳过 */
+      }
+    }
+    return out.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, WORLD_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+async function readWorld(id) {
+  const p = worldPath(id);
+  if (!p) throw new Error('设定集 ID 不合法');
+  const raw = JSON.parse(await fsp.readFile(p, 'utf8'));
+  return cleanWorld(raw, raw);
+}
+
+async function writeWorld(world) {
+  const p = worldPath(world.id);
+  if (!p) throw new Error('设定集 ID 不合法');
+  await fsp.mkdir(WORLDS_DIR, { recursive: true });
+  await fsp.writeFile(p, JSON.stringify(world, null, 2), 'utf8');
+  return world;
+}
+
+function worldContextText(world, entryIds = []) {
+  const ids = new Set((Array.isArray(entryIds) ? entryIds : []).slice(0, 3));
+  const entries = (world.entries || []).filter((e) => ids.has(e.id));
+  const lines = [
+    `【世界设定：${world.name || '未命名世界'}】`,
+    world.genre ? `类型：${world.genre}` : '',
+    world.logline ? `概念：${world.logline}` : '',
+    world.tone ? `基调：${world.tone}` : '',
+    world.visual ? `视觉风格：${world.visual}` : '',
+    world.rules ? `世界规则：${world.rules}` : '',
+    world.taboos ? `禁止元素：${world.taboos}` : '',
+  ].filter(Boolean);
+  for (const e of entries) {
+    lines.push(`【条目：${e.name}（${e.category}）】`);
+    if (e.summary) lines.push(`设定：${e.summary}`);
+    for (const f of e.facts || []) if (f.value) lines.push(`${f.label || '设定'}：${f.value}`);
+    if (e.visualAnchors) lines.push(`视觉锚点：${e.visualAnchors}`);
+    if (e.taboos) lines.push(`禁止：${e.taboos}`);
+    if (e.refPrompt) lines.push(`参考提示词：${e.refPrompt}`);
+  }
+  let text = lines.join('\n');
+  if (text.length > 6000) text = text.slice(0, 6000) + '\n…（设定上下文已截断）';
+  return text;
+}
+
+function parseJsonContent(content) {
+  let text = String(content || '').trim();
+  if (text.startsWith('```')) text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start >= 0 && end > start) text = text.slice(start, end + 1);
+  return JSON.parse(text);
+}
+
+async function callModelJson(ctx, messages, maxTokens = 1600) {
+  const upstream = await fetch(`${ctx.baseURL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${ctx.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: ctx.model,
+      messages,
+      temperature: 0.9,
+      max_tokens: maxTokens,
+      stream: false,
+    }),
+    signal: AbortSignal.timeout(90000),
+  });
+  const text = await upstream.text().catch(() => '');
+  if (!upstream.ok) throw new Error(upstreamErrorMessage(upstream.status, text));
+  let content = '';
+  try {
+    const j = JSON.parse(text);
+    content = String(j?.choices?.[0]?.message?.content ?? j?.choices?.[0]?.text ?? '');
+  } catch {
+    content = text;
+  }
+  try {
+    return parseJsonContent(content);
+  } catch {
+    throw new Error('模型返回的不是有效 JSON，请重试或换一个模型');
+  }
+}
+
+async function handleWorlds(req, res, id = null, action = null) {
+  if (!id && req.method === 'GET') {
+    return json(res, 200, { items: await listWorlds() });
+  }
+  if (!id && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: '请求格式错误' }); }
+    if (body.importWorld) {
+      const world = cleanWorld(body.importWorld);
+      if (!world.name) return json(res, 400, { error: '导入的设定集缺少名称' });
+      const exists = await listWorlds();
+      if (exists.some((w) => w.id === world.id)) world.id = newId('w');
+      await writeWorld(world);
+      return json(res, 200, { ok: true, world });
+    }
+    const world = cleanWorld({ ...body, id: undefined });
+    if (!world.name) return json(res, 400, { error: '请先给设定集起个名字' });
+    await writeWorld(world);
+    return json(res, 200, { ok: true, world });
+  }
+  if (!id) return json(res, 405, { error: 'method not allowed' });
+
+  let world;
+  try {
+    world = await readWorld(id);
+  } catch {
+    return json(res, 404, { error: '设定集不存在' });
+  }
+
+  if (action === 'ai' && req.method === 'POST') {
+    const ctx = await resolveUpstream(req, res);
+    if (!ctx) return;
+    const body = ctx.body;
+    try {
+      if (body.task === 'seed') {
+        const seeds = String(body.seeds || '').trim();
+        if (!seeds) return json(res, 400, { error: '先写几个种子词' });
+        const result = await callModelJson(ctx, [
+          { role: 'system', content: '你是世界观策划。只输出 JSON，不要解释。' },
+          {
+            role: 'user',
+            content: `根据这些种子生成 3 个差异明显的世界方向：${seeds}\n只输出：{"directions":[{"name":"","genre":"","logline":"","tone":"","visual":"","rules":"","taboos":""}]}`,
+          },
+        ], 1800);
+        return json(res, 200, result);
+      }
+      if (body.task === 'core') {
+        const d = body.direction || {};
+        const result = await callModelJson(ctx, [
+          { role: 'system', content: '你是世界观策划。只输出 JSON，不要解释。' },
+          {
+            role: 'user',
+            content: `把这个世界方向扩写成完整世界设定：${JSON.stringify(d)}\n只输出：{"name":"","genre":"","logline":"","tone":"","visual":"","rules":"","taboos":""}`,
+          },
+        ], 1400);
+        return json(res, 200, result);
+      }
+      if (body.task === 'entry') {
+        const category = WORLD_CATEGORIES.has(body.category) ? body.category : 'character';
+        const hint = String(body.hint || '').trim();
+        const count = Math.min(5, Math.max(1, Number(body.count) || 3));
+        const existing = (world.entries || []).map((e) => e.name).slice(0, 40).join('、');
+        const result = await callModelJson(ctx, [
+          { role: 'system', content: '你是设定集策划。只输出 JSON，不要解释。不要与已有条目重名。' },
+          {
+            role: 'user',
+            content: `世界设定：\n${worldContextText(world, [])}\n\n已有条目：${existing || '无'}\n请生成 ${count} 个「${category}」分类的候选条目。补充提示：${hint || '无'}\n只输出：{"entries":[{"name":"","summary":"","facts":[{"label":"","value":""}],"visualAnchors":"","taboos":""}]}`,
+          },
+        ], 2400);
+        return json(res, 200, result);
+      }
+      if (body.task === 'expand') {
+        const entry = (world.entries || []).find((e) => e.id === body.entryId);
+        if (!entry) return json(res, 404, { error: '条目不存在' });
+        const result = await callModelJson(ctx, [
+          { role: 'system', content: '你是设定集编辑。只输出 JSON，不要解释。保留已经确定的内容。' },
+          {
+            role: 'user',
+            content: `世界设定：\n${worldContextText(world, [])}\n\n当前条目：${JSON.stringify(entry)}\n请补全缺失字段并扩写，但不要改变已有事实。\n只输出：{"summary":"","facts":[{"label":"","value":""}],"visualAnchors":"","taboos":""}`,
+          },
+        ], 1800);
+        return json(res, 200, result);
+      }
+      return json(res, 400, { error: '未知 AI 任务' });
+    } catch (err) {
+      return json(res, 502, { error: `设定集 AI 生成失败：${err.message || err}` });
+    }
+  }
+
+  if (action === 'generate' && req.method === 'POST') {
+    const ctx = await resolveUpstream(req, res);
+    if (!ctx) return;
+    const sentence = String(ctx.body.sentence || '').trim();
+    if (!sentence) return json(res, 400, { error: '先写一句话描述画面' });
+    const messages = buildMessages({
+      sentence,
+      style: ctx.body.style,
+      targetModel: ctx.body.targetModel,
+      language: ctx.body.language,
+      detail: ctx.body.detail,
+      extra: ctx.body.extra,
+      aspect: ctx.body.aspect,
+      shot: ctx.body.shot,
+      apiPinned: ctx.apiPinned,
+    });
+    const context = worldContextText(world, ctx.body.entryIds || []);
+    messages[1].content = `${context}\n\n${messages[1].content}`;
+    return proxyChatStream(req, res, { ...ctx, messages });
+  }
+
+  if (req.method === 'GET') {
+    return json(res, 200, { world });
+  }
+  if (req.method === 'PUT') {
+    let body;
+    try { body = JSON.parse(await readBody(req)); } catch { return json(res, 400, { error: '请求格式错误' }); }
+    const next = cleanWorld({ ...world, ...body }, world);
+    if (!next.name) return json(res, 400, { error: '设定集名称不能为空' });
+    await writeWorld(next);
+    return json(res, 200, { ok: true, world: next });
+  }
+  if (req.method === 'DELETE') {
+    const p = worldPath(id);
+    try { await fsp.unlink(p); } catch { /* 已不存在 */ }
+    return json(res, 200, { ok: true });
+  }
+  return json(res, 405, { error: 'method not allowed' });
+}
+
 async function handleSavedItem(req, res) {
   const url = new URL(req.url, `http://${HOST}`);
   const entry = await readSavedEntry(url.searchParams.get('file'));
@@ -1790,6 +2106,13 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/history' && (req.method === 'GET' || req.method === 'POST')) return await handleHistoryState(req, res);
     if (pathname === '/api/board' && (req.method === 'GET' || req.method === 'POST')) return await handleBoardState(req, res);
 
+    if (pathname === '/api/worlds' && (req.method === 'GET' || req.method === 'POST')) {
+      return await handleWorlds(req, res);
+    }
+    const worldMatch = pathname.match(/^\/api\/worlds\/([^/]+)(?:\/(ai|generate))?$/);
+    if (worldMatch) {
+      return await handleWorlds(req, res, decodeURIComponent(worldMatch[1]), worldMatch[2] || null);
+    }
     if (pathname === '/api/profiles' && req.method === 'POST') return await handleProfiles(req, res);
     if (pathname === '/api/diagnostics' && req.method === 'GET') return await handleDiagnostics(req, res);
     if (pathname === '/api/config' && req.method === 'GET') {

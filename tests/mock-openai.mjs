@@ -154,6 +154,52 @@ function pickSample(payload) {
   };
 }
 
+const MOCK_WORLD_DIRECTIONS = {
+  directions: [
+    { name: '九霄残卷', genre: '东方玄幻', logline: '灵气枯竭后，旧神残卷成为唯一的修行来源', tone: '冷峻、宿命', visual: '青灰、朱砂、旧木', rules: '禁止现代科技', taboos: '现代服装、霓虹' },
+    { name: '雾都 1890', genre: '蒸汽朋克', logline: '雾都下层靠蒸汽义肢生存', tone: '阴郁、工业', visual: '黄铜、煤烟、湿雾', rules: '蒸汽科技为主', taboos: '现代电子设备' },
+    { name: '星环联邦', genre: '科幻', logline: '星环上的最后一座农业站', tone: '冷静、开阔', visual: '银白、青蓝、星尘', rules: '硬科幻', taboos: '魔法' },
+  ],
+};
+const MOCK_WORLD_CORE = {
+  name: '九霄残卷',
+  genre: '东方玄幻',
+  logline: '灵气枯竭后，旧神残卷成为唯一的修行来源',
+  tone: '冷峻、宿命',
+  visual: '青灰、朱砂、旧木、雾气',
+  rules: '禁止现代科技；修行者以寿命换力量',
+  taboos: '现代服装、霓虹、塑料材质',
+};
+const MOCK_WORLD_ENTRIES = {
+  entries: [
+    { name: '沈照雪', summary: '银发刀客，左眼有旧伤', facts: [{ label: '身份', value: '守夜人末裔' }, { label: '服装', value: '灰白长袍' }], visualAnchors: '银发、灰白长袍、断水刀', taboos: '现代服装' },
+    { name: '裴无咎', summary: '旧神祭司，笑面之下藏着疯狂', facts: [{ label: '身份', value: '残卷守藏人' }], visualAnchors: '黑金祭袍、铜面具', taboos: '阳光' },
+    { name: '白藏', summary: '雪原游医，随身带着一只铜药箱', facts: [{ label: '身份', value: '游医' }], visualAnchors: '灰白斗篷、铜药箱', taboos: '华丽服饰' },
+  ],
+};
+const MOCK_WORLD_EXPAND = {
+  summary: '银发刀客，左眼有旧伤，守夜人末裔',
+  facts: [
+    { label: '身份', value: '守夜人末裔' },
+    { label: '外貌', value: '银发，左眼旧伤' },
+    { label: '服装', value: '灰白长袍' },
+    { label: '关系', value: '与裴无咎亦敌亦友' },
+  ],
+  visualAnchors: '银发、灰白长袍、断水刀',
+  taboos: '现代服装、霓虹',
+};
+
+function pickMockContent(payload) {
+  const sys = String(payload?.messages?.[0]?.content || '');
+  const user = String(payload?.messages?.[1]?.content || '');
+  if (sys.includes('创意搭档')) return JSON.stringify(MOCK_IDEAS);
+  if (user.includes('"directions"')) return JSON.stringify(MOCK_WORLD_DIRECTIONS);
+  if (user.includes('"entries"')) return JSON.stringify(MOCK_WORLD_ENTRIES);
+  if (user.includes('补全缺失字段')) return JSON.stringify(MOCK_WORLD_EXPAND);
+  if (user.includes('"name":"","genre"')) return JSON.stringify(MOCK_WORLD_CORE);
+  return JSON.stringify(pickSample(payload));
+}
+
 const server = http.createServer((req, res) => {
   if (req.url === '/__mock-stats') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -200,9 +246,7 @@ const server = http.createServer((req, res) => {
 
       // 非流式请求（灵感走这条路）
       if (!payload?.stream) {
-        const content = sys.includes('创意搭档')
-          ? JSON.stringify(MOCK_IDEAS)
-          : JSON.stringify(pickSample(payload));
+        const content = pickMockContent(payload);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
           choices: [{
