@@ -499,6 +499,7 @@
       <div>
         <button class="btn tiny ghost" id="btnLibBackup">备份</button>
         <button class="btn tiny ghost" id="btnLibImport">导入</button>
+        <button class="btn tiny ghost" id="btnLibTrash">回收站</button>
         <button class="btn tiny ghost" id="btnLibFolder">打开目录</button>
         <button class="btn tiny ghost" id="btnLibClose">关闭</button>
       </div>
@@ -572,6 +573,20 @@
       </p>
     </div>
   </aside>
+
+  <!-- ============ 回收站 ============ -->
+  <dialog class="settings trash-dialog" id="trashDialog">
+    <form method="dialog">
+      <h3>回收站 <span class="dim small" id="trashCount"></span></h3>
+      <p class="dim small" id="trashHint">删除的文件会先放在这里，7 天后自动清理。</p>
+      <div class="trash-list" id="trashList"></div>
+      <div class="dialog-actions">
+        <button class="btn tiny ghost" type="button" id="btnTrashEmpty">清空回收站</button>
+        <span class="grow"></span>
+        <button class="btn ghost" type="button" id="btnTrashClose">关闭</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- ============ 快捷键帮助 ============ -->
   <dialog class="settings shortcuts" id="shortcuts">

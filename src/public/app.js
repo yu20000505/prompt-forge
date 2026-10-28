@@ -265,6 +265,7 @@ const S = {
   boardLoaded: false,
   customTemplates: [],
   draftsSuppressed: false,
+  trashItems: [],
 };
 
 // 没拉取过列表时先给几个常用的，避免下拉框一开始是空的
@@ -1809,8 +1810,138 @@ function renderLibrary() {
   updateLibBulkUi();
 }
 
-async function toggleLibraryFavorite(it) {
-  const next = !it.favorite;
+async function openTrash() {
+  $('#trashDialog').showModal();
+  await loadTrash();
+}
+
+async function loadTrash() {
+  const box = $('#trashList');
+  box.innerHTML = '<p class="trash-empty">读取中…</p>';
+  try {
+    const r = await fetch('/api/trash');
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    S.trashItems = Array.isArray(j.items) ? j.items : [];
+    $('#trashHint').textContent = `删除的文件会先放在这里，${j.retentionDays || 7} 天后自动清理。`;
+    renderTrash();
+  } catch (err) {
+    box.innerHTML = '';
+    const p = document.createElement('p');
+    p.className = 'trash-empty';
+    p.textContent = `读取失败：${err.message}`;
+    box.appendChild(p);
+  }
+}
+
+function formatSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function renderTrash() {
+  const box = $('#trashList');
+  box.innerHTML = '';
+  $('#trashCount').textContent = S.trashItems.length ? `${S.trashItems.length} 个` : '';
+  if (!S.trashItems.length) {
+    const p = document.createElement('p');
+    p.className = 'trash-empty';
+    p.textContent = '回收站是空的。';
+    box.appendChild(p);
+    return;
+  }
+
+  for (const it of S.trashItems) {
+    const row = document.createElement('div');
+    row.className = 'trash-item';
+    const name = document.createElement('span');
+    name.className = 'trash-name';
+    name.textContent = it.name;
+    name.title = it.name;
+    row.appendChild(name);
+
+    const meta = document.createElement('span');
+    meta.className = 'trash-meta';
+    meta.textContent = `${fmtTime(it.mtime)} · ${formatSize(it.size)} · 剩 ${it.daysLeft} 天`;
+    row.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'trash-actions';
+    const restore = document.createElement('button');
+    restore.type = 'button';
+    restore.className = 'btn tiny';
+    restore.textContent = '恢复';
+    restore.addEventListener('click', () => restoreTrash(it));
+    actions.appendChild(restore);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'btn tiny ghost';
+    del.textContent = '彻底删除';
+    del.addEventListener('click', () => deleteTrash(it));
+    actions.appendChild(del);
+    row.appendChild(actions);
+    box.appendChild(row);
+  }
+}
+
+async function restoreTrash(it) {
+  try {
+    const r = await fetch('/api/saved/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trash: it.name, original: it.name }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    toast(`已恢复：${j.file || it.name}`);
+    await loadTrash();
+    await loadLibrary();
+    refreshLibraryCount();
+  } catch (err) {
+    toast(`恢复失败：${err.message}`, true);
+  }
+}
+
+async function deleteTrash(it) {
+  if (!confirm(`彻底删除「${it.name}」？\n删除后无法恢复。`)) return;
+  try {
+    const r = await fetch('/api/trash/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trash: it.name }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    toast('已彻底删除');
+    await loadTrash();
+  } catch (err) {
+    toast(`删除失败：${err.message}`, true);
+  }
+}
+
+async function emptyTrash() {
+  if (!S.trashItems.length) return;
+  if (!confirm(`彻底删除回收站里的 ${S.trashItems.length} 个文件？\n删除后无法恢复。`)) return;
+  let n = 0;
+  for (const it of S.trashItems.slice()) {
+    try {
+      const r = await fetch('/api/trash/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trash: it.name }),
+      });
+      if (r.ok) n++;
+    } catch {
+      /* 单个失败继续 */
+    }
+  }
+  await loadTrash();
+  toast(`已彻底删除 ${n} 个文件`);
+}
+
+async function toggleLibraryFavorite(it) {  const next = !it.favorite;
   try {
     const r = await fetch('/api/saved/favorite', {
       method: 'POST',
@@ -5304,6 +5435,9 @@ function bind() {
   });
   $('#btnBackupCancel').addEventListener('click', () => $('#backupDialog').close());
   $('#btnBackupApply').addEventListener('click', (e) => confirmBackupImport(e.currentTarget));
+  $('#btnLibTrash').addEventListener('click', openTrash);
+  $('#btnTrashClose').addEventListener('click', () => $('#trashDialog').close());
+  $('#btnTrashEmpty').addEventListener('click', emptyTrash);
   $('#btnLibFolder').addEventListener('click', openSavedDir);
 
   $('#btnOpenSaved').addEventListener('click', openSavedDir);

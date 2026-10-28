@@ -1196,6 +1196,58 @@ async function handleBoardState(req, res) {
   }
 }
 
+// ---------- 回收站 ----------
+async function handleTrashList(req, res) {
+  try {
+    await fsp.mkdir(TRASH_DIR, { recursive: true });
+    await purgeTrash();
+    const names = await fsp.readdir(TRASH_DIR);
+    const items = [];
+    for (const name of names) {
+      if (!name.endsWith('.md')) continue;
+      const full = path.join(TRASH_DIR, name);
+      try {
+        const stat = await fsp.stat(full);
+        const ageDays = (Date.now() - stat.mtimeMs) / (24 * 60 * 60 * 1000);
+        items.push({
+          name,
+          size: stat.size,
+          mtime: stat.mtime.toISOString(),
+          daysLeft: Math.max(0, Math.ceil(TRASH_RETENTION_DAYS - ageDays)),
+        });
+      } catch {
+        /* 单个文件读不到就跳过 */
+      }
+    }
+    items.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
+    return json(res, 200, {
+      dir: TRASH_DIR,
+      retentionDays: TRASH_RETENTION_DAYS,
+      count: items.length,
+      items,
+    });
+  } catch (err) {
+    return json(res, 500, { error: `读取回收站失败：${err?.message || err}` });
+  }
+}
+
+async function handleTrashDelete(req, res) {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return json(res, 400, { error: '请求格式错误' });
+  }
+  const full = resolveTrashFile(body.trash);
+  if (!full) return json(res, 400, { error: '文件名不合法' });
+  try {
+    await fsp.unlink(full);
+    return json(res, 200, { ok: true });
+  } catch (err) {
+    return json(res, 500, { error: `彻底删除失败：${err?.message || err}` });
+  }
+}
+
 async function handleSavedItem(req, res) {
   const url = new URL(req.url, `http://${HOST}`);
   const entry = await readSavedEntry(url.searchParams.get('file'));
@@ -1508,6 +1560,8 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/saved/rename' && req.method === 'POST') return await handleRenameSaved(req, res);
     if (pathname === '/api/saved/delete' && req.method === 'POST') return await handleDeleteSaved(req, res);
     if (pathname === '/api/saved/restore' && req.method === 'POST') return await handleRestoreSaved(req, res);
+    if (pathname === '/api/trash' && req.method === 'GET') return await handleTrashList(req, res);
+    if (pathname === '/api/trash/delete' && req.method === 'POST') return await handleTrashDelete(req, res);
     if (pathname === '/api/saved/open' && req.method === 'POST') return await handleOpenSaved(req, res);
     if (pathname === '/api/backup/export' && req.method === 'GET') return await handleBackupExport(req, res);
     if (pathname === '/api/backup/import' && req.method === 'POST') return await handleBackupImport(req, res);

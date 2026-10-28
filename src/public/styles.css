@@ -2317,6 +2317,58 @@ mark {
   outline-offset: 2px;
 }
 
+/* ---------- 回收站 ---------- */
+.settings.trash-dialog {
+  width: min(620px, 94vw);
+}
+
+.trash-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 46vh;
+  overflow: auto;
+  margin-top: 8px;
+}
+
+.trash-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--ink-1);
+}
+
+.trash-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trash-meta {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--dim);
+}
+
+.trash-actions {
+  flex: none;
+  display: flex;
+  gap: 5px;
+}
+
+.trash-empty {
+  text-align: center;
+  padding: 22px 10px;
+  color: var(--dim);
+  font-size: 11.5px;
+}
+
 /* ---------- 快捷键帮助 ---------- */
 .shortcut-list {
   list-style: none;

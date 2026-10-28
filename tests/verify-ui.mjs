@@ -2536,6 +2536,35 @@ async function main() {
       && (await evalJs(`S.current`)) === null
       && (await visible('#cards')) === false);
 
+  // ---------- 12.20 回收站管理 ----------
+  await evalJs(`document.querySelector('#btnLibrary').click(); true`);
+  await sleep(700);
+  await evalJs(`document.querySelector('#btnLibTrash').click(); true`);
+  await sleep(700);
+  check('回收站能打开并列出文件',
+    (await visible('#trashDialog')) === true
+      && (await evalJs(`document.querySelectorAll('#trashList .trash-item').length`)) >= 1);
+  check('回收站显示剩余天数',
+    /剩 \d+ 天/.test(await evalJs(`document.querySelector('#trashList .trash-meta')?.textContent || ''`)));
+  const trashBefore = await evalJs(`document.querySelectorAll('#trashList .trash-item').length`);
+  await evalJs(`document.querySelector('#trashList .trash-item .trash-actions .btn').click(); true`);
+  await sleep(900);
+  const trashAfterRestore = await evalJs(`document.querySelectorAll('#trashList .trash-item').length`);
+  check('回收站能恢复文件', trashAfterRestore === trashBefore - 1, `${trashBefore} -> ${trashAfterRestore}`);
+
+  await evalJs(`window.confirm = () => true; true`);
+  await evalJs(`(() => {
+    const row = document.querySelector('#trashList .trash-item');
+    [...row.querySelectorAll('.trash-actions .btn')].find((b) => b.textContent === '彻底删除').click();
+    return true;
+  })()`);
+  await sleep(700);
+  check('回收站能彻底删除',
+    (await evalJs(`document.querySelectorAll('#trashList .trash-item').length`)) === trashAfterRestore - 1);
+  await evalJs(`document.querySelector('#btnTrashClose').click(); true`);
+  await evalJs(`document.querySelector('#btnLibClose').click(); true`);
+  await sleep(250);
+
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------
   // 先验一下错误栏的「重试」按钮
