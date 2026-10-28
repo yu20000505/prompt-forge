@@ -1013,6 +1013,124 @@ async function handleFavoriteSaved(req, res) {
   }
 }
 
+// ---------- 备份导出 / 导入 ----------
+async function handleBackupExport(req, res) {
+  try {
+    await fsp.mkdir(SAVED_DIR, { recursive: true });
+    const names = (await fsp.readdir(SAVED_DIR)).filter((f) => f.endsWith('.md')).sort();
+    const favorites = await loadFavorites();
+    const files = [];
+    for (const name of names) {
+      try {
+        files.push({ name, content: await fsp.readFile(path.join(SAVED_DIR, name), 'utf8') });
+      } catch {
+        /* 单个文件读不到就跳过 */
+      }
+    }
+    const favOut = {};
+    for (const name of names) if (favorites[name]) favOut[name] = true;
+    return json(res, 200, {
+      app: 'prompt-forge',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      files,
+      favorites: favOut,
+    });
+  } catch (err) {
+    return json(res, 500, { error: `导出失败：${err?.message || err}` });
+  }
+}
+
+async function handleBackupImport(req, res) {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req, 20 * 1024 * 1024));
+  } catch {
+    return json(res, 400, { error: '备份文件不是合法 JSON 或体积过大' });
+  }
+  if (!Array.isArray(body.files)) return json(res, 400, { error: '备份里没有文件列表' });
+  if (body.files.length > 2000) return json(res, 400, { error: '备份文件数量过多（最多 2000 个）' });
+  const mode = body.mode === 'replace' ? 'replace' : 'merge';
+
+  try {
+    await fsp.mkdir(SAVED_DIR, { recursive: true });
+    await fsp.mkdir(TRASH_DIR, { recursive: true });
+    const existing = (await fsp.readdir(SAVED_DIR)).filter((f) => f.endsWith('.md'));
+    let movedToTrash = 0;
+
+    if (mode === 'replace') {
+      const stamp = stampNow();
+      for (const name of existing) {
+        let trash = `${stamp}-${name}`;
+        let n = 1;
+        while (fs.existsSync(path.join(TRASH_DIR, trash))) {
+          trash = `${stamp}-${name.replace(/\.md$/, `-${n++}.md`)}`;
+        }
+        try {
+          await fsp.rename(path.join(SAVED_DIR, name), path.join(TRASH_DIR, trash));
+          movedToTrash++;
+        } catch {
+          /* 单个文件移不动就跳过 */
+        }
+      }
+    }
+
+    const oldFavorites = mode === 'replace' ? {} : await loadFavorites();
+    const nameMap = {};
+    let imported = 0;
+    let skipped = 0;
+
+    for (const item of body.files) {
+      const rawName = path.basename(String(item?.name || ''));
+      if (!rawName.endsWith('.md')) { skipped++; continue; }
+      const content = String(item?.content || '');
+      if (!content) { skipped++; continue; }
+
+      let targetName = rawName;
+      if (mode === 'merge' && fs.existsSync(path.join(SAVED_DIR, targetName))) {
+        const base = rawName.replace(/\.md$/, '');
+        let n = 1;
+        targetName = `${base}-imported-${n}.md`;
+        while (fs.existsSync(path.join(SAVED_DIR, targetName))) {
+          targetName = `${base}-imported-${++n}.md`;
+        }
+      } else if (fs.existsSync(path.join(SAVED_DIR, targetName))) {
+        // 同一个备份包里出现重名，也自动加序号
+        const base = rawName.replace(/\.md$/, '');
+        let n = 1;
+        targetName = `${base}-imported-${n}.md`;
+        while (fs.existsSync(path.join(SAVED_DIR, targetName))) {
+          targetName = `${base}-imported-${++n}.md`;
+        }
+      }
+
+      await fsp.writeFile(path.join(SAVED_DIR, targetName), content, 'utf8');
+      nameMap[rawName] = targetName;
+      imported++;
+    }
+
+    const favorites = { ...oldFavorites };
+    if (mode === 'replace') {
+      for (const k of Object.keys(favorites)) delete favorites[k];
+    }
+    if (body.favorites && typeof body.favorites === 'object') {
+      for (const [name, on] of Object.entries(body.favorites)) {
+        if (!on) continue;
+        const mapped = nameMap[path.basename(String(name))];
+        if (mapped) favorites[mapped] = true;
+      }
+    }
+    await saveFavorites(favorites);
+
+    return json(res, 200, {
+      ok: true, mode, imported, skipped, movedToTrash,
+      favorites: Object.keys(favorites).length,
+    });
+  } catch (err) {
+    return json(res, 500, { error: `导入失败：${err?.message || err}` });
+  }
+}
+
 async function handleSavedItem(req, res) {
   const url = new URL(req.url, `http://${HOST}`);
   const entry = await readSavedEntry(url.searchParams.get('file'));
@@ -1264,6 +1382,8 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/saved/delete' && req.method === 'POST') return await handleDeleteSaved(req, res);
     if (pathname === '/api/saved/restore' && req.method === 'POST') return await handleRestoreSaved(req, res);
     if (pathname === '/api/saved/open' && req.method === 'POST') return await handleOpenSaved(req, res);
+    if (pathname === '/api/backup/export' && req.method === 'GET') return await handleBackupExport(req, res);
+    if (pathname === '/api/backup/import' && req.method === 'POST') return await handleBackupImport(req, res);
 
     if (pathname === '/api/config' && req.method === 'GET') {
       return json(res, 200, publicConfig(await loadConfig()));

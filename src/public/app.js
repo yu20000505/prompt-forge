@@ -96,6 +96,7 @@ const S = {
   libTotal: 0,
   libSelected: new Set(),
   libSort: 'new',
+  pendingBackup: null,
   board: [],           // [{ type, tags, title, sentence, at }]
   boardTitle: '',
 };
@@ -1199,6 +1200,180 @@ async function deleteSelectedSaved() {
     refreshLibraryCount();
     toast('已恢复删除的文件');
   });
+}
+
+async function buildBackupPackage() {
+  const r = await fetch('/api/backup/export');
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  const cfg = S.config || {};
+  return {
+    app: 'prompt-forge',
+    version: 1,
+    exportedAt: j.exportedAt || new Date().toISOString(),
+    files: Array.isArray(j.files) ? j.files : [],
+    favorites: j.favorites && typeof j.favorites === 'object' ? j.favorites : {},
+    history: cloneData(S.history || []),
+    board: cloneData(S.board || []),
+    boardTitle: S.boardTitle || '',
+    settings: {
+      baseURL: cfg.baseURL || '',
+      model: cfg.model || '',
+      temperature: cfg.temperature ?? 0.85,
+      maxTokens: cfg.maxTokens ?? 0,
+      timeoutSec: cfg.timeoutSec ?? 120,
+      topP: cfg.topP ?? 1,
+      stream: cfg.stream !== false,
+      jsonMode: !!cfg.jsonMode,
+      pinnedPositive: cfg.pinnedPositive || '',
+      pinnedNegative: cfg.pinnedNegative || '',
+      pinEnabled: cfg.pinEnabled !== false,
+      apiPinnedPrompt: cfg.apiPinnedPrompt || '',
+      apiPinnedForIdea: !!cfg.apiPinnedForIdea,
+    },
+  };
+}
+
+async function downloadBackup() {
+  try {
+    const pkg = await buildBackupPackage();
+    const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    a.href = url;
+    a.download = `promptforge-backup-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(`已导出备份：${pkg.files.length} 个文件`);
+  } catch (err) {
+    toast(`导出失败：${err.message}`, true);
+  }
+}
+
+function validateBackupPackage(pkg) {
+  if (!pkg || typeof pkg !== 'object') return '备份内容不是对象';
+  if (pkg.app && pkg.app !== 'prompt-forge') return '这不是 Prompt Forge 的备份';
+  if (!Array.isArray(pkg.files)) return '备份里没有文件列表';
+  if (pkg.files.length > 2000) return '备份文件数量过多';
+  if (pkg.history && !Array.isArray(pkg.history)) return '备份里的历史格式不对';
+  if (pkg.board && !Array.isArray(pkg.board)) return '备份里的拼装板格式不对';
+  return '';
+}
+
+async function openBackupDialog(pkg) {
+  let conflicts = 0;
+  try {
+    const r = await fetch('/api/saved');
+    const j = await r.json();
+    const names = new Set((j.items || []).map((it) => it.name));
+    conflicts = pkg.files.filter((f) => names.has(String(f?.name || ''))).length;
+  } catch {
+    /* 统计不到冲突就按 0 显示 */
+  }
+  S.pendingBackup = pkg;
+  $('#backupSummary').textContent = `备份包含 ${pkg.files.length} 个文件、${(pkg.history || []).length} 条历史、`
+    + `${(pkg.board || []).length} 类拼装板${conflicts ? `；其中 ${conflicts} 个文件与现有同名` : ''}。`;
+  $('#backupMode').value = 'merge';
+  $('#backupApplySettings').checked = false;
+  $('#backupDialog').showModal();
+}
+
+async function handleBackupFile(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const pkg = JSON.parse(text);
+    const err = validateBackupPackage(pkg);
+    if (err) throw new Error(err);
+    await openBackupDialog(pkg);
+  } catch (e) {
+    toast(`读取备份失败：${e.message}`, true);
+  }
+}
+
+function mergeHistoryLists(current, incoming) {
+  const seen = new Set(current.map((h) => `${h.kind || 'prompt'}:${h.at}`));
+  const out = [...current];
+  for (const h of incoming) {
+    if (!h || typeof h !== 'object' || !Number.isFinite(Number(h.at))) continue;
+    const key = `${h.kind || 'prompt'}:${h.at}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(h);
+  }
+  return out.sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 60);
+}
+
+function mergeBoardLists(current, incoming) {
+  const out = [...current];
+  for (const it of incoming) {
+    if (!it || !SEG_TYPES.some((t) => t.id === it.type)) continue;
+    if (out.some((x) => x.type === it.type)) continue;
+    out.push({ type: it.type, tags: str(it.tags), title: str(it.title), sentence: str(it.sentence), at: Number(it.at) || Date.now() });
+  }
+  return out.filter((x) => x.tags).slice(0, SEG_TYPES.length);
+}
+
+async function applyBackupPackage(pkg, mode, opts = {}) {
+  const err = validateBackupPackage(pkg);
+  if (err) throw new Error(err);
+  const r = await fetch('/api/backup/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode, files: pkg.files, favorites: pkg.favorites || {} }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+
+  const incomingHistory = Array.isArray(pkg.history) ? pkg.history : [];
+  S.history = mode === 'replace'
+    ? incomingHistory.filter((h) => h && typeof h === 'object' && Number.isFinite(Number(h.at))).sort((a, b) => b.at - a.at).slice(0, 60)
+    : mergeHistoryLists(S.history, incomingHistory);
+  saveHistory();
+
+  const incomingBoard = Array.isArray(pkg.board) ? pkg.board : [];
+  S.board = mode === 'replace' ? mergeBoardLists([], incomingBoard) : mergeBoardLists(S.board, incomingBoard);
+  if (pkg.boardTitle && (mode === 'replace' || !S.boardTitle)) S.boardTitle = String(pkg.boardTitle).slice(0, 60);
+  saveBoard();
+  if (!$('#boardDrawer').hidden) renderBoard();
+
+  if (opts.applySettings && pkg.settings && typeof pkg.settings === 'object') {
+    const allowed = ['baseURL', 'model', 'temperature', 'maxTokens', 'timeoutSec', 'topP', 'stream', 'jsonMode',
+      'pinnedPositive', 'pinnedNegative', 'pinEnabled', 'apiPinnedPrompt', 'apiPinnedForIdea'];
+    const patch = {};
+    for (const k of allowed) if (k in pkg.settings) patch[k] = pkg.settings[k];
+    await saveConfigPatch(patch);
+    await loadConfig();
+  }
+
+  await loadLibrary();
+  refreshLibraryCount();
+  return j;
+}
+
+async function confirmBackupImport(btn) {
+  const pkg = S.pendingBackup;
+  if (!pkg) return;
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '导入中…';
+  try {
+    const j = await applyBackupPackage(pkg, $('#backupMode').value, {
+      applySettings: $('#backupApplySettings').checked,
+    });
+    $('#backupDialog').close();
+    S.pendingBackup = null;
+    toast(`已导入 ${j.imported} 个文件${j.skipped ? `，跳过 ${j.skipped} 个` : ''}`);
+  } catch (e) {
+    toast(`导入失败：${e.message}`, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
 }
 
 // 保存库的「复制」只给能直接出图的英文内容，不把中文对照一起塞进剪贴板。
@@ -3988,6 +4163,15 @@ function bind() {
   $('#libSort').addEventListener('change', () => setLibrarySort($('#libSort').value));
   $('#libSelectAll').addEventListener('change', () => selectAllLibrary($('#libSelectAll').checked));
   $('#btnLibDeleteSelected').addEventListener('click', deleteSelectedSaved);
+  $('#btnLibBackup').addEventListener('click', downloadBackup);
+  $('#btnLibImport').addEventListener('click', () => $('#backupFile').click());
+  $('#backupFile').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    await handleBackupFile(file);
+  });
+  $('#btnBackupCancel').addEventListener('click', () => $('#backupDialog').close());
+  $('#btnBackupApply').addEventListener('click', (e) => confirmBackupImport(e.currentTarget));
   $('#btnLibFolder').addEventListener('click', openSavedDir);
 
   $('#btnOpenSaved').addEventListener('click', openSavedDir);

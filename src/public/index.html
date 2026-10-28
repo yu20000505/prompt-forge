@@ -443,10 +443,13 @@
     <div class="drawer-head">
       <h3>保存库 <span class="dim small" id="libCount"></span></h3>
       <div>
+        <button class="btn tiny ghost" id="btnLibBackup">备份</button>
+        <button class="btn tiny ghost" id="btnLibImport">导入</button>
         <button class="btn tiny ghost" id="btnLibFolder">打开目录</button>
         <button class="btn tiny ghost" id="btnLibClose">关闭</button>
       </div>
     </div>
+    <input type="file" id="backupFile" accept="application/json,.json" hidden />
     <div class="lib-search lib-tools">
       <input id="libFilter" placeholder="全文搜索标题、标签或正文…" autocomplete="off" />
       <select id="libSort" aria-label="保存库排序">
@@ -515,6 +518,29 @@
       </p>
     </div>
   </aside>
+
+  <!-- ============ 导入备份 ============ -->
+  <dialog class="settings" id="backupDialog">
+    <form method="dialog">
+      <h3>导入备份</h3>
+      <p class="dim small" id="backupSummary"></p>
+      <label for="backupMode">导入方式</label>
+      <select id="backupMode">
+        <option value="merge">合并：保留现有文件，重名自动加后缀</option>
+        <option value="replace">覆盖：现有 .md 先移入回收站，再写入备份</option>
+      </select>
+      <label class="check-row" for="backupApplySettings">
+        <input type="checkbox" id="backupApplySettings" />
+        <span>同时导入接口设置（不含 API Key）</span>
+      </label>
+      <p class="field-hint">备份里的历史记录和拼装板也会一起导入；覆盖模式不会清空回收站。</p>
+      <div class="dialog-actions">
+        <span class="grow"></span>
+        <button class="btn ghost" type="button" id="btnBackupCancel">取消</button>
+        <button class="btn primary" type="button" id="btnBackupApply">开始导入</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- ============ 导入已有提示词改写 ============ -->
   <dialog class="settings import-dialog" id="importDialog">

@@ -2114,6 +2114,80 @@ async function main() {
   await evalJs(`document.querySelector('#btnLibClose').click(); true`);
   await sleep(250);
 
+  // ---------- 12.13 备份导出与导入 ----------
+  const backupPkg = await evalJs(`buildBackupPackage()`);
+  check('备份包含保存文件、历史和拼装板',
+    Array.isArray(backupPkg.files) && backupPkg.files.length >= 1
+      && Array.isArray(backupPkg.history) && Array.isArray(backupPkg.board));
+  check('备份不含 API Key',
+    !JSON.stringify(backupPkg).includes('sk-test')
+      && !('apiKey' in (backupPkg.settings || {})),
+    JSON.stringify(backupPkg.settings || {}).slice(0, 80));
+  check('备份包含脱敏接口设置',
+    !!backupPkg.settings?.baseURL && backupPkg.settings.model === 'mock-prompt-model');
+  check('损坏的备份会被拒绝',
+    /文件列表/.test(await evalJs(`validateBackupPackage({ app: 'prompt-forge', files: 'bad' })`)));
+
+  await evalJs(`document.querySelector('#btnLibrary').click(); true`);
+  await sleep(700);
+  check('保存库有备份与导入按钮',
+    (await visible('#btnLibBackup')) === true && (await visible('#btnLibImport')) === true);
+  await evalJs(`document.querySelector('#btnLibClose').click(); true`);
+  await sleep(200);
+
+  const mergeFile = '20990101-000000_提示词_备份导入测试.md';
+  const mergePkg = {
+    app: 'prompt-forge',
+    version: 1,
+    files: [{ name: mergeFile, content: '# 备份导入测试\n\nunique-backup-marker\n' }],
+    favorites: { [mergeFile]: true },
+    history: [{ kind: 'prompt', title: '备份历史', positive: 'backup-history-marker', at: Date.now() - 1000 }],
+    board: [{ type: 'scene', tags: 'backup-board-marker' }],
+    settings: { model: 'should-not-apply' },
+  };
+  const mergeUi = await evalJs(`(async () => {
+    const f = new File([${JSON.stringify(JSON.stringify(mergePkg))}], 'backup.json', { type: 'application/json' });
+    await handleBackupFile(f);
+    return {
+      open: document.querySelector('#backupDialog').open,
+      summary: document.querySelector('#backupSummary').textContent,
+    };
+  })()`);
+  check('选择备份文件后能打开导入弹窗', mergeUi.open === true && /1 个文件/.test(mergeUi.summary), JSON.stringify(mergeUi));
+  await evalJs(`document.querySelector('#btnBackupCancel').click(); true`);
+  await sleep(200);
+
+  const mergeResult = await evalJs(`applyBackupPackage(${JSON.stringify(mergePkg)}, 'merge', { applySettings: false })`);
+  check('合并导入成功', mergeResult.imported === 1, JSON.stringify(mergeResult));
+  const mergedSearch = await evalJs(`fetch('/api/saved?q=unique-backup-marker').then((r) => r.json())`);
+  check('导入的文件能搜到并保留收藏', mergedSearch.items?.length === 1 && mergedSearch.items[0].favorite === true);
+  check('导入的历史合并进本地历史',
+    (await evalJs(`JSON.parse(localStorage.getItem('prompt-forge-history-v1') || '[]').some((h) => h.title === '备份历史')`)) === true);
+
+  await evalJs(`applyBackupPackage(${JSON.stringify(mergePkg)}, 'merge', { applySettings: false })`);
+  const mergedAgain = await evalJs(`fetch('/api/saved?q=unique-backup-marker').then((r) => r.json())`);
+  check('重名合并会自动加后缀而不是覆盖', mergedAgain.items.length === 2, `${mergedAgain.items.length} 个`);
+
+  const replacePkg = {
+    app: 'prompt-forge',
+    version: 1,
+    files: [{ name: '20990101-000000_提示词_覆盖导入.md', content: '# 覆盖导入\n\nreplace-marker\n' }],
+    favorites: {},
+    history: [{ kind: 'prompt', title: '覆盖后的历史', positive: 'replace-history', at: Date.now() }],
+    board: [{ type: 'outfit', tags: 'replace-board-marker' }],
+    settings: {},
+  };
+  const replaceResult = await evalJs(`applyBackupPackage(${JSON.stringify(replacePkg)}, 'replace', { applySettings: false })`);
+  check('覆盖导入会把旧文件移入回收站',
+    replaceResult.imported === 1 && replaceResult.movedToTrash > 0 && savedFiles().length === 1,
+    JSON.stringify(replaceResult));
+  check('覆盖导入替换历史与拼装板',
+    (await evalJs(`S.history.length`)) === 1
+      && (await evalJs(`S.history[0].title`)) === '覆盖后的历史'
+      && (await evalJs(`S.board.length`)) === 1
+      && (await evalJs(`S.board[0].type`)) === 'outfit');
+  check('覆盖导入后回收站里有旧文件', trashedFiles().length > 0);
+
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------
   // 先验一下错误栏的「重试」按钮
