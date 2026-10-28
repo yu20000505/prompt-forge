@@ -1130,7 +1130,7 @@ async function readSavedEntry(name, opts = {}) {
   // 列表接口不需要完整正文，省点带宽
   const outMeta = { ...meta };
   if (opts.light) {
-    for (const k of ['positive', 'negative', 'translation', 'prompt_en', 'prompt_zh', 'tags']) delete outMeta[k];
+    for (const k of ['positive', 'negative', 'translation', 'prompt_en', 'prompt_zh', 'tags', 'versions', 'original']) delete outMeta[k];
   }
 
   return {

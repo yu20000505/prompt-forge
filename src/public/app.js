@@ -3402,7 +3402,7 @@ async function openSavedEntry(it) {
 }
 
 function loadSavedPrompt(meta, fallbackTitle) {
-  const parsed = {
+  let parsed = {
     title: meta.title || fallbackTitle || '已保存的提示词',
     positive: str(meta.positive),
     negative: str(meta.negative),
@@ -3410,6 +3410,20 @@ function loadSavedPrompt(meta, fallbackTitle) {
     params: meta.params && typeof meta.params === 'object' ? meta.params : {},
     keywords: Array.isArray(meta.keywords) ? meta.keywords : [],
   };
+  let stack = [parsed];
+  let vIndex = 0;
+  let original = cloneData(parsed);
+  if (Array.isArray(meta.versions) && meta.versions.length) {
+    const versions = meta.versions
+      .map(normalizePromptVersion)
+      .filter((v) => v.positive || v.negative);
+    if (versions.length) {
+      stack = versions;
+      vIndex = Math.min(Math.max(0, Number(meta.vIndex) || 0), versions.length - 1);
+      parsed = cloneData(versions[vIndex]);
+      original = meta.original ? normalizePromptVersion(meta.original) : cloneData(versions[versions.length - 1]);
+    }
+  }
   if (!parsed.positive && !parsed.negative) {
     toast('这个文件里没有可载入的提示词内容', true);
     return;
@@ -3422,10 +3436,10 @@ function loadSavedPrompt(meta, fallbackTitle) {
     language: textLanguage(parsed.positive),
     parsed,
     at: Date.now(),
-    stack: [parsed],
-    vIndex: 0,
+    stack,
+    vIndex,
     historyAt: null,
-    original: cloneData(parsed),
+    original,
     edited: false,
     pinsBaked: true,   // 保存时置顶词已经拼进去了，别再拼一次
   };
@@ -3635,6 +3649,9 @@ function pushHistory(item) {
     imported: !!item.imported,
     importPrompt: item.importPrompt || '',
     importExtra: item.importExtra || '',
+    versions: promptVersionList(item),
+    vIndex: Number(item.vIndex) || 0,
+    original: item.original ? cloneData(item.original) : null,
     at: item.at,
   });
   S.history = S.history.slice(0, 60);
@@ -3898,19 +3915,35 @@ function restoreHistoryEntry(h) {
     title: h.title, positive: h.positive, negative: h.negative,
     translation: h.translation, params: h.params || {}, keywords: h.keywords || [],
   };
+  let stack = [parsed];
+  let vIndex = 0;
+  let original = cloneData(parsed);
+  if (Array.isArray(h.versions) && h.versions.length) {
+    const versions = h.versions
+      .map(normalizePromptVersion)
+      .filter((v) => v.positive || v.negative);
+    if (versions.length) {
+      stack = versions;
+      vIndex = Math.min(Math.max(0, Number(h.vIndex) || 0), versions.length - 1);
+      const current = versions[vIndex];
+      stack[vIndex] = current;
+      original = h.original ? normalizePromptVersion(h.original) : cloneData(versions[versions.length - 1]);
+    }
+  }
+  const currentParsed = stack[vIndex] || parsed;
   // 旧版本存的历史没有 language 字段，按正文内容兜底判断
-  const lang = h.language || textLanguage(h.positive);
+  const lang = h.language || textLanguage(currentParsed.positive);
   S.current = {
     sentence: h.sentence,
     style: h.style || 'sd',
     targetModel: h.targetModel || '',
     language: lang,
-    parsed,
+    parsed: currentParsed,
     at: h.at,
-    stack: [parsed],
-    vIndex: 0,
+    stack,
+    vIndex,
     historyAt: h.at,
-    original: cloneData(parsed),
+    original,
     edited: false,
     imported: !!h.imported,
     importPrompt: h.importPrompt || '',
@@ -3920,7 +3953,7 @@ function restoreHistoryEntry(h) {
   $('#styleSelect').value = S.style;
   switchView('prompt');
   $('#empty').hidden = true;
-  renderResult(parsed, { sentence: h.sentence, language: lang });
+  renderResult(currentParsed, { sentence: h.sentence, language: lang });
   $('#btnRegen').disabled = false;
   $('#btnCopyAll').disabled = false;
   $('#btnSavePrompt').disabled = false;
@@ -5739,6 +5772,36 @@ function renderRefineChips() {
   }
 }
 
+function versionWithPins(v) {
+  const p = withPins(v);
+  return {
+    ...cloneData(v),
+    positive: p.positive,
+    negative: p.negative,
+  };
+}
+
+function promptVersionList(cur, rendered = false) {
+  if (!cur?.parsed) return [];
+  const stack = Array.isArray(cur.stack) && cur.stack.length ? cur.stack : [cur.parsed];
+  const versions = stack.map((v) => cloneData(v));
+  const i = Math.min(Math.max(0, Number(cur.vIndex) || 0), versions.length - 1);
+  // 手改的当前版本也放进版本列表，避免保存后丢失手改内容
+  if (versions[i]) versions[i] = cloneData(cur.parsed);
+  return rendered ? versions.map(versionWithPins) : versions;
+}
+
+function normalizePromptVersion(v) {
+  return {
+    title: str(v?.title),
+    positive: str(v?.positive),
+    negative: str(v?.negative),
+    translation: str(v?.translation),
+    params: v?.params && typeof v.params === 'object' ? v.params : {},
+    keywords: Array.isArray(v?.keywords) ? v.keywords : [],
+  };
+}
+
 function updatePromptVersionUi() {
   const cur = S.current;
   const stack = cur?.stack || [];
@@ -6049,6 +6112,9 @@ function updateHistoryEntry(cur) {
   h.translation = cur.parsed.translation;
   h.params = cur.parsed.params;
   h.keywords = cur.parsed.keywords;
+  h.versions = promptVersionList(cur);
+  h.vIndex = Number(cur.vIndex) || 0;
+  h.original = cur.original ? cloneData(cur.original) : null;
   saveHistory();
 }
 
@@ -6469,6 +6535,9 @@ function bind() {
       translation: p.translation || '',
       params: p.params || {},
       keywords: p.keywords || [],
+      versions: promptVersionList(cur, true),
+      vIndex: Number(cur?.vIndex) || 0,
+      original: cur?.original ? versionWithPins(cur.original) : versionWithPins(p),
     }, $('#btnSavePrompt'));
   });
 

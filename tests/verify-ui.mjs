@@ -538,6 +538,23 @@ async function main() {
     !!copyModes.json.positive && !!copyModes.json.negative && !!copyModes.json.params);
   check('复制格式：Midjourney 带 --ar 参数', /--ar\s+\d+:\d+/.test(copyModes.mj), copyModes.mj.slice(-40));
 
+  // 保存后要能带回完整的微调版本
+  const savedBeforeVersions = savedFiles().length;
+  await evalJs(`document.querySelector('#btnSavePrompt').click(); true`);
+  await sleep(1100);
+  const savedAfterVersions = savedFiles();
+  check('微调后保存会新增文件', savedAfterVersions.length === savedBeforeVersions + 1);
+  const versionFile = savedAfterVersions.filter((f) => f.includes('提示词')).pop() || '';
+  const versionItem = await evalJs(`fetch('/api/saved/item?file=' + encodeURIComponent(${JSON.stringify(versionFile)})).then((r) => r.json())`);
+  check('保存文件里记录了微调版本',
+    Array.isArray(versionItem.meta?.versions) && versionItem.meta.versions.length === 2,
+    JSON.stringify(versionItem.meta?.versions?.length));
+  await evalJs(`fetch('/api/saved/item?file=' + encodeURIComponent(${JSON.stringify(versionFile)})).then((r) => r.json()).then((j) => { loadSavedPrompt(j.meta, j.title); return true; })`);
+  await sleep(300);
+  check('重新载入后能找回之前的微调版本',
+    (await evalJs(`document.querySelectorAll('#versionChips .version-chip').length`)) === 2
+      && (await evalJs(`document.querySelector('#versionChips .version-chip.active')?.textContent`)) === 'v2');
+
   // 撤回
   await evalJs(`document.querySelector('#btnUndoRefine').click(); true`);
   await sleep(400);
