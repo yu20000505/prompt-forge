@@ -103,9 +103,9 @@ jobs:
             if ($vi.ProductName -ne 'Prompt Forge' -or $vi.FileVersion -notlike '2.1.0*') {
               throw "exe 版本资源不对: $($vi.ProductName) / $($vi.FileVersion)"
             }
-            $home = Invoke-WebRequest "http://127.0.0.1:43211/" -UseBasicParsing
+            $homePage = Invoke-WebRequest "http://127.0.0.1:43211/" -UseBasicParsing
             $i18n = Invoke-WebRequest "http://127.0.0.1:43211/i18n.js" -UseBasicParsing
-            if ($home.StatusCode -ne 200 -or $i18n.StatusCode -ne 200) { throw "静态资源不可用" }
+            if ($homePage.StatusCode -ne 200 -or $i18n.StatusCode -ne 200) { throw "静态资源不可用" }
             Write-Host "exe smoke ok: v$($config.version), i18n $($i18n.Content.Length) bytes"
           } finally {
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
