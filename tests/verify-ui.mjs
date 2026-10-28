@@ -2616,6 +2616,46 @@ async function main() {
   await evalJs(`document.querySelector('#btnCancelSettings').click(); true`);
   await sleep(200);
 
+  // ---------- 12.22 多方案生成 ----------
+  await evalJs(`(() => {
+    const s = document.querySelector('#sentence');
+    s.value = '多方案测试：雨夜霓虹街头的女剑客';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#btnVariants').click();
+    return true;
+  })()`);
+  let variantsDone = false;
+  for (let i = 0; i < 120; i++) {
+    const enabled = await evalJs(`document.querySelectorAll('#variantGrid .variant-card .btn:not([disabled])').length`);
+    if (enabled === 3) { variantsDone = true; break; }
+    await sleep(200);
+  }
+  check('多方案生成 3 个候选',
+    variantsDone && (await evalJs(`document.querySelectorAll('#variantGrid .variant-card').length`)) === 3);
+  check('方案卡片带正向和中文解读',
+    (await evalJs(`document.querySelectorAll('#variantGrid .variant-text').length`)) === 3
+      && (await evalJs(`[...document.querySelectorAll('#variantGrid .variant-text')].every((x) => x.textContent.length > 30)`)));
+  const histBeforeVariant = Number(await evalJs(`document.querySelector('#historyCount').textContent`));
+  await evalJs(`document.querySelector('#variantGrid .variant-card .btn').click(); true`);
+  await sleep(500);
+  check('选用方案后回到主结果区',
+    (await visible('#variantDialog')) === false && (await visible('#cards')) === true
+      && (await evalJs(`S.current.parsed.positive.length > 20`)) === true);
+  check('选用方案后写入历史',
+    Number(await evalJs(`document.querySelector('#historyCount').textContent`)) === histBeforeVariant + 1);
+  check('选用方案后可以继续微调',
+    (await evalJs(`document.querySelector('#btnRefine').disabled`)) === false);
+
+  await evalJs(`document.querySelector('#btnVariants').click(); true`);
+  await sleep(150);
+  await evalJs(`document.querySelector('#btnVariantCancel').click(); true`);
+  await sleep(900);
+  check('多方案可以取消当前批次',
+    (await evalJs(`S.variantBusy`)) === false
+      && (await evalJs(`[...document.querySelectorAll('#variantGrid .variant-card')].some((c) => /已取消/.test(c.textContent))`)) === true);
+  await evalJs(`document.querySelector('#btnVariantClose').click(); true`);
+  await sleep(200);
+
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------
   // 先验一下错误栏的「重试」按钮

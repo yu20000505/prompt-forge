@@ -106,6 +106,7 @@
         <div class="row-between">
           <div class="mini-actions">
             <button class="btn tiny" id="btnRandom">🎲 随机灵感</button>
+            <button class="btn tiny" id="btnVariants" title="一次生成 3 个候选方案">✨ 多方案</button>
             <button class="btn tiny" id="btnTemplates">📑 模板</button>
             <button class="btn tiny" id="btnImportPrompt" title="粘贴现成提示词，按当前风格改写">📥 导入改写</button>
             <button class="btn tiny" id="btnClear">清空</button>
@@ -573,6 +574,26 @@
       </p>
     </div>
   </aside>
+
+  <!-- ============ 多方案生成 ============ -->
+  <dialog class="settings variant-dialog" id="variantDialog">
+    <form method="dialog">
+      <div class="variant-head">
+        <h3>多方案生成 <span class="dim small" id="variantStatus"></span></h3>
+        <div>
+          <button class="btn tiny ghost" type="button" id="btnVariantCancel">取消</button>
+          <button class="btn tiny ghost" type="button" id="btnVariantClose">关闭</button>
+        </div>
+      </div>
+      <p class="dim small">同一个描述生成 3 个候选，选中一个后继续微调、保存。会产生 3 次模型请求。</p>
+      <div class="variant-grid" id="variantGrid"></div>
+      <div class="dialog-actions">
+        <button class="btn tiny" type="button" id="btnVariantAgain">再来一批</button>
+        <span class="grow"></span>
+        <span class="dim small">选一个方案继续</span>
+      </div>
+    </form>
+  </dialog>
 
   <!-- ============ 回收站 ============ -->
   <dialog class="settings trash-dialog" id="trashDialog">

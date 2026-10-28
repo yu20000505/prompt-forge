@@ -266,6 +266,10 @@ const S = {
   customTemplates: [],
   draftsSuppressed: false,
   trashItems: [],
+  variantBusy: false,
+  variantAbort: null,
+  variantResults: [],
+  variantPayload: null,
 };
 
 // 没拉取过列表时先给几个常用的，避免下拉框一开始是空的
@@ -1073,6 +1077,233 @@ function clearDrafts() {
     /* 忽略 */
   }
   toast('已清空本机草稿；继续编辑会重新开始保存');
+}
+
+/* ============ 多方案生成 ============ */
+function variantPayload() {
+  return {
+    sentence: $('#sentence').value.trim(),
+    style: S.style,
+    targetModel: $('#targetModel').value.trim(),
+    language: $('#language').value,
+    detail: $('#detail').value,
+    extra: $('#extra').value.trim(),
+    aspect: $('#promptAspect').value,
+    shot: $('#promptShot').value,
+  };
+}
+
+function openVariants() {
+  const payload = variantPayload();
+  if (!payload.sentence) {
+    showErr('先写一句话描述你想要的画面');
+    $('#sentence').focus();
+    return;
+  }
+  S.variantPayload = payload;
+  $('#variantDialog').showModal();
+  runVariantBatch();
+}
+
+function closeVariantsDialog() {
+  if (S.variantAbort) {
+    try { S.variantAbort.abort(); } catch { /* 已结束 */ }
+  }
+  S.variantBusy = false;
+  if ($('#variantDialog').open) $('#variantDialog').close();
+}
+
+function buildVariantCards() {
+  const box = $('#variantGrid');
+  box.innerHTML = '';
+  S.variantCards = [];
+  for (let i = 0; i < 3; i++) {
+    const card = document.createElement('div');
+    card.className = 'variant-card';
+    const title = document.createElement('div');
+    title.className = 'variant-card-title';
+    title.textContent = `方案 ${i + 1}`;
+    const meta = document.createElement('div');
+    meta.className = 'variant-meta';
+    meta.textContent = '排队中…';
+    const text = document.createElement('div');
+    text.className = 'variant-text';
+    text.textContent = '';
+    const translation = document.createElement('div');
+    translation.className = 'variant-translation';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn tiny primary';
+    btn.textContent = '选用这个方案';
+    btn.disabled = true;
+    btn.addEventListener('click', () => selectVariant(i));
+    card.append(title, meta, text, translation, btn);
+    box.appendChild(card);
+    S.variantCards.push({ card, title, meta, text, translation, btn });
+  }
+}
+
+function updateVariantStatus() {
+  const results = S.variantResults || [];
+  const done = results.filter((r) => r && (r.parsed || r.error)).length;
+  const ok = results.filter((r) => r?.parsed).length;
+  $('#variantStatus').textContent = S.variantBusy
+    ? `正在生成 ${done} / 3…`
+    : `完成 ${ok} / 3`;
+}
+
+function renderVariantCard(i) {
+  const el = S.variantCards?.[i];
+  if (!el) return;
+  const r = S.variantResults[i];
+  if (!r) {
+    el.meta.textContent = '排队中…';
+    return;
+  }
+  if (r.parsed) {
+    const p = r.parsed;
+    el.card.classList.remove('error');
+    el.title.textContent = p.title || `方案 ${i + 1}`;
+    el.meta.textContent = '已生成';
+    el.text.textContent = p.positive || '';
+    el.translation.textContent = p.translation || '';
+    el.btn.disabled = false;
+  } else if (r.error) {
+    el.card.classList.add('error');
+    el.title.textContent = `方案 ${i + 1}`;
+    el.meta.textContent = '失败';
+    el.text.textContent = r.error;
+    el.translation.textContent = '';
+    el.btn.disabled = true;
+  } else {
+    el.meta.textContent = `生成中… ${r.progress || 0} 字`;
+  }
+}
+
+async function readVariantStream(res, index) {
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  let acc = '';
+  let gotError = null;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith('data:')) continue;
+      let evt;
+      try {
+        evt = JSON.parse(line.slice(5).trim());
+      } catch {
+        continue;
+      }
+      if (evt.type === 'delta') {
+        acc += evt.text;
+        S.variantResults[index] = { progress: acc.length };
+        renderVariantCard(index);
+      } else if (evt.type === 'warning') {
+        toast(evt.message, true);
+      } else if (evt.type === 'error') {
+        gotError = evt.message;
+      }
+    }
+  }
+  if (gotError) throw new Error(gotError);
+  if (!acc.trim()) throw new Error('模型没有返回内容');
+  return acc;
+}
+
+async function runVariantBatch() {
+  if (!S.variantPayload) return;
+  if (S.variantAbort) {
+    try { S.variantAbort.abort(); } catch { /* 忽略 */ }
+  }
+  S.variantBusy = true;
+  S.variantResults = new Array(3).fill(null);
+  $('#btnVariantCancel').disabled = false;
+  $('#btnVariantAgain').disabled = true;
+  buildVariantCards();
+  updateVariantStatus();
+  const ac = new AbortController();
+  S.variantAbort = ac;
+
+  const jobs = [0, 1, 2].map(async (i) => {
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(S.variantPayload),
+        signal: ac.signal,
+      });
+      if (!res.ok) {
+        if (res.status === 404) throw new Error(STALE_SERVER_MSG);
+        const e = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(e.error || `HTTP ${res.status}`);
+      }
+      const raw = await readVariantStream(res, i);
+      const parsed = parseResult(raw);
+      if (!parsed || !parsed.positive) throw new Error('模型返回的不是标准 JSON');
+      S.variantResults[i] = { parsed, raw };
+    } catch (err) {
+      S.variantResults[i] = {
+        error: err.name === 'AbortError' ? '已取消' : (err.message || String(err)),
+      };
+    } finally {
+      renderVariantCard(i);
+      updateVariantStatus();
+    }
+  });
+
+  await Promise.all(jobs);
+  if (S.variantAbort === ac) {
+    S.variantAbort = null;
+    S.variantBusy = false;
+    $('#btnVariantCancel').disabled = true;
+    $('#btnVariantAgain').disabled = false;
+    updateVariantStatus();
+  }
+}
+
+function selectVariant(i) {
+  const r = S.variantResults[i];
+  if (!r?.parsed) return;
+  const payload = S.variantPayload || variantPayload();
+  const parsed = cloneData(r.parsed);
+  S.style = payload.style;
+  $('#styleSelect').value = payload.style;
+  S.current = {
+    sentence: payload.sentence,
+    style: payload.style,
+    targetModel: payload.targetModel,
+    language: payload.language,
+    detail: payload.detail,
+    parsed,
+    raw: r.raw || '',
+    at: Date.now(),
+    ms: 0,
+    stack: [parsed],
+    vIndex: 0,
+    historyAt: null,
+    original: cloneData(parsed),
+    edited: false,
+    imported: false,
+    importPrompt: '',
+    importExtra: '',
+  };
+  closeVariantsDialog();
+  renderResult(parsed, { sentence: payload.sentence, language: payload.language });
+  pushHistory(S.current);
+  S.current.historyAt = S.current.at;
+  $('#btnCopyAll').disabled = false;
+  $('#btnSavePrompt').disabled = false;
+  $('#btnRegen').disabled = false;
+  updateRefineUi();
+  revealResult('#viewPrompt .result');
+  toast('已选用方案，可继续微调');
 }
 
 /* ============ 生成 ============ */
@@ -5197,6 +5428,16 @@ function bind() {
   });
 
   $('#btnRandom').addEventListener('click', () => requestIdeas(IDEA_UI.prompt));
+  $('#btnVariants').addEventListener('click', openVariants);
+  $('#btnVariantCancel').addEventListener('click', () => {
+    if (S.variantAbort) S.variantAbort.abort();
+  });
+  $('#btnVariantClose').addEventListener('click', closeVariantsDialog);
+  $('#btnVariantAgain').addEventListener('click', () => runVariantBatch());
+  $('#variantDialog').addEventListener('cancel', (e) => {
+    e.preventDefault();
+    closeVariantsDialog();
+  });
   $('#btnTemplates').addEventListener('click', openTemplateDialog);
   $('#btnTemplateClose').addEventListener('click', closeTemplateDialog);
   $('#btnTemplateSave').addEventListener('click', saveCurrentTemplate);

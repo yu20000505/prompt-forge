@@ -615,6 +615,7 @@ select {
 .mini-actions {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .counter {
@@ -2317,7 +2318,92 @@ mark {
   outline-offset: 2px;
 }
 
-/* ---------- 回收站 ---------- */
+/* ---------- 多方案 ---------- */
+.settings.variant-dialog {
+  width: min(1100px, 96vw);
+}
+
+.variant-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.variant-head h3 {
+  margin: 0;
+}
+
+.variant-head>div {
+  display: flex;
+  gap: 6px;
+}
+
+.variant-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.variant-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 10px;
+  background: var(--ink-1);
+  min-height: 260px;
+}
+
+.variant-card.error {
+  border-color: rgba(var(--danger-rgb), .4);
+}
+
+.variant-card-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  min-height: 18px;
+}
+
+.variant-meta {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.variant-text {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.65;
+  color: var(--mono-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow: auto;
+  padding: 7px 8px;
+  border-radius: 7px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.variant-translation {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-2);
+  max-height: 96px;
+  overflow: auto;
+}
+
+.variant-card .btn {
+  margin-top: auto;
+}
+
+@media (max-width: 760px) {
+  .variant-grid {
+    grid-template-columns: 1fr;
+  }
+}
 .settings.trash-dialog {
   width: min(620px, 94vw);
 }
