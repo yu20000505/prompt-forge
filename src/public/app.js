@@ -362,8 +362,22 @@ function restorePromptResult() {
   }
 }
 
-function showImportErr(msg) {
-  const el = $('#importErr');
+// 所有流式请求共用的状态事件：重试/思考/截断提示
+function handleStreamMetaEvent(evt) {
+  if (evt.type === 'warning') {
+    toast(evt.message, true);
+    return true;
+  }
+  if (evt.type === 'thinking') {
+    const targets = ['#streamLabel', '#charStreamLabel', '#segStreamLabel', '#refineStatus', '#charRefineStatus', '#segRefineStatus'];
+    const el = targets.map((sel) => $(sel)).find((e) => e && e.offsetParent !== null);
+    if (el) el.textContent = `模型思考中… ${evt.chars || 0} 字`;
+    return true;
+  }
+  return false;
+}
+
+function showImportErr(msg) {  const el = $('#importErr');
   el.textContent = msg;
   el.hidden = false;
 }
@@ -478,6 +492,7 @@ async function generate(opts = {}) {
         } catch {
           continue;
         }
+        if (handleStreamMetaEvent(evt)) continue;
         if (evt.type === 'delta') {
           acc += evt.text;
           $('#streamText').textContent = acc;
@@ -1976,6 +1991,7 @@ async function refineCharacter(instructionArg) {
         } catch {
           continue;
         }
+        if (handleStreamMetaEvent(evt)) continue;
         if (evt.type === 'delta') {
           acc += evt.text;
           $('#charRefineStatus').textContent = `微调中… ${acc.length} 字`;
@@ -2093,6 +2109,7 @@ async function generateCharacters() {
         } catch {
           continue;
         }
+        if (handleStreamMetaEvent(evt)) continue;
         if (evt.type === 'delta') {
           acc += evt.text;
           $('#charStreamText').textContent = acc;
@@ -2259,6 +2276,7 @@ async function generateSegment() {
         } catch {
           continue;
         }
+        if (handleStreamMetaEvent(evt)) continue;
         if (evt.type === 'delta') {
           acc += evt.text;
           $('#segStreamText').textContent = acc;
@@ -2508,6 +2526,7 @@ async function refineSegment(instructionArg) {
         } catch {
           continue;
         }
+        if (handleStreamMetaEvent(evt)) continue;
         if (evt.type === 'delta') {
           acc += evt.text;
           $('#segRefineStatus').textContent = `微调中… ${acc.length} 字`;
@@ -2607,6 +2626,7 @@ async function requestSegmentOnce(type, sentence, extra, onDelta) {
       } catch {
         continue;
       }
+      if (handleStreamMetaEvent(evt)) continue;
       if (evt.type === 'delta') {
         acc += evt.text;
         if (onDelta) onDelta(acc);
@@ -3426,6 +3446,7 @@ async function refine(instructionArg) {
         } catch {
           continue;
         }
+        if (handleStreamMetaEvent(evt)) continue;
         if (evt.type === 'delta') {
           acc += evt.text;
           $('#refineStatus').textContent = `微调中… ${acc.length} 字`;
@@ -3914,6 +3935,9 @@ function bind() {
   $('#cfgTemp').addEventListener('input', () => {
     $('#tempVal').textContent = Number($('#cfgTemp').value).toFixed(2);
   });
+  $('#cfgTopP').addEventListener('input', () => {
+    $('#topPVal').textContent = Number($('#cfgTopP').value).toFixed(2);
+  });
   $('#cfgApiPinned').addEventListener('input', updateApiPinnedCount);
   $('#btnLoadModels').addEventListener('click', loadModels);
   initCombos();
@@ -3946,6 +3970,12 @@ async function openSettings() {
   $('#cfgKey').placeholder = cfg.hasKey ? `已保存（${cfg.keyMask}），留空表示不修改` : 'sk-...';
   $('#cfgTemp').value = cfg.temperature ?? 0.85;
   $('#tempVal').textContent = Number(cfg.temperature ?? 0.85).toFixed(2);
+  $('#cfgMaxTokens').value = cfg.maxTokens ?? 0;
+  $('#cfgTimeout').value = cfg.timeoutSec ?? 120;
+  $('#cfgTopP').value = cfg.topP ?? 1;
+  $('#topPVal').textContent = Number(cfg.topP ?? 1).toFixed(2);
+  $('#cfgStream').checked = cfg.stream !== false;
+  $('#cfgJsonMode').checked = !!cfg.jsonMode;
   $('#cfgApiPinned').value = cfg.apiPinnedPrompt || '';
   $('#cfgApiPinnedIdea').checked = !!cfg.apiPinnedForIdea;
   updateApiPinnedCount();
@@ -3966,6 +3996,11 @@ async function saveSettings() {
       baseURL: $('#cfgBase').value.trim(),
       model: $('#cfgModel').value.trim(),
       temperature: Number($('#cfgTemp').value),
+      maxTokens: Number($('#cfgMaxTokens').value) || 0,
+      timeoutSec: Number($('#cfgTimeout').value) || 120,
+      topP: Number($('#cfgTopP').value),
+      stream: $('#cfgStream').checked,
+      jsonMode: $('#cfgJsonMode').checked,
       apiPinnedPrompt: $('#cfgApiPinned').value,
       apiPinnedForIdea: $('#cfgApiPinnedIdea').checked,
     };

@@ -568,6 +568,26 @@
       <label for="cfgTemp">创造性 <span class="dim" id="tempVal">0.85</span></label>
       <input id="cfgTemp" type="range" min="0" max="1.5" step="0.05" value="0.85" />
 
+      <label for="cfgMaxTokens">最大输出 tokens <span class="dim small">0 = 按模式自动</span></label>
+      <input id="cfgMaxTokens" type="number" min="0" max="32000" step="100" value="0" />
+      <p class="field-hint">太小时长输出会被截断；0 表示沿用各模式的默认值。</p>
+
+      <label for="cfgTimeout">上游空闲超时（秒）</label>
+      <input id="cfgTimeout" type="number" min="5" max="600" step="5" value="120" />
+      <p class="field-hint">超过这个时间没有任何数据就自动中止，避免一直停在「正在生成」。</p>
+
+      <label for="cfgTopP">top_p <span class="dim" id="topPVal">1.00</span></label>
+      <input id="cfgTopP" type="range" min="0.1" max="1" step="0.05" value="1" />
+
+      <label class="check-row" for="cfgStream">
+        <input type="checkbox" id="cfgStream" checked />
+        <span>流式输出（关闭后等整段返回再显示）</span>
+      </label>
+      <label class="check-row" for="cfgJsonMode">
+        <input type="checkbox" id="cfgJsonMode" />
+        <span>JSON 模式（仅部分接口支持，开启后要求模型返回 JSON）</span>
+      </label>
+
       <label for="cfgApiPinned">置顶提示词（会发送给 API）<span class="dim small" id="apiPinnedCount"></span></label>
       <textarea id="cfgApiPinned" rows="4" spellcheck="false"
         placeholder="这里填的内容会加到系统提示词最前面，随每一次请求一起发给模型"></textarea>

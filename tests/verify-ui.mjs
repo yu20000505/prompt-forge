@@ -1959,6 +1959,81 @@ async function main() {
     Number(await evalJs(`document.querySelector('#historyCount').textContent`)) === histBefore401);
   await evalJs(`hideErr(); true`);
 
+  // ---------- 12.11 请求参数与截断提示 ----------
+  await evalJs(`document.querySelector('#btnSettings').click(); true`);
+  await sleep(350);
+  check('设置里有最大输出 tokens', (await visible('#cfgMaxTokens')) === true);
+  check('设置里有空闲超时', (await visible('#cfgTimeout')) === true);
+  await evalJs(`(() => {
+    document.querySelector('#cfgMaxTokens').value = '1234';
+    document.querySelector('#cfgTimeout').value = '30';
+    document.querySelector('#cfgTopP').value = '0.55';
+    document.querySelector('#cfgTopP').dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#cfgStream').checked = false;
+    document.querySelector('#cfgJsonMode').checked = true;
+    document.querySelector('#btnSaveSettings').click();
+    return true;
+  })()`);
+  await sleep(1000);
+  const cfgParams = await evalJs(`fetch('/api/config').then((r) => r.json())`);
+  check('最大输出 tokens 能保存', cfgParams.maxTokens === 1234, cfgParams.maxTokens);
+  check('空闲超时能保存', cfgParams.timeoutSec === 30, cfgParams.timeoutSec);
+  check('top_p 能保存', Math.abs(cfgParams.topP - 0.55) < 0.001, cfgParams.topP);
+  check('流式开关能保存', cfgParams.stream === false);
+  check('JSON 模式能保存', cfgParams.jsonMode === true);
+
+  await evalJs(`(() => {
+    const s = document.querySelector('#sentence');
+    s.value = 'MOCK-CONFIG 测试请求参数';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#btnGenerate').click();
+    return true;
+  })()`);
+  let cfgDone = false;
+  for (let i = 0; i < 80; i++) {
+    if ((await evalJs(`S.busy`)) === false && (await visible('#cards'))) { cfgDone = true; break; }
+    await sleep(200);
+  }
+  const cfgStats = await (await fetch(MOCK_STATS)).json();
+  check('参数确实发给上游（max_tokens / top_p / 非流式 / JSON 模式）',
+    cfgDone
+      && cfgStats.lastPayload?.max_tokens === 1234
+      && Math.abs(cfgStats.lastPayload?.top_p - 0.55) < 0.001
+      && cfgStats.lastPayload?.stream === false
+      && cfgStats.lastPayload?.response_format?.type === 'json_object',
+    JSON.stringify(cfgStats.lastPayload));
+
+  // 恢复默认参数
+  await evalJs(`document.querySelector('#btnSettings').click(); true`);
+  await sleep(350);
+  await evalJs(`(() => {
+    document.querySelector('#cfgMaxTokens').value = '0';
+    document.querySelector('#cfgTimeout').value = '120';
+    document.querySelector('#cfgTopP').value = '1';
+    document.querySelector('#cfgStream').checked = true;
+    document.querySelector('#cfgJsonMode').checked = false;
+    document.querySelector('#btnSaveSettings').click();
+    return true;
+  })()`);
+  await sleep(1000);
+
+  // 输出被截断时要有提示
+  await evalJs(`(() => {
+    const s = document.querySelector('#sentence');
+    s.value = 'MOCK-TRUNCATE 测试截断提示';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#btnGenerate').click();
+    return true;
+  })()`);
+  let truncDone = false;
+  for (let i = 0; i < 80; i++) {
+    if ((await evalJs(`S.busy`)) === false && (await visible('#cards'))) { truncDone = true; break; }
+    await sleep(200);
+  }
+  const truncToast = await evalJs(`document.querySelector('#toast').textContent`);
+  check('输出被截断时有提示', truncDone && /截断|max_tokens/.test(truncToast), truncToast);
+  await evalJs(`hideErr(); true`);
+
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------
   // 先验一下错误栏的「重试」按钮

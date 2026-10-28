@@ -88,6 +88,12 @@ const DEFAULT_CONFIG = {
   apiPinnedPrompt: '',
   // 灵感请求只要一句中文，默认不再附带整段置顶规范，省 token
   apiPinnedForIdea: false,
+  // 输出与请求参数（0 / 1 表示按默认）
+  maxTokens: 0,
+  timeoutSec: 120,
+  topP: 1,
+  stream: true,
+  jsonMode: false,
 };
 
 const MIME = {
@@ -162,6 +168,11 @@ function publicConfig(cfg) {
     pinEnabled: cfg.pinEnabled,
     apiPinnedPrompt: cfg.apiPinnedPrompt,
     apiPinnedForIdea: !!cfg.apiPinnedForIdea,
+    maxTokens: Number(cfg.maxTokens) || 0,
+    timeoutSec: Number(cfg.timeoutSec) || 120,
+    topP: Number.isFinite(Number(cfg.topP)) ? Number(cfg.topP) : 1,
+    stream: cfg.stream !== false,
+    jsonMode: !!cfg.jsonMode,
     // 前端用它判断后端是不是旧进程（改了 server.mjs 但没重启时很常见）
     features: { segment: true, import: true },
   };
@@ -256,6 +267,11 @@ async function resolveUpstream(req, res) {
     temperature: Number(body.temperature ?? cfg.temperature),
     apiPinned: String(cfg.apiPinnedPrompt || ''),
     apiPinnedForIdea: !!cfg.apiPinnedForIdea,
+    maxTokensCap: Math.max(0, Math.floor(Number(cfg.maxTokens) || 0)),
+    timeoutSec: Math.min(600, Math.max(5, Number(cfg.timeoutSec) || 120)),
+    topP: Number.isFinite(Number(cfg.topP)) ? Number(cfg.topP) : 1,
+    streamOn: cfg.stream !== false,
+    jsonMode: !!cfg.jsonMode,
   };
 }
 
@@ -298,8 +314,14 @@ function retryWaitMs(attempt, retryAfter) {
   return Math.min(RETRY_BASE_MS * (2 ** attempt), 5000);
 }
 
-async function proxyChatStream(req, res, { messages, baseURL, apiKey, model, temperature, maxTokens }) {
+async function proxyChatStream(req, res, {
+  messages, baseURL, apiKey, model, temperature, maxTokens,
+  maxTokensCap, timeoutSec, topP, streamOn, jsonMode,
+}) {
   const ac = new AbortController();
+  const idleMs = Math.min(600000, Math.max(5000, (Number(timeoutSec) || 120) * 1000));
+  const effectiveMaxTokens = maxTokensCap > 0 ? maxTokensCap : (Number(maxTokens) || 2200);
+  let truncated = false;
   // 注意：不能用 req.on('close')，请求体读完后它就会触发，会把上游流误杀。
   // 只有响应还没正常结束就 close，才是客户端真的断开了。
   res.on('close', () => {
@@ -331,7 +353,7 @@ async function proxyChatStream(req, res, { messages, baseURL, apiKey, model, tem
     idleTimer = setTimeout(() => {
       timedOut = true;
       ac.abort();
-    }, STREAM_IDLE_MS);
+    }, idleMs);
   };
   armIdle();
 
@@ -350,8 +372,10 @@ async function proxyChatStream(req, res, { messages, baseURL, apiKey, model, tem
             model,
             messages,
             temperature: Number.isFinite(temperature) ? temperature : 0.85,
-            stream: true,
-            max_tokens: Number.isFinite(Number(maxTokens)) ? Number(maxTokens) : 2200,
+            stream: streamOn !== false,
+            max_tokens: effectiveMaxTokens,
+            ...(Number.isFinite(topP) && topP > 0 && topP < 1 ? { top_p: topP } : {}),
+            ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
           }),
           signal: ac.signal,
         });
@@ -387,13 +411,18 @@ async function proxyChatStream(req, res, { messages, baseURL, apiKey, model, tem
     if (!ctype.includes('text/event-stream')) {
       const text = await upstream.text();
       let content = '';
+      let finish = '';
       try {
         const j = JSON.parse(text);
         content = j?.choices?.[0]?.message?.content ?? j?.choices?.[0]?.text ?? '';
+        finish = j?.choices?.[0]?.finish_reason || '';
       } catch {
         content = text;
       }
       if (content) send({ type: 'delta', text: content });
+      if (finish === 'length') {
+        send({ type: 'warning', message: `输出达到了 max_tokens（${effectiveMaxTokens}）上限，可能被截断；可以在设置里调大最大输出 tokens。` });
+      }
       send({ type: 'done' });
       return res.end();
     }
@@ -420,18 +449,26 @@ async function proxyChatStream(req, res, { messages, baseURL, apiKey, model, tem
           const chunk = JSON.parse(payload);
           const choice = chunk?.choices?.[0];
           const delta = choice?.delta?.content;
+          const reasoning = choice?.delta?.reasoning_content;
+          if (typeof reasoning === 'string' && reasoning) {
+            send({ type: 'thinking', chars: reasoning.length });
+          }
           if (typeof delta === 'string' && delta) send({ type: 'delta', text: delta });
+          if (choice?.finish_reason === 'length') truncated = true;
         } catch {
           /* 单条脏数据忽略 */
         }
       }
     }
 
+    if (truncated) {
+      send({ type: 'warning', message: `输出达到了 max_tokens（${effectiveMaxTokens}）上限，可能被截断；可以在设置里调大最大输出 tokens。` });
+    }
     send({ type: 'done' });
     res.end();
   } catch (err) {
     if (timedOut) {
-      const secs = Math.round(STREAM_IDLE_MS / 1000);
+      const secs = Math.round(idleMs / 1000);
       console.warn(`  ! 上游 ${secs} 秒没有返回数据，已中止（model=${model}）`);
       send({ type: 'error', message: `接口 ${secs} 秒没有返回任何数据，已自动中止。请重试，或在设置里换一个模型。` });
       if (!res.writableEnded) res.end();
@@ -1175,10 +1212,15 @@ const server = http.createServer(async (req, res) => {
         return json(res, 400, { error: '请求格式错误' });
       }
       const clean = {};
-      for (const k of ['baseURL', 'model', 'pinnedPositive', 'pinnedNegative', 'pinEnabled', 'apiKey', 'apiPinnedPrompt', 'apiPinnedForIdea']) {
+      for (const k of ['baseURL', 'model', 'pinnedPositive', 'pinnedNegative', 'pinEnabled', 'apiKey', 'apiPinnedPrompt', 'apiPinnedForIdea', 'maxTokens', 'timeoutSec', 'topP', 'stream', 'jsonMode']) {
         if (k in patch) clean[k] = patch[k];
       }
       if ('temperature' in patch) clean.temperature = Number(patch.temperature) || 0.85;
+      if ('maxTokens' in patch) clean.maxTokens = Math.max(0, Math.floor(Number(patch.maxTokens) || 0));
+      if ('timeoutSec' in patch) clean.timeoutSec = Math.min(600, Math.max(5, Number(patch.timeoutSec) || 120));
+      if ('topP' in patch) clean.topP = Math.min(1, Math.max(0.05, Number(patch.topP) || 1));
+      if ('stream' in patch) clean.stream = !!patch.stream;
+      if ('jsonMode' in patch) clean.jsonMode = !!patch.jsonMode;
       if (typeof clean.apiKey === 'string') clean.apiKey = clean.apiKey.trim();
       return json(res, 200, publicConfig(await saveConfig(clean)));
     }

@@ -93,6 +93,7 @@ function extractApiPinned(sys) {
 
 // 测试用的上游状态：按 MOCK-xxx 标记计数，用来验证重试/不重试
 const callCounts = new Map();
+let lastPayload = null;
 function markerCount(marker) {
   return callCounts.get(marker) || 0;
 }
@@ -159,6 +160,7 @@ const server = http.createServer((req, res) => {
     return res.end(JSON.stringify({
       counts: Object.fromEntries(callCounts),
       total: [...callCounts.values()].reduce((a, b) => a + b, 0),
+      lastPayload,
     }));
   }
 
@@ -177,6 +179,14 @@ const server = http.createServer((req, res) => {
       } catch { /* 忽略 */ }
 
       const marker = bumpMarker(body);
+      lastPayload = {
+        marker,
+        model: payload?.model,
+        max_tokens: payload?.max_tokens,
+        top_p: payload?.top_p ?? null,
+        stream: payload?.stream,
+        response_format: payload?.response_format || null,
+      };
       if (marker === 'MOCK-401') {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ error: { message: 'mock invalid api key' } }));
@@ -195,7 +205,10 @@ const server = http.createServer((req, res) => {
           : JSON.stringify(pickSample(payload));
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
-          choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }],
+          choices: [{
+            message: { role: 'assistant', content },
+            finish_reason: marker === 'MOCK-TRUNCATE' ? 'length' : 'stop',
+          }],
         }));
       }
 
@@ -205,12 +218,19 @@ const server = http.createServer((req, res) => {
         Connection: 'keep-alive',
       });
 
+      if (marker === 'MOCK-THINK') {
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: 'mock thinking process' } }] })}\n\n`);
+      }
+
       const text = JSON.stringify(pickSample(payload));
       let i = 0;
       const step = 24;
       const timer = setInterval(() => {
         if (i >= text.length) {
           clearInterval(timer);
+          if (marker === 'MOCK-TRUNCATE') {
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] })}\n\n`);
+          }
           res.write('data: [DONE]\n\n');
           return res.end();
         }
