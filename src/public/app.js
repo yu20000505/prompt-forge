@@ -761,7 +761,8 @@ function applyConfig(cfg, opts = {}) {
   // 旧进程没有 segment / import / state / favorite / backup 等接口；缺一个就提示重启
   const features = cfg.features || {};
   S.serverStale = !(features.segment && features.import && features.state
-    && features.favorite && features.savedSearch && features.backup);
+    && features.favorite && features.savedSearch && features.backup
+    && features.trash && features.profiles && features.variants);
   if (S.serverStale) {
     if (!S.staleNotified) {
       S.staleNotified = true;

@@ -287,7 +287,8 @@ async function main() {
   const serverFeatures = await evalJs(`fetch('/api/config').then(r=>r.json()).then(j=>j.features)`);
   check('服务端声明细分接口可用', serverFeatures?.segment === true, JSON.stringify(serverFeatures));
   check('服务端声明收藏 / 落盘 / 备份接口可用',
-    ['segment', 'import', 'state', 'favorite', 'savedSearch', 'backup'].every((k) => serverFeatures?.[k] === true),
+    ['segment', 'import', 'state', 'favorite', 'savedSearch', 'backup', 'trash', 'profiles', 'variants']
+      .every((k) => serverFeatures?.[k] === true),
     JSON.stringify(serverFeatures));
 
   // 模拟前端拿到了新页面、后端还是旧进程的情况

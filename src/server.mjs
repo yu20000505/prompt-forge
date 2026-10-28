@@ -406,6 +406,9 @@ function publicConfig(cfg) {
       favorite: true,
       savedSearch: true,
       backup: true,
+      trash: true,
+      profiles: true,
+      variants: true,
     },
   };
 }
