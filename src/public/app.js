@@ -342,6 +342,17 @@ async function saveConfigPatch(patch) {
   return cfg;
 }
 
+// 生成失败或被取消时，把上一次的结果放回视野里，而不是留一片空白
+function restorePromptResult() {
+  if (S.current?.parsed) {
+    renderResult(S.current.parsed, { sentence: S.current.sentence, language: S.current.language });
+  } else if (S.current?.raw) {
+    renderRaw(S.current.raw);
+  } else {
+    $('#empty').hidden = false;
+  }
+}
+
 /* ============ 生成 ============ */
 async function generate() {
   if (S.busy) return;
@@ -361,7 +372,8 @@ async function generate() {
   $('#cards').hidden = true;
   $('#stream').hidden = false;
   $('#streamText').textContent = '';
-  $('#streamLabel').textContent = '正在生成…';
+  $('#streamLabel').textContent = '正在生成…（Esc 取消）';
+  $('#btnCancel').hidden = false;
   $('#btnRegen').disabled = true;
 
   S.abort = new AbortController();
@@ -412,7 +424,7 @@ async function generate() {
           acc += evt.text;
           $('#streamText').textContent = acc;
           $('#streamText').scrollTop = $('#streamText').scrollHeight;
-          $('#streamLabel').textContent = `正在生成… ${acc.length} 字`;
+          $('#streamLabel').textContent = `正在生成… ${acc.length} 字（Esc 取消）`;
         } else if (evt.type === 'error') {
           gotError = evt.message;
         }
@@ -457,11 +469,12 @@ async function generate() {
       showErr('已取消本次生成');
     } else {
       showErr(err.message || String(err), generate);
-      if (!S.current) $('#empty').hidden = false;
     }
+    restorePromptResult();
   } finally {
     S.busy = false;
     S.abort = null;
+    $('#btnCancel').hidden = true;
     btn.disabled = false;
     $('#btnGenerateText').textContent = '生成提示词';
     $('#btnRegen').disabled = !S.current;
@@ -1802,7 +1815,8 @@ async function generateCharacters() {
   $('#charCards').hidden = true;
   $('#charStream').hidden = false;
   $('#charStreamText').textContent = '';
-  $('#charStreamLabel').textContent = '正在生成…';
+  $('#charStreamLabel').textContent = '正在生成…（Esc 取消）';
+  $('#btnCharCancel').hidden = false;
   $('#btnCharRegen').disabled = true;
 
   S.charAbort = new AbortController();
@@ -1853,7 +1867,7 @@ async function generateCharacters() {
           acc += evt.text;
           $('#charStreamText').textContent = acc;
           $('#charStreamText').scrollTop = $('#charStreamText').scrollHeight;
-          $('#charStreamLabel').textContent = `正在生成… ${acc.length} 字`;
+          $('#charStreamLabel').textContent = `正在生成… ${acc.length} 字（Esc 取消）`;
         } else if (evt.type === 'error') {
           gotError = evt.message;
         }
@@ -1885,13 +1899,17 @@ async function generateCharacters() {
     $('#charRefineBar').hidden = true;
     if (err.name === 'AbortError') {
       showCharErr('已取消本次生成');
+      if (S.charData) renderCharacters(S.charData);
+      else $('#charEmpty').hidden = false;
     } else {
       showCharErr(err.message || String(err), generateCharacters);
-      if (!S.charData) $('#charEmpty').hidden = false;
+      if (S.charData) renderCharacters(S.charData);
+      else $('#charEmpty').hidden = false;
     }
   } finally {
     S.charBusy = false;
     S.charAbort = null;
+    $('#btnCharCancel').hidden = true;
     btn.disabled = false;
     $('#btnCharGenerateText').textContent = '生成角色提示词';
     updateCharRefineUi();
@@ -2037,6 +2055,9 @@ async function generateSegment() {
     revealResult('#viewSegment .result');
   } catch (err) {
     $('#segStream').hidden = true;
+    // 取消或失败时，如果之前已经有结果，把它放回来，别让旧结果跟着一起消失
+    if (S.segData) renderSegment(S.segData);
+    else $('#segEmpty').hidden = false;
     if (err.name === 'AbortError') {
       if (timedOut) {
         showSegErr('生成超过 3 分钟仍未完成，已自动中止。请重试，或在设置里换一个模型。', generateSegment);
@@ -2045,7 +2066,6 @@ async function generateSegment() {
       }
     } else {
       showSegErr(err.message || String(err), generateSegment);
-      if (!S.segData) $('#segEmpty').hidden = false;
     }
   } finally {
     clearTimeout(watchdog);
@@ -2820,6 +2840,9 @@ function bind() {
   });
 
   $('#btnGenerate').addEventListener('click', generate);
+  $('#btnCancel').addEventListener('click', () => {
+    if (S.abort) S.abort.abort();
+  });
   $('#btnRegen').addEventListener('click', () => {
     if (S.current?.sentence) {
       $('#sentence').value = S.current.sentence;
@@ -2848,6 +2871,9 @@ function bind() {
   });
 
   $('#btnCharGenerate').addEventListener('click', generateCharacters);
+  $('#btnCharCancel').addEventListener('click', () => {
+    if (S.charAbort) S.charAbort.abort();
+  });
   $('#btnCharRegen').addEventListener('click', () => {
     if (S.charSentence) {
       $('#charSentence').value = S.charSentence;

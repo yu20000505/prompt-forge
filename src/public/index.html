@@ -167,7 +167,10 @@
           </div>
 
           <div class="stream" id="stream" hidden>
-            <div class="stream-head"><span class="dot"></span><span id="streamLabel">正在生成…</span></div>
+            <div class="stream-head">
+              <span class="dot"></span><span id="streamLabel">正在生成…</span>
+              <button class="btn tiny ghost stream-cancel" id="btnCancel" type="button" hidden>取消</button>
+            </div>
             <pre id="streamText"></pre>
           </div>
 
@@ -306,7 +309,10 @@
           </div>
 
           <div class="stream" id="charStream" hidden>
-            <div class="stream-head"><span class="dot"></span><span id="charStreamLabel">正在生成…</span></div>
+            <div class="stream-head">
+              <span class="dot"></span><span id="charStreamLabel">正在生成…</span>
+              <button class="btn tiny ghost stream-cancel" id="btnCharCancel" type="button" hidden>取消</button>
+            </div>
             <pre id="charStreamText"></pre>
           </div>
 

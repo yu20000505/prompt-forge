@@ -452,6 +452,25 @@ async function main() {
   let shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(path.join(OUT_DIR, 'shot-with-pin.png'), Buffer.from(shot.data, 'base64'));
 
+  // 重新生成时可以取消，而且不能把上一次的结果一起藏掉
+  const promptTitleBeforeCancel = await evalJs(`document.querySelector('#outTitle').textContent`);
+  await evalJs(`document.querySelector('#btnGenerate').click(); true`);
+  await sleep(120);
+  check('提示词生成中出现取消按钮',
+    (await evalJs(`document.querySelector('#btnCancel').hidden`)) === false);
+  await evalJs(`document.querySelector('#btnCancel').click(); true`);
+  await sleep(900);
+  const promptCancelMsg = await evalJs(`document.querySelector('#err').hidden ? '' : document.querySelector('#err').textContent`);
+  check('提示词生成可以中途取消', /已取消/.test(promptCancelMsg), promptCancelMsg);
+  check('取消提示词生成后保留上一次结果',
+    (await visible('#cards')) === true
+      && (await evalJs(`document.querySelector('#outTitle').textContent`)) === promptTitleBeforeCancel);
+  check('取消提示词生成后按钮状态恢复',
+    (await evalJs(`document.querySelector('#btnGenerate').disabled`)) === false
+      && (await evalJs(`document.querySelector('#btnCancel').hidden`)) === true
+      && (await evalJs(`S.busy`)) === false);
+  await evalJs(`hideErr(); true`);
+
   // ---------- 4. 关掉置顶词开关 ----------
   await evalJs(`(() => {
     const cb = document.querySelector('#pinEnabled');
@@ -821,6 +840,25 @@ async function main() {
     (await evalJs(`document.querySelector('#charRefineStatus').textContent`)) === '');
   check('撤回后撤回按钮重新禁用',
     (await evalJs(`document.querySelector('#btnCharUndoRefine').disabled`)) === true);
+
+  // 重新生成时取消，保留上一次角色结果
+  const charTitleBeforeCancel = await evalJs(`document.querySelector('#charCards h3').textContent`);
+  await evalJs(`document.querySelector('#btnCharGenerate').click(); true`);
+  await sleep(120);
+  check('角色生成中出现取消按钮',
+    (await evalJs(`document.querySelector('#btnCharCancel').hidden`)) === false);
+  await evalJs(`document.querySelector('#btnCharCancel').click(); true`);
+  await sleep(900);
+  const charCancelMsg = await evalJs(`document.querySelector('#charErr').hidden ? '' : document.querySelector('#charErr').textContent`);
+  check('角色生成可以中途取消', /已取消/.test(charCancelMsg), charCancelMsg);
+  check('取消角色生成后保留上一次结果',
+    (await visible('#charCards')) === true
+      && (await evalJs(`document.querySelector('#charCards h3').textContent`)) === charTitleBeforeCancel);
+  check('取消角色生成后按钮状态恢复',
+    (await evalJs(`document.querySelector('#btnCharGenerate').disabled`)) === false
+      && (await evalJs(`document.querySelector('#btnCharCancel').hidden`)) === true
+      && (await evalJs(`S.charBusy`)) === false);
+  await evalJs(`hideCharErr(); true`);
 
   // 切回去，原来的输入应该都还在（不重新加载页面）
   await evalJs(`document.querySelector('#mainTabs .tab[data-view="prompt"]').click(); true`);
@@ -1295,6 +1333,25 @@ async function main() {
   check('拼装板按类型存下标签',
     storedBoard?.items?.[0]?.type === 'outfit' && storedBoard.items[0].tags === segTags,
     JSON.stringify(storedBoard).slice(0, 120));
+
+  // 重新生成时取消，保留上一次标签结果
+  const segTitleBeforeCancel = await evalJs(`document.querySelector('#segCards h3').textContent`);
+  await evalJs(`document.querySelector('#btnSegGenerate').click(); true`);
+  await sleep(120);
+  await evalJs(`document.querySelector('#btnSegCancel').click(); true`);
+  await sleep(900);
+  const segCancelMsg = await evalJs(`document.querySelector('#segErr').hidden ? '' : document.querySelector('#segErr').textContent`);
+  check('取消细分生成后保留上一次结果',
+    /已取消/.test(segCancelMsg)
+      && (await visible('#segCards')) === true
+      && (await evalJs(`document.querySelectorAll('#segCards .card-body')[0].textContent`)) === segTags
+      && (await evalJs(`document.querySelector('#segCards h3').textContent`)) === segTitleBeforeCancel,
+    segCancelMsg);
+  check('取消细分生成后按钮状态恢复',
+    (await evalJs(`document.querySelector('#btnSegGenerate').disabled`)) === false
+      && (await evalJs(`document.querySelector('#btnSegCancel').hidden`)) === true
+      && (await evalJs(`S.segBusy`)) === false);
+  await evalJs(`hideSegErr(); true`);
 
   // 细分标签微调
   check('细分结果出现微调区', (await visible('#segRefineBar')) === true);
