@@ -5565,6 +5565,10 @@ function bind() {
   $('#btnSettings').addEventListener('click', openSettings);
   $('#btnLang').addEventListener('click', toggleLanguage);
   $('#btnClearDrafts').addEventListener('click', clearDrafts);
+  $('#btnProfileActivate').addEventListener('click', activateProfile);
+  $('#btnProfileSave').addEventListener('click', saveProfile);
+  $('#btnProfileDelete').addEventListener('click', deleteProfile);
+  $('#btnDiagnostics').addEventListener('click', downloadDiagnostics);
   $('#btnShortcuts').addEventListener('click', openShortcuts);
   $('#btnShortcutsClose').addEventListener('click', () => $('#shortcuts').close());
   $('#btnCancelSettings').addEventListener('click', () => $('#settings').close());
@@ -5606,8 +5610,23 @@ function debounce(fn, ms) {
 }
 
 /* ============ 设置弹窗逻辑 ============ */
-async function openSettings() {
-  const cfg = S.config || (await (await fetch('/api/config')).json());
+function renderProfileOptions(cfg) {
+  const sel = $('#profileSelect');
+  if (!sel) return;
+  sel.innerHTML = '';
+  for (const p of cfg.profiles || []) {
+    const o = document.createElement('option');
+    o.value = p.id;
+    o.textContent = `${p.name} · ${p.model || '未设置模型'}${p.hasKey ? '' : ' · 无 Key'}`;
+    o.selected = p.active;
+    sel.appendChild(o);
+  }
+  $('#profileHint').textContent = cfg.keyEncrypted
+    ? '当前 Key 已用系统凭据加密保存；切换档案不会回显 Key。'
+    : '当前 Key 以明文保存在本机 config.json（源码/非 Electron 环境）；打包桌面版会尝试系统凭据加密。';
+}
+
+function populateSettings(cfg) {
   $('#cfgBase').value = cfg.baseURL || '';
   $('#cfgModel').value = cfg.model || '';
   $('#cfgKey').value = '';
@@ -5624,11 +5643,18 @@ async function openSettings() {
   $('#cfgApiPinnedIdea').checked = !!cfg.apiPinnedForIdea;
   updateApiPinnedCount();
   $('#keyHint').textContent = cfg.hasKey
-    ? `已保存：${cfg.keyMask}（出于安全不会回显到输入框，留空即保持原样）`
+    ? `已保存：${cfg.keyMask}（${cfg.keyEncrypted ? '系统凭据加密' : '明文'}；留空即保持原样）`
     : '还没有保存 Key';
+  renderProfileOptions(cfg);
   $('#cfgErr').hidden = true;
   S.combos.model?.close();
   $('#modelHint').textContent = '可以直接手填，也可以点右侧箭头从列表里选';
+}
+
+async function openSettings() {
+  const cfg = S.config || (await (await fetch('/api/config')).json());
+  populateSettings(cfg);
+  $('#profileName').value = '';
   $('#settings').showModal();
 }
 
@@ -5658,6 +5684,100 @@ async function saveSettings() {
     el.hidden = false;
   } finally {
     btn.disabled = false;
+  }
+}
+
+async function activateProfile() {
+  const id = $('#profileSelect').value;
+  if (!id) return;
+  try {
+    const r = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'activate', id }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    S.config = j.config;
+    applyConfig(j.config, { skipPinInputs: true });
+    populateSettings(j.config);
+    toast('已切换服务商档案');
+  } catch (err) {
+    toast(`切换失败：${err.message}`, true);
+  }
+}
+
+async function saveProfile() {
+  const name = $('#profileName').value.trim();
+  if (!name) {
+    $('#profileName').focus();
+    return toast('先给档案起个名字', true);
+  }
+  try {
+    const r = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save',
+        activate: true,
+        profile: {
+          name,
+          baseURL: $('#cfgBase').value.trim(),
+          model: $('#cfgModel').value.trim(),
+          apiKey: $('#cfgKey').value.trim(),
+        },
+      }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    S.config = j.config;
+    applyConfig(j.config, { skipPinInputs: true });
+    populateSettings(j.config);
+    $('#profileName').value = '';
+    toast(`已保存档案：${name}`);
+  } catch (err) {
+    toast(`保存档案失败：${err.message}`, true);
+  }
+}
+
+async function deleteProfile() {
+  const id = $('#profileSelect').value;
+  if (!id) return;
+  if (!confirm('删除当前选中的服务商档案？')) return;
+  try {
+    const r = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', id }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    S.config = j.config;
+    applyConfig(j.config, { skipPinInputs: true });
+    populateSettings(j.config);
+    toast('已删除服务商档案');
+  } catch (err) {
+    toast(`删除失败：${err.message}`, true);
+  }
+}
+
+async function downloadDiagnostics() {
+  try {
+    const r = await fetch('/api/diagnostics');
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    const blob = new Blob([JSON.stringify(j, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'promptforge-diagnostics.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('已导出诊断信息（不含 Key）');
+  } catch (err) {
+    toast(`导出诊断失败：${err.message}`, true);
   }
 }
 

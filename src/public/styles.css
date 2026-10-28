@@ -2566,6 +2566,25 @@ mark {
   flex: none;
 }
 
+.profile-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 5px;
+}
+
+.profile-row select,
+.profile-row input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 7px 9px;
+}
+
+.profile-row .btn {
+  flex: none;
+}
+
 .dialog-actions {
   display: flex;
   align-items: center;

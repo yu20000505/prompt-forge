@@ -100,6 +100,8 @@ const DEFAULT_CONFIG = {
   topP: 1,
   stream: true,
   jsonMode: false,
+  profiles: [],
+  activeProfile: '',
 };
 
 const MIME = {
@@ -115,11 +117,98 @@ const MIME = {
 };
 
 // ---------- 配置 ----------
+let safeStoragePromise;
+async function getSafeStorage() {
+  if (safeStoragePromise !== undefined) return safeStoragePromise;
+  safeStoragePromise = (async () => {
+    try {
+      const electron = await import('electron');
+      const storage = electron?.safeStorage;
+      return storage && storage.isEncryptionAvailable() ? storage : null;
+    } catch {
+      return null;
+    }
+  })();
+  return safeStoragePromise;
+}
+
+async function decryptConfigSecrets(cfg) {
+  const storage = await getSafeStorage();
+  const decryptOne = (item) => {
+    if (!item || !item.apiKeyEnc) return;
+    if (!storage) return;
+    try {
+      item.apiKey = storage.decryptString(Buffer.from(item.apiKeyEnc, 'base64'));
+      delete item.apiKeyEnc;
+    } catch {
+      /* 解密失败就保持空 key，保留密文避免下次保存把它删掉 */
+    }
+  };
+  decryptOne(cfg);
+  for (const p of Array.isArray(cfg.profiles) ? cfg.profiles : []) decryptOne(p);
+}
+
+function normalizeProfiles(cfg) {
+  if (!Array.isArray(cfg.profiles)) cfg.profiles = [];
+  cfg.profiles = cfg.profiles
+    .filter((p) => p && typeof p === 'object')
+    .map((p) => ({
+      id: String(p.id || `p-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`),
+      name: String(p.name || '未命名档案').slice(0, 40),
+      baseURL: String(p.baseURL || cfg.baseURL || ''),
+      model: String(p.model || cfg.model || ''),
+      apiKey: String(p.apiKey || ''),
+      ...(p.apiKeyEnc ? { apiKeyEnc: String(p.apiKeyEnc) } : {}),
+    }));
+  if (!cfg.profiles.length) {
+    cfg.profiles.push({
+      id: 'default',
+      name: '默认',
+      baseURL: cfg.baseURL,
+      model: cfg.model,
+      apiKey: cfg.apiKey,
+      ...(cfg.apiKeyEnc ? { apiKeyEnc: cfg.apiKeyEnc } : {}),
+    });
+  }
+  let active = cfg.profiles.find((p) => p.id === cfg.activeProfile) || cfg.profiles[0];
+  cfg.activeProfile = active.id;
+  cfg.baseURL = active.baseURL || cfg.baseURL;
+  cfg.model = active.model || cfg.model;
+  cfg.apiKey = active.apiKey || cfg.apiKey || '';
+  if (active.apiKeyEnc) cfg.apiKeyEnc = active.apiKeyEnc;
+  return cfg;
+}
+
+async function configForDisk(cfg) {
+  const storage = await getSafeStorage();
+  const store = JSON.parse(JSON.stringify(cfg));
+  const encryptOne = (item) => {
+    if (!item) return;
+    if (storage && item.apiKey) {
+      try {
+        item.apiKeyEnc = storage.encryptString(item.apiKey).toString('base64');
+        delete item.apiKey;
+      } catch {
+        /* 加密失败就退回明文 */
+      }
+    } else if (!item.apiKey && item.apiKeyEnc) {
+      // 保留已有的密文，避免源码版/解密失败时把 Key 抹掉
+    } else {
+      delete item.apiKeyEnc;
+    }
+  };
+  encryptOne(store);
+  for (const p of Array.isArray(store.profiles) ? store.profiles : []) encryptOne(p);
+  return store;
+}
+
 async function readConfigFile(p) {
   const raw = await fsp.readFile(p, 'utf8');
   const parsed = JSON.parse(raw);
   if (!parsed || typeof parsed !== 'object') throw new Error('配置内容不是对象');
-  return { ...DEFAULT_CONFIG, ...parsed };
+  const cfg = { ...DEFAULT_CONFIG, ...parsed };
+  await decryptConfigSecrets(cfg);
+  return normalizeProfiles(cfg);
 }
 
 async function loadConfig() {
@@ -140,13 +229,26 @@ async function loadConfig() {
     }
     return recovered;
   } catch {
-    return { ...DEFAULT_CONFIG };
+    return normalizeProfiles({ ...DEFAULT_CONFIG });
   }
 }
 
 async function saveConfig(patch) {
   const cur = await loadConfig();
   const next = { ...cur, ...patch };
+
+  // 当前档案跟着顶层 baseURL/model/key 一起更新
+  if (!Array.isArray(next.profiles)) next.profiles = [];
+  let active = next.profiles.find((p) => p.id === next.activeProfile);
+  if (!active) {
+    active = next.profiles[0];
+    next.activeProfile = active?.id || '';
+  }
+  if (active) {
+    active.baseURL = next.baseURL;
+    active.model = next.model;
+    if (typeof next.apiKey === 'string') active.apiKey = next.apiKey;
+  }
 
   // 先把现有配置备份一份，误改/误删还能退回去
   try {
@@ -155,10 +257,112 @@ async function saveConfig(patch) {
     /* 首次保存还没有旧文件 */
   }
 
+  const store = await configForDisk(next);
   // 先写临时文件再改名，避免写到一半断电/崩溃留下半个 JSON
-  await fsp.writeFile(CONFIG_TMP, JSON.stringify(next, null, 2), 'utf8');
+  await fsp.writeFile(CONFIG_TMP, JSON.stringify(store, null, 2), 'utf8');
   await fsp.rename(CONFIG_TMP, CONFIG_PATH);
   return next;
+}
+
+// ---------- 服务商档案 / 诊断 ----------
+async function handleProfiles(req, res) {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return json(res, 400, { error: '请求格式错误' });
+  }
+  const action = String(body.action || '');
+  const cfg = await loadConfig();
+  cfg.profiles = Array.isArray(cfg.profiles) ? cfg.profiles : [];
+
+  if (action === 'save') {
+    const input = body.profile && typeof body.profile === 'object' ? body.profile : {};
+    const name = String(input.name || '').trim();
+    if (!name) return json(res, 400, { error: '请先给档案起个名字' });
+    let p = cfg.profiles.find((x) => x.id === input.id);
+    const created = !p;
+    if (!p) {
+      p = { id: `p-${Date.now()}`, name, baseURL: cfg.baseURL, model: cfg.model, apiKey: cfg.apiKey || '' };
+      cfg.profiles.push(p);
+    }
+    p.name = name.slice(0, 40);
+    if (input.baseURL) p.baseURL = normalizeBaseURL(input.baseURL);
+    if (input.model) p.model = String(input.model).trim();
+    if (input.apiKey) {
+      p.apiKey = String(input.apiKey).trim();
+      delete p.apiKeyEnc;
+    }
+    if (created || body.activate) cfg.activeProfile = p.id;
+    if (cfg.activeProfile === p.id) {
+      cfg.baseURL = p.baseURL;
+      cfg.model = p.model;
+      cfg.apiKey = p.apiKey || '';
+    }
+    await saveConfig({ profiles: cfg.profiles, activeProfile: cfg.activeProfile, baseURL: cfg.baseURL, model: cfg.model, apiKey: cfg.apiKey });
+    return json(res, 200, { ok: true, created, profile: p.id, config: publicConfig(await loadConfig()) });
+  }
+
+  if (action === 'activate') {
+    const p = cfg.profiles.find((x) => x.id === body.id);
+    if (!p) return json(res, 404, { error: '找不到这个档案' });
+    cfg.activeProfile = p.id;
+    await saveConfig({
+      activeProfile: p.id,
+      baseURL: p.baseURL,
+      model: p.model,
+      apiKey: p.apiKey || cfg.apiKey || '',
+    });
+    return json(res, 200, { ok: true, config: publicConfig(await loadConfig()) });
+  }
+
+  if (action === 'delete') {
+    if (cfg.profiles.length <= 1) return json(res, 400, { error: '至少保留一个服务商档案' });
+    const p = cfg.profiles.find((x) => x.id === body.id);
+    if (!p) return json(res, 404, { error: '找不到这个档案' });
+    cfg.profiles = cfg.profiles.filter((x) => x.id !== body.id);
+    if (cfg.activeProfile === body.id) {
+      cfg.activeProfile = cfg.profiles[0].id;
+      const next = cfg.profiles[0];
+      cfg.baseURL = next.baseURL;
+      cfg.model = next.model;
+      cfg.apiKey = next.apiKey || '';
+    }
+    await saveConfig({ profiles: cfg.profiles, activeProfile: cfg.activeProfile });
+    return json(res, 200, { ok: true, config: publicConfig(await loadConfig()) });
+  }
+
+  return json(res, 400, { error: '未知操作' });
+}
+
+async function handleDiagnostics(req, res) {
+  try {
+    const cfg = await loadConfig();
+    const savedCount = (await fsp.readdir(SAVED_DIR).catch(() => []))
+      .filter((f) => f.endsWith('.md')).length;
+    const trashCount = (await fsp.readdir(TRASH_DIR).catch(() => []))
+      .filter((f) => f.endsWith('.md')).length;
+    const storage = await getSafeStorage();
+    const pub = publicConfig(cfg);
+    return json(res, 200, {
+      app: 'prompt-forge',
+      version: APP_VERSION,
+      generatedAt: new Date().toISOString(),
+      platform: process.platform,
+      arch: process.arch,
+      node: process.versions.node,
+      keyStorage: storage ? 'os-encrypted' : 'plaintext',
+      paths: { dataDir: DATA_DIR, config: CONFIG_PATH, saved: SAVED_DIR, state: STATE_DIR },
+      counts: { saved: savedCount, trash: trashCount },
+      features: pub.features,
+      activeProfile: pub.profiles.find((p) => p.active) || pub.activeProfile || '',
+      profiles: pub.profiles.map((p) => ({
+        id: p.id, name: p.name, baseURL: p.baseURL, model: p.model, hasKey: p.hasKey, active: p.active,
+      })),
+    });
+  } catch (err) {
+    return json(res, 500, { error: `诊断导出失败：${err?.message || err}` });
+  }
 }
 
 function publicConfig(cfg) {
@@ -180,6 +384,20 @@ function publicConfig(cfg) {
     topP: Number.isFinite(Number(cfg.topP)) ? Number(cfg.topP) : 1,
     stream: cfg.stream !== false,
     jsonMode: !!cfg.jsonMode,
+    keyEncrypted: !!cfg.apiKeyEnc,
+    activeProfile: cfg.activeProfile || '',
+    profiles: (Array.isArray(cfg.profiles) ? cfg.profiles : []).map((p) => {
+      const k = String(p.apiKey || '');
+      return {
+        id: p.id,
+        name: p.name,
+        baseURL: p.baseURL,
+        model: p.model,
+        hasKey: !!(k || p.apiKeyEnc),
+        keyMask: k ? k.slice(0, 4) + '…' + k.slice(-4) : '',
+        active: p.id === cfg.activeProfile,
+      };
+    }),
     // 前端用它判断后端是不是旧进程（改了 server.mjs 但没重启时很常见）
     features: {
       segment: true,
@@ -1568,11 +1786,12 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/history' && (req.method === 'GET' || req.method === 'POST')) return await handleHistoryState(req, res);
     if (pathname === '/api/board' && (req.method === 'GET' || req.method === 'POST')) return await handleBoardState(req, res);
 
+    if (pathname === '/api/profiles' && req.method === 'POST') return await handleProfiles(req, res);
+    if (pathname === '/api/diagnostics' && req.method === 'GET') return await handleDiagnostics(req, res);
     if (pathname === '/api/config' && req.method === 'GET') {
       return json(res, 200, publicConfig(await loadConfig()));
     }
-    if (pathname === '/api/config' && req.method === 'POST') {
-      let patch;
+    if (pathname === '/api/config' && req.method === 'POST') {      let patch;
       try {
         patch = JSON.parse(await readBody(req));
       } catch {

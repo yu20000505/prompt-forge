@@ -2565,6 +2565,57 @@ async function main() {
   await evalJs(`document.querySelector('#btnLibClose').click(); true`);
   await sleep(250);
 
+  // ---------- 12.21 多服务商档案与诊断 ----------
+  await evalJs(`document.querySelector('#btnSettings').click(); true`);
+  await sleep(350);
+  check('设置里有服务商档案选择',
+    (await evalJs(`document.querySelectorAll('#profileSelect option').length`)) >= 1);
+  const originalBase = await evalJs(`document.querySelector('#cfgBase').value`);
+  await evalJs(`(() => {
+    document.querySelector('#cfgBase').value = 'http://127.0.0.1:43199/no-models/v1';
+    document.querySelector('#cfgModel').value = 'profile-model';
+    document.querySelector('#profileName').value = '第二档案';
+    document.querySelector('#btnProfileSave').click();
+    return true;
+  })()`);
+  await sleep(700);
+  const profilesAfterSave = await evalJs(`fetch('/api/config').then((r) => r.json()).then((c) => c.profiles)`);
+  check('能保存新的服务商档案',
+    profilesAfterSave.length >= 2 && profilesAfterSave.some((p) => p.name === '第二档案' && p.active),
+    JSON.stringify(profilesAfterSave.map((p) => ({ name: p.name, active: p.active }))));
+  check('切换档案后当前 BaseURL 跟着变',
+    (await evalJs(`fetch('/api/config').then((r) => r.json()).then((c) => c.baseURL)`)) === 'http://127.0.0.1:43199/no-models/v1');
+
+  await evalJs(`(() => {
+    const sel = document.querySelector('#profileSelect');
+    sel.value = [...sel.options].find((o) => !o.textContent.includes('第二档案')).value;
+    document.querySelector('#btnProfileActivate').click();
+    return true;
+  })()`);
+  await sleep(700);
+  check('能切回原来的服务商档案',
+    (await evalJs(`fetch('/api/config').then((r) => r.json()).then((c) => c.baseURL)`)) === originalBase);
+
+  const diagnostics = await evalJs(`fetch('/api/diagnostics').then((r) => r.json())`);
+  check('诊断信息不含明文 Key',
+    !JSON.stringify(diagnostics).includes('sk-test-1234')
+      && diagnostics.activeProfile?.hasKey === true);
+  check('诊断信息包含版本和路径',
+    diagnostics.version === '2.0.0' && !!diagnostics.paths?.saved && !!diagnostics.keyStorage);
+
+  await evalJs(`(() => {
+    const sel = document.querySelector('#profileSelect');
+    sel.value = [...sel.options].find((o) => o.textContent.includes('第二档案')).value;
+    return true;
+  })()`);
+  await evalJs(`window.confirm = () => true; document.querySelector('#btnProfileDelete').click(); true`);
+  await sleep(700);
+  const profilesAfterDelete = await evalJs(`fetch('/api/config').then((r) => r.json()).then((c) => c.profiles)`);
+  check('能删除多余的服务商档案',
+    profilesAfterDelete.length === profilesAfterSave.length - 1, String(profilesAfterDelete.length));
+  await evalJs(`document.querySelector('#btnCancelSettings').click(); true`);
+  await sleep(200);
+
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------
   // 先验一下错误栏的「重试」按钮

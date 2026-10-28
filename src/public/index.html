@@ -713,6 +713,18 @@
         <span class="field-hint" id="modelHint">可以直接手填，也可以点右侧箭头从列表里选</span>
       </div>
 
+      <label for="profileSelect">服务商档案</label>
+      <div class="profile-row">
+        <select id="profileSelect"></select>
+        <button class="btn tiny" type="button" id="btnProfileActivate">切换</button>
+        <button class="btn tiny ghost" type="button" id="btnProfileDelete">删除</button>
+      </div>
+      <div class="profile-row">
+        <input id="profileName" maxlength="40" autocomplete="off" placeholder="新档案名称，如 DeepSeek / 本地 Ollama" />
+        <button class="btn tiny ghost" type="button" id="btnProfileSave">保存当前为新档案</button>
+      </div>
+      <p class="field-hint" id="profileHint"></p>
+
       <label for="cfgTemp">创造性 <span class="dim" id="tempVal">0.85</span></label>
       <input id="cfgTemp" type="range" min="0" max="1.5" step="0.05" value="0.85" />
 
@@ -756,6 +768,7 @@
       <p class="field-hint">三个模式的输入和当前结果会自动保存在本机，刷新或崩溃后可恢复；不包含 API Key。</p>
       <div>
         <button class="btn tiny ghost" type="button" id="btnClearDrafts">清空三个模式的草稿</button>
+        <button class="btn tiny ghost" type="button" id="btnDiagnostics">导出诊断信息</button>
       </div>
 
       <div class="dialog-err err" id="cfgErr" hidden></div>
