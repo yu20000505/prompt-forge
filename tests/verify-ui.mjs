@@ -2414,6 +2414,62 @@ async function main() {
   await sleep(700);
   check('保存库条目按 Enter 能载入', (await visible('#libDrawer')) === false);
 
+  // ---------- 12.18 模板、负面预设与画幅 ----------
+  await evalJs(`document.querySelector('#mainTabs .tab[data-view="prompt"]').click(); true`);
+  await sleep(250);
+  await evalJs(`document.querySelector('#btnTemplates').click(); true`);
+  await sleep(350);
+  check('模板弹窗能打开', (await visible('#templateDialog')) === true);
+  check('内置模板数量足够', (await evalJs(`document.querySelectorAll('#templateGrid .template-card').length`)) >= 8);
+  await evalJs(`document.querySelector('#templateGrid .template-card').click(); true`);
+  await sleep(350);
+  check('应用模板会填入句子和风格',
+    (await evalJs(`document.querySelector('#sentence').value.length`)) > 10
+      && (await evalJs(`document.querySelector('#styleSelect').value`)) === 'sd');
+  check('应用模板会带上画幅和镜头',
+    (await evalJs(`document.querySelector('#promptAspect').value`)) === '2:3'
+      && (await evalJs(`document.querySelector('#promptShot').value`)) === 'medium shot');
+  check('模板弹窗应用后关闭', (await visible('#templateDialog')) === false);
+
+  await evalJs(`document.querySelectorAll('#negPresets .neg-preset')[0].click(); true`);
+  await sleep(200);
+  check('负面词预设能填入置顶负向词',
+    /lowres/.test(await evalJs(`document.querySelector('#pinNegative').value`)));
+
+  await evalJs(`document.querySelector('#btnTemplates').click(); true`);
+  await sleep(300);
+  await evalJs(`(() => {
+    document.querySelector('#sentence').value = '自定义模板测试画面';
+    document.querySelector('#templateName').value = '测试模板';
+    document.querySelector('#btnTemplateSave').click();
+    return true;
+  })()`);
+  await sleep(300);
+  check('自定义模板能保存',
+    (await evalJs(`JSON.parse(localStorage.getItem('pf-templates-v1') || '[]').some((t) => t.name === '测试模板')`)) === true);
+  await evalJs(`(() => {
+    const row = [...document.querySelectorAll('#customTemplateList .custom-template-row')]
+      .find((x) => x.textContent.includes('测试模板'));
+    [...row.querySelectorAll('button')].find((b) => b.textContent === '应用').click();
+    return true;
+  })()`);
+  await sleep(300);
+  check('自定义模板能应用',
+    (await evalJs(`document.querySelector('#sentence').value`)) === '自定义模板测试画面');
+  await evalJs(`document.querySelector('#btnTemplates').click(); true`);
+  await sleep(300);
+  await evalJs(`(() => {
+    const row = [...document.querySelectorAll('#customTemplateList .custom-template-row')]
+      .find((x) => x.textContent.includes('测试模板'));
+    [...row.querySelectorAll('button')].find((b) => b.textContent === '删除').click();
+    return true;
+  })()`);
+  await sleep(250);
+  check('自定义模板能删除',
+    (await evalJs(`JSON.parse(localStorage.getItem('pf-templates-v1') || '[]').length`)) === 0);
+  await evalJs(`document.querySelector('#btnTemplateClose').click(); true`);
+  await sleep(200);
+
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------
   // 先验一下错误栏的「重试」按钮

@@ -12,6 +12,7 @@ const {
   parseMetaComment,
   publicConfig,
 } = await import('../src/server.mjs');
+const { buildMessages } = await import('../src/styles.mjs');
 
 test('normalizeBaseURL: 补协议、补 /v1、去掉尾部斜杠', () => {
   assert.equal(normalizeBaseURL('api.deepseek.com'), 'https://api.deepseek.com/v1');
@@ -66,6 +67,21 @@ test('sectionsOf: 按 ## 小标题切分正文', () => {
   const out = sectionsOf('## 正向提示词\nalpha\n\n## 负向提示词\nbeta\n');
   assert.equal(out['正向提示词'], 'alpha');
   assert.equal(out['负向提示词'], 'beta');
+});
+
+test('buildMessages: 画幅和镜头要求会进入用户消息', () => {
+  const messages = buildMessages({
+    sentence: '雨夜的街头',
+    style: 'sd',
+    detail: 'standard',
+    language: 'en',
+    aspect: '16:9',
+    shot: 'close-up',
+  });
+  const user = messages[1].content;
+  assert.match(user, /画幅要求.*16:9/);
+  assert.match(user, /镜头要求.*close-up/);
+  assert.doesNotMatch(user, /画幅要求.*auto/);
 });
 
 test('buildMetaComment / parseMetaComment: 往返一致，且不会被 --> 提前闭合', () => {

@@ -263,6 +263,7 @@ const S = {
   board: [],           // [{ type, tags, title, sentence, at }]
   boardTitle: '',
   boardLoaded: false,
+  customTemplates: [],
 };
 
 // 没拉取过列表时先给几个常用的，避免下拉框一开始是空的
@@ -277,9 +278,90 @@ const MODEL_PRESETS = [
   'llama3.1',
 ];
 
+// 提示词模板：只填输入区，不自动生成
+const PROMPT_TEMPLATES = [
+  {
+    id: 'portrait', name: '人物肖像', nameEn: 'Portrait',
+    desc: '半身人像 / 情绪与皮肤质感',
+    sentence: '雨后的旧公寓里，一位银发少女靠在窗边看向镜头，神情安静',
+    style: 'sd', detail: 'standard', aspect: '2:3', shot: 'medium shot',
+    extra: '柔和的侧窗光，浅景深，真实的皮肤纹理',
+  },
+  {
+    id: 'cinematic', name: '电影场景', nameEn: 'Cinematic scene',
+    desc: '宽银幕 / 叙事感光影',
+    sentence: '深夜的加油站，一名货车司机靠在车头抽烟，远处公路被车灯照亮',
+    style: 'photo', detail: 'rich', aspect: '16:9', shot: 'wide shot',
+    extra: '电影感色彩，体积光，35mm 变形宽银幕',
+  },
+  {
+    id: 'mecha', name: '机甲科幻', nameEn: 'Mecha sci-fi',
+    desc: '巨大机械 / 工业细节',
+    sentence: '废弃的发射井里，一台伤痕累累的重型机甲半跪着，驾驶舱还亮着微光',
+    style: 'sd', detail: 'rich', aspect: '16:9', shot: 'from below',
+    extra: '冷色调工业光，金属磨损与油污，雾气',
+  },
+  {
+    id: 'guofeng', name: '国风古韵', nameEn: 'Chinese classical',
+    desc: '山水 / 留白 / 工笔',
+    sentence: '薄雾笼罩的江南水乡，一位执伞女子走在石桥上，远处白墙黛瓦若隐若现',
+    style: 'sd', detail: 'rich', aspect: '3:4', shot: 'wide shot',
+    extra: '水墨留白，低饱和青灰色，柔和晨雾',
+  },
+  {
+    id: 'product', name: '产品静物', nameEn: 'Product still life',
+    desc: '商业摄影 / 材质与反光',
+    sentence: '黑色磨砂玻璃香水瓶放在湿润的黑色石板上，水面倒映着暖色轮廓光',
+    style: 'photo', detail: 'standard', aspect: '1:1', shot: 'close-up',
+    extra: '商业静物光，边缘轮廓光，微距细节',
+  },
+  {
+    id: 'wildlife', name: '自然动物', nameEn: 'Wildlife',
+    desc: '野生动物 / 长焦',
+    sentence: '清晨的雪原上，一只赤狐停下脚步回头张望，呼吸在冷空气里凝成白雾',
+    style: 'photo', detail: 'standard', aspect: '3:4', shot: 'close-up',
+    extra: '长焦压缩感，自然晨光，浅景深',
+  },
+  {
+    id: 'cyberpunk', name: '赛博朋克', nameEn: 'Cyberpunk',
+    desc: '霓虹 / 雨夜 / 高密度城市',
+    sentence: '雨夜的赛博朋克夜市，霓虹灯牌和全息广告映在积水里，行人撑着透明伞',
+    style: 'sd', detail: 'rich', aspect: '16:9', shot: 'wide shot',
+    extra: '青色与品红霓虹，湿润反光，体积雾',
+  },
+  {
+    id: 'fantasy', name: '奇幻风景', nameEn: 'Fantasy landscape',
+    desc: '世界感 / 大气透视',
+    sentence: '漂浮在云海上的古老神殿，瀑布从断裂的台阶落入云层，飞鸟绕柱盘旋',
+    style: 'sd', detail: 'rich', aspect: '16:9', shot: 'wide shot',
+    extra: '史诗感，大气透视，金色夕阳',
+  },
+  {
+    id: 'food', name: '美食特写', nameEn: 'Food close-up',
+    desc: '暖色 / 食欲 / 质感',
+    sentence: '刚出锅的牛肉面放在旧木桌上，热气升起，汤面浮着葱花和辣椒油',
+    style: 'photo', detail: 'standard', aspect: '4:3', shot: 'close-up',
+    extra: '暖色侧逆光，蒸汽，浅景深',
+  },
+  {
+    id: 'interior', name: '建筑室内', nameEn: 'Architecture interior',
+    desc: '空间 / 材质 / 自然光',
+    sentence: '午后阳光穿过落地窗，照亮一间极简混凝土客厅，长桌上放着陶器和干枝',
+    style: 'photo', detail: 'standard', aspect: '16:9', shot: 'wide shot',
+    extra: '自然光，建筑摄影，真实材质',
+  },
+];
+
+const NEG_PRESETS = [
+  { id: 'general', name: '通用', nameEn: 'General', text: 'lowres, worst quality, low quality, blurry, jpeg artifacts, watermark, signature, text' },
+  { id: 'anime', name: '动漫', nameEn: 'Anime', text: 'lowres, bad anatomy, bad hands, extra digits, fewer digits, worst quality, watermark, username' },
+  { id: 'photo', name: '写实', nameEn: 'Photo', text: 'cartoon, illustration, anime, 3d render, cgi, plastic skin, waxy skin, extra fingers, deformed hands, watermark' },
+];
+
+const TEMPLATE_KEY = 'pf-templates-v1';
+
 // 主页「目标模型」的可选值：只是提示，随便填
-const TARGET_PRESETS = [
-  'SDXL',
+const TARGET_PRESETS = [  'SDXL',
   'Stable Diffusion 1.5',
   'Flux.1',
   'NovelAI V4',
@@ -292,6 +374,8 @@ const TARGET_PRESETS = [
 /* ============ 启动 ============ */
 document.addEventListener('DOMContentLoaded', () => {
   initLanguage();
+  loadCustomTemplates();
+  renderNegPresets();
   renderStyleOptions();
   renderRefineChips();
   renderCharRefineChips();
@@ -324,6 +408,149 @@ function renderStyleOptions() {
   sel.addEventListener('change', () => {
     S.style = sel.value;
   });
+}
+
+function loadCustomTemplates() {
+  try {
+    const v = JSON.parse(localStorage.getItem(TEMPLATE_KEY) || '[]');
+    S.customTemplates = (Array.isArray(v) ? v : [])
+      .filter((t) => t && typeof t === 'object' && t.sentence)
+      .slice(0, 30);
+  } catch {
+    S.customTemplates = [];
+  }
+}
+
+function saveCustomTemplates() {
+  try {
+    localStorage.setItem(TEMPLATE_KEY, JSON.stringify(S.customTemplates.slice(0, 30)));
+  } catch {
+    /* 存不下就只在本次生效 */
+  }
+}
+
+function templateLabel(t) {
+  return S.lang === 'en' ? (t.nameEn || t.name) : t.name;
+}
+
+function applyPromptTemplate(t) {
+  if (!t) return;
+  $('#sentence').value = t.sentence || '';
+  $('#extra').value = t.extra || '';
+  if (['short', 'standard', 'rich'].includes(t.detail)) $('#detail').value = t.detail;
+  if (STYLES.some((x) => x.id === t.style)) {
+    S.style = t.style;
+    $('#styleSelect').value = t.style;
+  }
+  $('#promptAspect').value = t.aspect || 'auto';
+  $('#promptShot').value = t.shot || 'auto';
+  refreshCounter();
+  closeTemplateDialog();
+  toast(`已填入模板：${templateLabel(t)}`);
+}
+
+function closeTemplateDialog() {
+  $('#templateDialog').close();
+}
+
+function renderTemplateDialog() {
+  const box = $('#templateGrid');
+  box.innerHTML = '';
+  for (const t of PROMPT_TEMPLATES) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'template-card';
+    const title = document.createElement('b');
+    title.textContent = templateLabel(t);
+    const desc = document.createElement('small');
+    desc.textContent = t.desc || t.sentence;
+    b.append(title, desc);
+    b.addEventListener('click', () => applyPromptTemplate(t));
+    box.appendChild(b);
+  }
+
+  const list = $('#customTemplateList');
+  list.innerHTML = '';
+  if (!S.customTemplates.length) {
+    const p = document.createElement('p');
+    p.className = 'dim small';
+    p.textContent = '还没有自定义模板。';
+    list.appendChild(p);
+    return;
+  }
+  for (const t of S.customTemplates) {
+    const row = document.createElement('div');
+    row.className = 'custom-template-row';
+    const name = document.createElement('span');
+    name.textContent = t.name || '未命名';
+    row.appendChild(name);
+    const use = document.createElement('button');
+    use.type = 'button';
+    use.className = 'btn tiny';
+    use.textContent = '应用';
+    use.addEventListener('click', () => applyPromptTemplate(t));
+    row.appendChild(use);
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'btn tiny ghost';
+    del.textContent = '删除';
+    del.addEventListener('click', () => {
+      S.customTemplates = S.customTemplates.filter((x) => x.id !== t.id);
+      saveCustomTemplates();
+      renderTemplateDialog();
+    });
+    row.appendChild(del);
+    list.appendChild(row);
+  }
+}
+
+function openTemplateDialog() {
+  renderTemplateDialog();
+  $('#templateName').value = '';
+  $('#templateDialog').showModal();
+}
+
+function saveCurrentTemplate() {
+  const name = $('#templateName').value.trim();
+  const sentence = $('#sentence').value.trim();
+  if (!name) return toast('先给模板起个名字', true);
+  if (!sentence) return toast('先写一句话，再保存为模板', true);
+  S.customTemplates.unshift({
+    id: `custom-${Date.now()}`,
+    name: name.slice(0, 40),
+    sentence,
+    extra: $('#extra').value.trim(),
+    style: S.style,
+    detail: $('#detail').value,
+    aspect: $('#promptAspect').value,
+    shot: $('#promptShot').value,
+    custom: true,
+    at: Date.now(),
+  });
+  S.customTemplates = S.customTemplates.slice(0, 30);
+  saveCustomTemplates();
+  renderTemplateDialog();
+  $('#templateName').value = '';
+  toast(`已保存模板：${name}`);
+}
+
+function renderNegPresets() {
+  const box = $('#negPresets');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const p of NEG_PRESETS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'neg-preset';
+    b.textContent = S.lang === 'en' ? p.nameEn : p.name;
+    b.title = p.text;
+    b.addEventListener('click', () => {
+      $('#pinNegative').value = p.text;
+      $('#pinNegative').dispatchEvent(new Event('input', { bubbles: true }));
+      toast(`已填入${b.textContent}负面词`);
+    });
+    box.appendChild(b);
+  }
 }
 
 function renderSegTypeChips() {
@@ -662,6 +889,8 @@ async function generate(opts = {}) {
           language: $('#language').value,
           detail: $('#detail').value,
           extra: importExtra,
+          aspect: $('#promptAspect').value,
+          shot: $('#promptShot').value,
         }
         : {
           sentence,
@@ -670,6 +899,8 @@ async function generate(opts = {}) {
           language: $('#language').value,
           detail: $('#detail').value,
           extra: $('#extra').value.trim(),
+          aspect: $('#promptAspect').value,
+          shot: $('#promptShot').value,
         }),
       signal: S.abort.signal,
     });
@@ -4572,6 +4803,15 @@ function bind() {
   });
 
   $('#btnRandom').addEventListener('click', () => requestIdeas(IDEA_UI.prompt));
+  $('#btnTemplates').addEventListener('click', openTemplateDialog);
+  $('#btnTemplateClose').addEventListener('click', closeTemplateDialog);
+  $('#btnTemplateSave').addEventListener('click', saveCurrentTemplate);
+  $('#templateName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveCurrentTemplate();
+    }
+  });
   $('#btnImportPrompt').addEventListener('click', openImportDialog);
   $('#btnImportCancel').addEventListener('click', () => $('#importDialog').close());
   $('#btnImportRun').addEventListener('click', runImport);

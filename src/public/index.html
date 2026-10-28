@@ -106,6 +106,7 @@
         <div class="row-between">
           <div class="mini-actions">
             <button class="btn tiny" id="btnRandom">🎲 随机灵感</button>
+            <button class="btn tiny" id="btnTemplates">📑 模板</button>
             <button class="btn tiny" id="btnImportPrompt" title="粘贴现成提示词，按当前风格改写">📥 导入改写</button>
             <button class="btn tiny" id="btnClear">清空</button>
           </div>
@@ -122,6 +123,30 @@
 
         <input id="extra" class="extra-input" placeholder="附加要求（可选）：比如 竖构图、胶片颗粒、不要出现人物…"
           autocomplete="off" />
+
+        <div class="prompt-quick">
+          <label for="promptAspect">画幅</label>
+          <select id="promptAspect">
+            <option value="auto">自动</option>
+            <option value="1:1">1:1 正方形</option>
+            <option value="3:4">3:4 竖构图</option>
+            <option value="2:3">2:3 竖构图</option>
+            <option value="4:3">4:3 横构图</option>
+            <option value="16:9">16:9 横构图</option>
+            <option value="9:16">9:16 竖屏</option>
+          </select>
+          <label for="promptShot">镜头</label>
+          <select id="promptShot">
+            <option value="auto">自动</option>
+            <option value="close-up">特写</option>
+            <option value="medium shot">中景</option>
+            <option value="full body">全身</option>
+            <option value="wide shot">远景</option>
+            <option value="from above">俯拍</option>
+            <option value="from below">仰拍</option>
+            <option value="dutch angle">斜角</option>
+          </select>
+        </div>
 
         <div class="pinbox" id="pinbox">
           <div class="pinbox-head">
@@ -141,6 +166,7 @@
             <div class="pin-col">
               <label for="pinNegative">置顶负向词</label>
               <textarea id="pinNegative" rows="3" placeholder="会原样加在负向提示词最前面"></textarea>
+              <div class="neg-presets" id="negPresets"></div>
             </div>
             <p class="pin-note">置顶词只做拼接，服务端和你配置的接口都看不到也不会改写它。</p>
           </div>
@@ -561,6 +587,27 @@
       <div class="dialog-actions">
         <span class="grow"></span>
         <button class="btn primary" type="button" id="btnShortcutsClose">关闭</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ 提示词模板 ============ -->
+  <dialog class="settings template-dialog" id="templateDialog">
+    <form method="dialog">
+      <h3>提示词模板</h3>
+      <p class="dim small">点一个模板填进输入区；只填内容，不会自动生成。</p>
+      <div class="template-grid" id="templateGrid"></div>
+      <div class="template-custom">
+        <label for="templateName">把当前输入保存为模板</label>
+        <div class="template-save-row">
+          <input id="templateName" maxlength="40" autocomplete="off" placeholder="给模板起个名字" />
+          <button class="btn tiny primary" type="button" id="btnTemplateSave">保存</button>
+        </div>
+        <div class="custom-template-list" id="customTemplateList"></div>
+      </div>
+      <div class="dialog-actions">
+        <span class="grow"></span>
+        <button class="btn ghost" type="button" id="btnTemplateClose">关闭</button>
       </div>
     </form>
   </dialog>

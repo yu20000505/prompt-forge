@@ -139,6 +139,10 @@ export function buildMessages(opts = {}) {
   const userLines = [`用户的一句话描述：${String(opts.sentence || '').trim()}`];
   const extra = String(opts.extra || '').trim();
   if (extra) userLines.push(`用户的附加要求（优先满足）：${extra}`);
+  const aspect = String(opts.aspect || '').trim();
+  if (aspect && aspect !== 'auto') userLines.push(`画幅要求（params.aspect_ratio 必须与之一致）：${aspect}`);
+  const shot = String(opts.shot || '').trim();
+  if (shot && shot !== 'auto') userLines.push(`镜头要求（写进正向提示词）：${shot}`);
   userLines.push('请按要求只输出 JSON。');
 
   return [
@@ -182,6 +186,10 @@ export function buildImportMessages(opts = {}) {
   const lines = [`已有提示词：\n${String(opts.prompt || '').trim()}`];
   const extra = String(opts.extra || '').trim();
   if (extra) lines.push(`附加要求（优先满足）：${extra}`);
+  const aspect = String(opts.aspect || '').trim();
+  if (aspect && aspect !== 'auto') lines.push(`画幅要求（params.aspect_ratio 必须与之一致）：${aspect}`);
+  const shot = String(opts.shot || '').trim();
+  if (shot && shot !== 'auto') lines.push(`镜头要求（写进正向提示词）：${shot}`);
   lines.push('请按要求只输出 JSON。');
 
   return [

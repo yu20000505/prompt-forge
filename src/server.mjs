@@ -516,6 +516,8 @@ async function handleGenerate(req, res) {
     language: ctx.body.language,
     detail: ctx.body.detail,
     extra: ctx.body.extra,
+    aspect: ctx.body.aspect,
+    shot: ctx.body.shot,
     apiPinned: ctx.apiPinned,
   });
 
@@ -538,6 +540,8 @@ async function handleImport(req, res) {
     targetModel: ctx.body.targetModel,
     language: ctx.body.language,
     detail: ctx.body.detail,
+    aspect: ctx.body.aspect,
+    shot: ctx.body.shot,
     apiPinned: ctx.apiPinned,
   });
 

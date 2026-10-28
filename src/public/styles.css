@@ -648,6 +648,146 @@ select {
   margin-top: 12px;
 }
 
+.prompt-quick {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.prompt-quick label {
+  font-size: 11.5px;
+  color: var(--dim);
+}
+
+.prompt-quick select {
+  width: auto;
+  flex: 1;
+  min-width: 110px;
+  font-size: 11.5px;
+  padding: 6px 24px 6px 8px;
+}
+
+.neg-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.neg-preset {
+  font: inherit;
+  font-size: 10.5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.neg-preset:hover {
+  border-color: rgba(var(--danger-rgb), .4);
+  color: var(--danger-soft);
+}
+
+/* ---------- 提示词模板 ---------- */
+.settings.template-dialog {
+  width: min(720px, 94vw);
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.template-card {
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink-1);
+  color: var(--text);
+  padding: 9px 11px;
+  font: inherit;
+  cursor: pointer;
+  transition: all .14s;
+}
+
+.template-card:hover {
+  border-color: rgba(var(--accent-rgb), .5);
+  background: rgba(var(--accent-rgb), .08);
+}
+
+.template-card b {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 3px;
+}
+
+.template-card small {
+  color: var(--dim);
+  font-size: 10.5px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.template-custom {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.template-save-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.template-save-row input {
+  flex: 1;
+}
+
+.template-save-row .btn {
+  flex: none;
+}
+
+.custom-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.custom-template-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 11.5px;
+}
+
+.custom-template-row span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .template-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---------- 按钮 ---------- */
 .btn {
   border: 1px solid var(--line-strong);
