@@ -174,8 +174,9 @@ function normalizeProfiles(cfg) {
   cfg.activeProfile = active.id;
   cfg.baseURL = active.baseURL || cfg.baseURL;
   cfg.model = active.model || cfg.model;
-  cfg.apiKey = active.apiKey || cfg.apiKey || '';
+  cfg.apiKey = active.apiKey || '';
   if (active.apiKeyEnc) cfg.apiKeyEnc = active.apiKeyEnc;
+  else delete cfg.apiKeyEnc;
   return cfg;
 }
 
@@ -311,7 +312,7 @@ async function handleProfiles(req, res) {
       activeProfile: p.id,
       baseURL: p.baseURL,
       model: p.model,
-      apiKey: p.apiKey || cfg.apiKey || '',
+      apiKey: p.apiKey || '',
     });
     return json(res, 200, { ok: true, config: publicConfig(await loadConfig()) });
   }
