@@ -1,20 +1,32 @@
 # Prompt Forge
 
 [![CI](https://github.com/yu20000505/prompt-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/yu20000505/prompt-forge/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/yu20000505/prompt-forge?color=6f7f66)](../../releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6f7f66.svg)](LICENSE)
 
-**一句话进，可出图的提示词出来。**
+**一句话进，可出图的提示词出来。2.0**
 
 Prompt Forge 是一个纯本地的小工具：写一句中文，它帮你调大模型生成
 Stable Diffusion / NovelAI / Midjourney / Flux / DALL·E 能直接用的提示词；
 还能产出「英文提示词 + 中文对照」的角色设定，以及服饰、人物、场景等七类可自由拼装的细分 tag。
-生成结果都能用一句话微调、无限撤回，并保存到本地库。
 
-不需要注册、不上传数据，直连你自己配置的 **OpenAI 兼容接口**，Key 只存在本机。
+2.0 把「生成之后」的流程补完整了：结果可以直接手改，提示词 / 角色 / 细分统一进历史，
+七类标签一键生成并拼进拼装板，保存库支持全文检索、收藏和备份，接口失败会自动重试，界面中英双语。
+全程不需要注册、不上传数据，直连你自己配置的 **OpenAI 兼容接口**，Key 只存在本机。
 
-[English](README.en.md) · [下载](../../releases) · [自己构建](#自己构建)
+[English](README.en.md) · [下载](../../releases) · [更新日志](CHANGELOG.md) · [自己构建](#自己构建)
 
 ![主界面](docs/screenshots/01-main.png)
+
+## 2.0 新功能
+
+- **结果可手改** —— 正向、负向、画面解读、参数，角色英文/中文，细分标签都能直接编辑；标记「已手改」，也可一键恢复模型原版。
+- **导入改写** —— 粘贴网上找到的现成提示词，按当前风格重写，补负面词、中文解读和参数。
+- **统一历史** —— 三种模式都自动记录，可按类型筛选、搜索、收藏置顶，点一条恢复完整结果。
+- **七类一键生成 + 拼装板** —— 一次跑完七类标签，自动去重拼成一条可直接粘贴的 tag 串。
+- **保存库升级** —— 全文检索、高亮、收藏、排序、批量删除，以及不含 Key 的 JSON 备份/导入。
+- **更稳的接口** —— 429/5xx/网络失败自动退避重试；max_tokens、超时、top_p、流式、JSON 模式可调，截断会提示。
+- **中英双语** —— 右上角一键切换中文 / English。
 
 ---
 
@@ -139,7 +151,7 @@ CI 里配置 `WINDOWS_PFX_BASE64` 和 `WINDOWS_PFX_PASSWORD` 两个 Secret，打
 
 ```bash
 npm run test:static    # id 引用、prompt 模板、主题对比度，不需要浏览器
-npm test               # 完整 UI 回归：无头 Chrome 里跑 428 条断言
+npm test               # 完整 UI 回归：无头 Chrome 里跑 429 条断言
 ```
 
 UI 套件会用假接口起一个临时实例，验证真实行为：全部皮肤下每个文字节点的对比度、
@@ -152,7 +164,7 @@ PASS  微调结果仍带置顶词（只带一次）
 PASS  保存的是带置顶词的实际版本
 PASS  载入时置顶词没有被二次拼接
 ...
-428 项通过，0 失败
+429 项通过，0 失败
 ```
 
 `docs/` 里的截图由 `node tests/make-screenshots.mjs` 生成，不是手工裁剪。

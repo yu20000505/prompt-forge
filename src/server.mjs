@@ -68,6 +68,7 @@ const FAVORITES_PATH = path.join(SAVED_DIR, '.favorites.json');
 const TRASH_RETENTION_DAYS = 7;
 const TRASH_MAX_FILES = 100;
 const HOST = '127.0.0.1';
+const APP_VERSION = '2.0.0';
 const BASE_PORT = Number(process.env.PORT || process.argv[2] || 43125);
 // 上游流式接口超过这个时间没有任何数据，就判定为卡死并中止；测试可用环境变量调小
 const STREAM_IDLE_MS = Math.max(5000, Number(process.env.PF_STREAM_IDLE_MS) || 120000);
@@ -162,6 +163,7 @@ function publicConfig(cfg) {
     baseURL: cfg.baseURL,
     model: cfg.model,
     temperature: cfg.temperature,
+    version: APP_VERSION,
     hasKey: key.length > 0,
     keyMask: key ? key.slice(0, 4) + '…' + key.slice(-4) : '',
     pinnedPositive: cfg.pinnedPositive,

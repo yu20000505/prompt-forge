@@ -1,7 +1,7 @@
 {
   "name": "prompt-forge",
-  "version": "1.0.0",
-  "description": "一句话生成生图提示词。五种风格、角色设定与七类细分标签，可微调撤回、本地保存；纯本地、零运行时依赖。",
+  "version": "2.0.0",
+  "description": "一句话生成生图提示词。结果可手改、七类标签一键拼装、历史与保存库全文检索、备份导入、中英双语；纯本地、零运行时依赖。",
   "private": true,
   "type": "module",
   "main": "src/server.mjs",
@@ -14,7 +14,10 @@
     "novelai",
     "midjourney",
     "llm",
-    "openai-compatible"
+    "openai-compatible",
+    "local-first",
+    "bilingual",
+    "desktop"
   ],
   "engines": {
     "node": ">=20"

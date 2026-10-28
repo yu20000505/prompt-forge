@@ -267,6 +267,8 @@ async function main() {
 
   const statusText = await evalJs(`document.querySelector('#statusText').textContent`);
   check('状态栏显示已配置 Key', /已配置|deepseek|mock/i.test(statusText), statusText);
+  check('界面显示 2.0 版本号',
+    (await evalJs(`document.querySelector('#appVersion').textContent`)) === 'v2.0.0');
 
   const serverFeatures = await evalJs(`fetch('/api/config').then(r=>r.json()).then(j=>j.features)`);
   check('服务端声明细分接口可用', serverFeatures?.segment === true, JSON.stringify(serverFeatures));

@@ -517,6 +517,7 @@ function applyConfig(cfg, opts = {}) {
   $('#modelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
   $('#charModelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
   $('#segModelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
+  if ($('#appVersion')) $('#appVersion').textContent = cfg.version ? `v${cfg.version}` : '';
   // 旧进程没有 features.segment；先记下来，进细分页时直接提示重启
   S.serverStale = !(cfg.features && cfg.features.segment);
   if (S.serverStale && S.view === 'segment') showSegErr(STALE_SERVER_MSG);
