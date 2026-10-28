@@ -1,6 +1,6 @@
 # Prompt Forge 2.0 后续优化清单
 
-> 基线：**v2.0.0 已发布**（2026-10-28）；P0 五项已在本地完成，445 条 UI 断言全部通过（尚未发 2.0.1）。
+> 基线：**v2.0.0 已发布**（2026-10-28）；P0 五项已在本地完成，446 条 UI 断言全部通过（尚未发 2.0.1）。
 > Release：https://github.com/yu20000505/prompt-forge/releases/tag/v2.0.0
 >
 > 本文只保留**尚未完成**的优化项；已完成内容在文末汇总。
@@ -74,7 +74,7 @@ P0 已清空。下一步建议先做 **A6 + A7 + A8 + C4** 这一轮体验包；
 
 - [ ] 现状：`app.js` 已超过 4k 行，单文件维护；没有 lint/format/type check。
 - [ ] 做什么：按 state/api/render/modes/library/board 拆模块；加 ESLint/Prettier 或 oxlint；JSDoc + `tsc --checkJs` 逐步接入。
-- [ ] 验收：行为不变、445 条测试全过；lint/type check 进 CI。
+- [ ] 验收：行为不变、446 条测试全过；lint/type check 进 CI。
 
 ### D1a · 英文界面完整性审计 — 价值 中 / 成本 低
 

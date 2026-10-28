@@ -181,7 +181,14 @@ function publicConfig(cfg) {
     stream: cfg.stream !== false,
     jsonMode: !!cfg.jsonMode,
     // 前端用它判断后端是不是旧进程（改了 server.mjs 但没重启时很常见）
-    features: { segment: true, import: true, state: true },
+    features: {
+      segment: true,
+      import: true,
+      state: true,
+      favorite: true,
+      savedSearch: true,
+      backup: true,
+    },
   };
 }
 

@@ -378,6 +378,11 @@ window.PF_I18N = {
       'The server is an old process (no /api/segment). Restart Prompt Forge and refresh; rebuild the exe if needed.',
     '检测到服务端还是旧进程：没有 /api/import。请重启服务后再试。':
       'The server is an old process (no /api/import). Restart the server and retry.',
+    '检测到服务端还是旧进程：保存库收藏、历史落盘等新接口不可用。请关闭运行 Prompt Forge 的命令行窗口后重新运行 node src/server.mjs，再刷新本页；exe 版需要重新打包。':
+      'The server is an old process: favorites, history persistence and other new APIs are unavailable. Restart Prompt Forge and refresh; rebuild the exe if needed.',
+    '服务端是旧进程': 'Server is an old process',
+    '服务端还是旧进程，请重启 Prompt Forge 后再试':
+      'The server is an old process. Restart Prompt Forge and retry.',
     '接口 120 秒没有返回任何数据，已自动中止。请重试，或在设置里换一个模型。':
       'No data from the API for 120s; aborted. Retry or choose another model in Settings.',
     '正在生成，稍等一下再编辑': 'Generating; try editing in a moment',

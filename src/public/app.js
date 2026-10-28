@@ -179,6 +179,7 @@ const SEG_TYPES = [
 
 // 后端改了但没重启时，/api/segment 会 404；给一个能照做的提示，而不是裸的 not found
 const STALE_SERVER_MSG = '检测到服务端还是旧进程：没有 /api/segment。请关闭运行 Prompt Forge 的命令行窗口后重新运行 node src/server.mjs，再刷新本页；exe 版需要重新打包。';
+const STALE_SERVER_GENERAL = '检测到服务端还是旧进程：保存库收藏、历史落盘等新接口不可用。请关闭运行 Prompt Forge 的命令行窗口后重新运行 node src/server.mjs，再刷新本页；exe 版需要重新打包。';
 
 const SEG_REFINE_CHIPS = [
   '更华丽', '更日常', '去掉配饰', '换成冬季', '更赛博朋克',
@@ -249,6 +250,7 @@ const S = {
   segBatchMode: false,
   editorMode: null,
   serverStale: false,
+  staleNotified: false,
   lib: [],
   libDir: '',
   libEditing: null,
@@ -520,10 +522,20 @@ function applyConfig(cfg, opts = {}) {
   $('#charModelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
   $('#segModelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
   if ($('#appVersion')) $('#appVersion').textContent = cfg.version ? `v${cfg.version}` : '';
-  // 旧进程没有 features.segment；先记下来，进细分页时直接提示重启
-  S.serverStale = !(cfg.features && cfg.features.segment);
-  if (S.serverStale && S.view === 'segment') showSegErr(STALE_SERVER_MSG);
-  setStatus(cfg.hasKey, cfg.hasKey ? (cfg.model || '已配置') : '未配置 API Key');
+  // 旧进程没有 segment / import / state / favorite / backup 等接口；缺一个就提示重启
+  const features = cfg.features || {};
+  S.serverStale = !(features.segment && features.import && features.state
+    && features.favorite && features.savedSearch && features.backup);
+  if (S.serverStale) {
+    if (!S.staleNotified) {
+      S.staleNotified = true;
+      toast(STALE_SERVER_GENERAL, true);
+    }
+    setStatus(false, '服务端是旧进程');
+    if (S.view === 'segment') showSegErr(STALE_SERVER_MSG);
+  } else {
+    setStatus(cfg.hasKey, cfg.hasKey ? (cfg.model || '已配置') : '未配置 API Key');
+  }
 }
 
 function setStatus(ok, text) {
@@ -1333,7 +1345,10 @@ async function toggleLibraryFavorite(it) {
       body: JSON.stringify({ file: it.name, favorite: next }),
     });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    if (!r.ok) {
+      if (r.status === 404) throw new Error('服务端还是旧进程，请重启 Prompt Forge 后再试');
+      throw new Error(j.error || `HTTP ${r.status}`);
+    }
     it.favorite = next;
     renderLibrary();
     toast(next ? '已收藏并置顶' : '已取消收藏');
