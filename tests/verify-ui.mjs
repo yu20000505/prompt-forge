@@ -2710,6 +2710,13 @@ async function main() {
     (await evalJs(`S.currentWorld.entries.length`)) === 1
       && (await evalJs(`document.querySelectorAll('#worldEntryGrid .world-entry-card').length`)) === 1);
   await evalJs(`document.querySelector('#btnEntryAiClose').click(); true`);
+  await evalJs(`document.querySelector('#worldEntryGrid .world-entry-card').click(); true`);
+  await sleep(300);
+  check('条目详情框随文字展开且不内部滚动',
+    (await visible('#entryDialog')) === true
+      && (await evalJs(`getComputedStyle(document.querySelector('#entryFacts')).overflowY`)) === 'hidden');
+  await evalJs(`document.querySelector('#entryDialog .overlay-x').click(); true`);
+  await sleep(200);
 
   const histBeforeWorldGen = Number(await evalJs(`document.querySelector('#historyCount').textContent`));
   await evalJs(`document.querySelector('#worldSubtabs .subtab[data-world-tab="generate"]').click(); true`);
@@ -2736,6 +2743,14 @@ async function main() {
   await sleep(700);
   check('结果能写入条目参考提示词',
     (await evalJs(`S.currentWorld.entries[0].refPrompt.includes('Positive prompt')`)) === true);
+  check('所有弹窗都有右上角关闭按钮',
+    (await evalJs(`document.querySelectorAll('dialog').length`))
+      === (await evalJs(`document.querySelectorAll('dialog > .overlay-x').length`))
+      && (await evalJs(`document.querySelectorAll('.drawer').length`))
+      === (await evalJs(`document.querySelectorAll('.drawer > .overlay-x').length`)));
+  check('设定集结果框不内部滚动',
+    (await evalJs(`getComputedStyle(document.querySelector('#worldGenPositive')).overflowY`)) === 'visible'
+      && (await evalJs(`getComputedStyle(document.querySelector('#worldGenPositive')).maxHeight`)) === 'none');
 
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------

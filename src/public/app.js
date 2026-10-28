@@ -401,6 +401,8 @@ document.addEventListener('DOMContentLoaded', () => {
   loadBoard();
   initLibraryPrefs();
   bind();
+  installOverlayCloseButtons();
+  installAutoGrow();
   loadHistory();
   loadConfig().then(() => loadDrafts());
   refreshCounter();
@@ -1317,6 +1319,52 @@ function selectVariant(i) {
   toast('已选用方案，可继续微调');
 }
 
+/* ============ 弹层关闭 / 文本自增高 ============ */
+function installOverlayCloseButtons() {
+  for (const d of document.querySelectorAll('dialog')) {
+    if (d.querySelector(':scope > .overlay-x')) continue;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'overlay-x';
+    b.textContent = '×';
+    b.title = '关闭';
+    b.setAttribute('aria-label', '关闭');
+    b.addEventListener('click', () => d.close());
+    d.appendChild(b);
+  }
+  for (const d of document.querySelectorAll('.drawer')) {
+    if (d.querySelector(':scope > .overlay-x')) continue;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'overlay-x';
+    b.textContent = '×';
+    b.title = '关闭';
+    b.setAttribute('aria-label', '关闭');
+    b.addEventListener('click', () => {
+      const close = d.querySelector('.drawer-head button[id$="Close"]');
+      if (close) close.click();
+      else d.hidden = true;
+    });
+    d.appendChild(b);
+  }
+}
+
+function autoGrowTextarea(el) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight + 2}px`;
+}
+
+function installAutoGrow() {
+  for (const sel of ['#entrySummary', '#entryFacts', '#worldEditLogline', '#worldEditRules', '#worldAiSeeds', '#entryAiHint', '#worldGenSentence']) {
+    const el = $(sel);
+    if (!el) continue;
+    el.style.overflowY = 'hidden';
+    el.addEventListener('input', () => autoGrowTextarea(el));
+    autoGrowTextarea(el);
+  }
+}
+
 /* ============ 设定集 ============ */
 const WORLD_CAT = {
   character: '人物', item: '物品', creature: '生物', location: '地点', faction: '势力',
@@ -1463,6 +1511,8 @@ function openWorldEdit() {
   ]) $(id).value = val;
   $('#worldEditDialog').showModal();
   setTimeout(() => $('#worldEditName').focus(), 50);
+  autoGrowTextarea($('#worldEditLogline'));
+  autoGrowTextarea($('#worldEditRules'));
 }
 
 async function saveWorldEdit() {
@@ -1647,6 +1697,8 @@ function openEntryDialog(id) {
   $('#entryErr').hidden = true;
   $('#btnEntryDelete').hidden = !e.id;
   $('#entryDialog').showModal();
+  autoGrowTextarea($('#entrySummary'));
+  autoGrowTextarea($('#entryFacts'));
 }
 
 function entryFromDialog() {
@@ -1719,6 +1771,8 @@ async function expandEntry() {
     if (Array.isArray(j.facts) && j.facts.length) $('#entryFacts').value = factsToText(j.facts);
     if (j.visualAnchors) $('#entryVisual').value = j.visualAnchors;
     if (j.taboos) $('#entryTaboos').value = j.taboos;
+    autoGrowTextarea($('#entrySummary'));
+    autoGrowTextarea($('#entryFacts'));
     toast('AI 建议已填入，确认后点保存');
   } catch (err) {
     toast(`AI 扩写失败：${err.message}`, true);

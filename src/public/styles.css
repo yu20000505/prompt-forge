@@ -1795,6 +1795,8 @@ select {
 .drawer-head>div {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .drawer-body {
@@ -2906,6 +2908,58 @@ mark {
   padding: 0;
   width: min(500px, 92vw);
   box-shadow: 0 30px 80px var(--shadow-xl);
+  position: relative;
+}
+
+.overlay-x {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  z-index: 6;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--dim);
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.overlay-x:hover {
+  color: var(--danger-soft);
+  border-color: rgba(var(--danger-rgb), .4);
+}
+
+.settings h3 {
+  padding-right: 34px;
+}
+
+.variant-head {
+  padding-right: 34px;
+}
+
+.drawer {
+  position: fixed;
+}
+
+.drawer>.overlay-x {
+  top: 11px;
+  right: 11px;
+}
+
+.drawer-head {
+  padding-right: 44px;
+}
+
+.world-gen-result .variant-text,
+.world-gen-result .variant-translation {
+  max-height: none;
+  overflow: visible;
 }
 
 .settings::backdrop {
