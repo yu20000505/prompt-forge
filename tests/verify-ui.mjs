@@ -1223,6 +1223,10 @@ async function main() {
   // ---------- 12. 细分提示词 ----------
   await evalJs(`document.querySelector('#mainTabs .tab[data-view="segment"]').click(); true`);
   await sleep(350);
+  // 拼装板存在 localStorage 里，上一次跑的残留会干扰断言；先清空
+  await evalJs(`S.board = []; S.boardTitle = ''; saveBoard(); renderBoard(); true`);
+  await sleep(200);
+  check('拼装板初始为空', Number(await evalJs(`document.querySelector('#boardBtnCount').textContent`)) === 0);
 
   await evalJs(`(() => {
     const s = document.querySelector('#segSentence');
@@ -1279,6 +1283,18 @@ async function main() {
 
   const histAfterSeg = Number(await evalJs(`document.querySelector('#historyCount').textContent`));
   check('细分生成也进历史', histAfterSeg === histBeforeSeg + 1, `${histBeforeSeg} -> ${histAfterSeg}`);
+
+  // 加入拼装板
+  check('细分结果可以加入拼装板',
+    (await evalJs(`document.querySelector('#btnSegAddBoard').disabled`)) === false);
+  await evalJs(`document.querySelector('#btnSegAddBoard').click(); true`);
+  await sleep(350);
+  const boardCountAfterAdd = Number(await evalJs(`document.querySelector('#boardBtnCount').textContent`));
+  check('加入拼装板后计数 +1', boardCountAfterAdd === 1, `count=${boardCountAfterAdd}`);
+  const storedBoard = await evalJs(`JSON.parse(localStorage.getItem('pf-board-v1') || '{}')`);
+  check('拼装板按类型存下标签',
+    storedBoard?.items?.[0]?.type === 'outfit' && storedBoard.items[0].tags === segTags,
+    JSON.stringify(storedBoard).slice(0, 120));
 
   // 细分标签微调
   check('细分结果出现微调区', (await visible('#segRefineBar')) === true);
@@ -1393,6 +1409,109 @@ async function main() {
   await sleep(1400);
   const segRenamed = savedFiles().find((f) => f.includes('_细分提示词_改过名的细分条目.md')) || '';
   check('细分条目重命名后保留类型', !!segRenamed, savedFiles().join(' | '));
+  await evalJs(`document.querySelector('#btnLibClose').click(); true`);
+  await sleep(250);
+
+  // ---------- 12.5 拼装板 ----------
+  await evalJs(`document.querySelector('#btnBoard').click(); true`);
+  await sleep(450);
+  check('拼装板抽屉能打开', (await visible('#boardDrawer')) === true);
+
+  const boardSlots = await evalJs(`[...document.querySelectorAll('#boardList .board-slot')].map((s) => ({
+    type: s.dataset.type,
+    empty: s.classList.contains('empty'),
+    tags: s.querySelector('.board-slot-tags')?.textContent || '',
+  }))`);
+  check('拼装板展示七个细分类型', boardSlots.length === 7, `实际 ${boardSlots.length}`);
+  check('拼装板保留已加入的服饰标签',
+    boardSlots[0]?.type === 'outfit' && boardSlots[0].tags === segTags,
+    JSON.stringify(boardSlots[0]).slice(0, 90));
+
+  const boardPreview = await evalJs(`document.querySelector('#boardPreviewText').textContent`);
+  check('拼装板的组合结果就是当前标签', boardPreview === segTags, boardPreview.slice(0, 60));
+
+  await evalJs(`(() => {
+    const i = document.querySelector('#boardTitle');
+    i.value = '拼装测试';
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await evalJs(`document.querySelector('#btnBoardSave').click(); true`);
+  await sleep(1200);
+  const boardFile = savedFiles().find((f) => f.includes('_提示词_拼装测试.md')) || '';
+  check('拼装板能保存成提示词文件', !!boardFile, boardFile);
+  const boardSaved = readSaved(boardFile);
+  check('拼装文件带组合结果和标签明细',
+    boardSaved.includes('## 正向提示词') && boardSaved.includes('## 标签明细')
+      && boardSaved.includes(segTags.slice(0, 30)), '');
+  check('拼装文件元数据标出 assembly', boardSaved.includes('"assembly":true'), '');
+
+  // 再加一类：组合顺序固定，重复标签只留一次
+  await evalJs(`addToBoard({ type: 'lighting', tags: 'volumetric fog, black lace corset dress', title: '光影测试' }); true`);
+  await sleep(300);
+  const boardPreview2 = await evalJs(`document.querySelector('#boardPreviewText').textContent`);
+  const dupCount = boardPreview2.split(',').filter((s) => s.trim().toLowerCase() === 'black lace corset dress').length;
+  check('拼装结果按类型顺序排列',
+    boardPreview2.startsWith(segTags) && boardPreview2.endsWith('volumetric fog'),
+    boardPreview2.slice(0, 80));
+  check('拼装结果会去掉重复标签', dupCount === 1, `重复 ${dupCount} 次`);
+
+  // 同一类型再次加入应该替换，而不是越堆越长
+  await evalJs(`addToBoard({ type: 'lighting', tags: 'neon glow, volumetric fog', title: '光影测试 2' }); true`);
+  await sleep(300);
+  const boardPreview3 = await evalJs(`document.querySelector('#boardPreviewText').textContent`);
+  const boardTypes = await evalJs(`JSON.parse(localStorage.getItem('pf-board-v1') || '{}').items.map((x) => x.type)`);
+  check('同一类型再次加入会替换旧标签',
+    boardTypes.filter((t) => t === 'lighting').length === 1
+      && !boardPreview3.includes('cyan rim light') && boardPreview3.includes('neon glow'),
+    JSON.stringify(boardTypes));
+
+  // 移除某一类
+  await evalJs(`(() => {
+    const s = [...document.querySelectorAll('#boardList .board-slot')].find((x) => x.dataset.type === 'outfit');
+    s.querySelector('.board-remove').click();
+    return true;
+  })()`);
+  await sleep(350);
+  const boardPreview4 = await evalJs(`document.querySelector('#boardPreviewText').textContent`);
+  check('移除某一类后组合结果同步更新',
+    !boardPreview4.includes('black lace corset dress') && boardPreview4.includes('neon glow'),
+    boardPreview4.slice(0, 60));
+
+  // 清空 + 撤销
+  await evalJs(`document.querySelector('#btnBoardClear').click(); true`);
+  await sleep(300);
+  check('清空拼装板',
+    Number(await evalJs(`document.querySelector('#boardBtnCount').textContent`)) === 0
+      && (await evalJs(`document.querySelector('#boardPreviewText').textContent`)).includes('把任意一类'));
+  check('清空拼装板后出现撤销按钮',
+    (await evalJs(`!!document.querySelector('#toast .toast-undo')`)) === true);
+  await evalJs(`document.querySelector('#toast .toast-undo').click(); true`);
+  await sleep(450);
+  check('撤销清空能恢复拼装板',
+    Number(await evalJs(`document.querySelector('#boardBtnCount').textContent`)) === 1);
+
+  await evalJs(`document.querySelector('#btnBoardClose').click(); true`);
+  await sleep(250);
+  check('拼装板能关闭', (await visible('#boardDrawer')) === false);
+
+  // 保存库里的细分条目也能直接拼装
+  await evalJs(`document.querySelector('#btnLibrary').click(); true`);
+  await sleep(900);
+  const libAssemble = await evalJs(`(() => {
+    const it = [...document.querySelectorAll('#libList .lib-item')]
+      .find((x) => x.querySelector('.lib-kind')?.textContent === '细分提示词');
+    if (!it) return 'no-item';
+    const b = [...it.querySelectorAll('.lib-actions .btn')].find((x) => x.textContent === '拼装');
+    if (!b) return 'no-button';
+    b.click();
+    return 'clicked';
+  })()`);
+  await sleep(900);
+  const boardTypesAfterLib = await evalJs(`JSON.parse(localStorage.getItem('pf-board-v1') || '{}').items.map((x) => x.type)`);
+  check('保存库细分条目可以一键拼装',
+    libAssemble === 'clicked' && boardTypesAfterLib.includes('outfit') && boardTypesAfterLib.includes('lighting'),
+    `${libAssemble} / ${JSON.stringify(boardTypesAfterLib)}`);
   await evalJs(`document.querySelector('#btnLibClose').click(); true`);
   await sleep(250);
 

@@ -457,6 +457,8 @@ body {
 .result-tools {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /* ---------- 表单 ---------- */
@@ -1575,6 +1577,120 @@ select {
   gap: 8px;
 }
 
+/* ---------- 拼装板 ---------- */
+.board-drawer {
+  width: min(480px, 94vw);
+}
+
+.board-intro {
+  margin: 0 2px 2px;
+  line-height: 1.65;
+}
+
+.board-slot {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: var(--ink-1);
+}
+
+.board-slot.empty {
+  border-style: dashed;
+  background: transparent;
+}
+
+.board-slot-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.board-slot-label {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.board-slot-tags {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--mono-text);
+  word-break: break-word;
+}
+
+.board-slot-hint {
+  margin: 5px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.board-slot-from {
+  margin-top: 4px;
+}
+
+.board-remove {
+  padding: 2px 8px;
+  font-size: 10.5px;
+}
+
+.board-preview {
+  border: 1px solid rgba(var(--accent-rgb), .32);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(var(--accent-rgb), .07);
+}
+
+.board-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.board-preview-head strong {
+  font-size: 12px;
+}
+
+.board-preview-text {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--mono-text);
+  word-break: break-word;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.board-foot {
+  border-top: 1px solid var(--line);
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  background: var(--deep);
+}
+
+.board-foot .field-label {
+  margin: 0 0 1px;
+}
+
+.board-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.board-actions .btn {
+  flex: 1;
+  justify-content: center;
+}
+
+.board-hint {
+  margin: 0;
+  line-height: 1.6;
+}
+
 /* ---------- 历史条目 ---------- */
 .hist-item {
   border: 1px solid var(--line);
@@ -1832,6 +1948,7 @@ select {
 .lib-actions {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .lib-actions .btn {

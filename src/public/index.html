@@ -366,6 +366,8 @@
           <h2>标签结果</h2>
           <div class="result-tools">
             <button class="btn tiny" id="btnSegCopyAll" disabled>复制标签</button>
+            <button class="btn tiny" id="btnSegAddBoard" disabled
+              title="把当前这类标签放进拼装板，和别的类型拼成完整提示词">＋ 拼装板</button>
             <button class="btn tiny" id="btnSegSave" disabled>💾 保存</button>
             <button class="btn tiny" id="btnSegRegen" disabled>↻ 重新生成</button>
           </div>
@@ -413,6 +415,7 @@
     <footer class="foot">
       <span class="dim small">Ctrl+Enter 生成 · Ctrl+1 / 2 / 3 切页签 · Ctrl+S 保存结果</span>
       <div class="foot-right">
+        <button class="btn tiny ghost" id="btnBoard" title="把多次生成的细分标签拼成一条完整提示词">🧩 拼装板 <span id="boardBtnCount">0</span></button>
         <button class="btn tiny ghost" id="btnLibrary">📚 保存库 <span id="libBtnCount">0</span></button>
         <button class="btn tiny ghost" id="btnOpenSaved">📁 打开目录</button>
         <button class="btn tiny ghost" id="btnHistory">历史记录 <span id="historyCount">0</span></button>
@@ -452,6 +455,31 @@
       <input id="histFilter" placeholder="搜索历史记录…" autocomplete="off" />
     </div>
     <div class="drawer-body" id="historyList"></div>
+  </aside>
+
+  <!-- ============ 拼装板（把多次生成的细分标签拼成一条完整提示词） ============ -->
+  <div class="drawer-mask" id="boardMask" hidden></div>
+  <aside class="drawer board-drawer" id="boardDrawer" hidden role="dialog" aria-modal="true" aria-label="拼装板">
+    <div class="drawer-head">
+      <h3>拼装板 <span class="dim small" id="boardCount"></span></h3>
+      <div>
+        <button class="btn tiny ghost" id="btnBoardClear">清空</button>
+        <button class="btn tiny ghost" id="btnBoardClose">关闭</button>
+      </div>
+    </div>
+    <div class="drawer-body" id="boardList"></div>
+    <div class="board-foot">
+      <label class="field-label" for="boardTitle">保存到库时的标题</label>
+      <input id="boardTitle" maxlength="60" autocomplete="off" placeholder="留空则用第一组标签的标题" />
+      <div class="board-actions">
+        <button class="btn tiny" id="btnBoardCopy" type="button" disabled>复制组合</button>
+        <button class="btn tiny primary" id="btnBoardSave" type="button" disabled>💾 保存到库</button>
+      </div>
+      <p class="board-hint dim small">
+        按「服饰 → 人物 → 场景 → 动作 → 道具 → 光影 → 画风」的顺序拼成一条 tag 串，
+        重复标签会自动去掉；不包含置顶词。
+      </p>
+    </div>
   </aside>
 
   <!-- ============ 设置 ============ -->

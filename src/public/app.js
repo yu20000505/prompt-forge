@@ -28,6 +28,10 @@ const SEG_REFINE_CHIPS = [
   '颜色更暗', '材质更具体', '精简一些', '更写实', '细节更多',
 ];
 
+// 拼装板：把不同细分类型的结果攒起来，按固定顺序拼成一条完整 tag 串。
+// 只存 localStorage，不写磁盘；每个类型最多留一条（加入同一类型会替换旧的）。
+const BOARD_KEY = 'pf-board-v1';
+
 // 本地兜底词库：只在接口不可用（没配 Key / 连不上）时用
 const IDEAS = [
   '雨夜的霓虹街头，一位赛博朋克女剑客回头看向镜头',
@@ -80,6 +84,8 @@ const S = {
   lib: [],
   libDir: '',
   libEditing: null,
+  board: [],           // [{ type, tags, title, sentence, at }]
+  boardTitle: '',
 };
 
 // 没拉取过列表时先给几个常用的，避免下拉框一开始是空的
@@ -114,6 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
   renderSegTypeChips();
   renderSegRefineChips();
   renderThemeSwatches();
+  loadBoard();
   bind();
   loadHistory();
   loadConfig();
@@ -799,6 +806,8 @@ async function refreshLibraryCount() {
 }
 
 async function openLibrary() {
+  closeDrawer();
+  closeBoard();
   $('#libMask').hidden = false;
   $('#libDrawer').hidden = false;
   $('#libFilter').value = '';
@@ -1030,6 +1039,27 @@ function libraryItemEl(it) {
       copyText(text, b);
     });
     copyBtn.title = '复制英文内容（角色设定只复制英文提示词）';
+    if (it.kind === '细分提示词') {
+      const addBtn = mkBtn('拼装', async (b) => {
+        const loaded = await fetchSavedMeta(it);
+        if (!loaded) return;
+        const meta = loaded.meta && typeof loaded.meta === 'object' ? loaded.meta : {};
+        const type = SEG_TYPES.some((t) => t.id === meta.segmentType) ? meta.segmentType : '';
+        if (!type) {
+          toast('这个文件没有记录细分类型，先载入后再点「＋ 拼装板」', true);
+          return;
+        }
+        if (!addToBoard({
+          type,
+          tags: meta.tags || it.summary,
+          title: loaded.title || it.title,
+          sentence: meta.sentence || '',
+        })) return;
+        b.textContent = '已加入 ✓';
+        setTimeout(() => { b.textContent = '拼装'; }, 1400);
+      });
+      addBtn.title = '把这条细分标签加入拼装板';
+    }
     mkBtn('重命名', () => {
       S.libEditing = it.name;
       renderLibrary();
@@ -1921,6 +1951,7 @@ async function generateSegment() {
   $('#btnSegRegen').disabled = true;
   $('#btnSegCopyAll').disabled = true;
   $('#btnSegSave').disabled = true;
+  $('#btnSegAddBoard').disabled = true;
 
   S.segAbort = new AbortController();
   // 服务端 120 秒没数据会自己中止；这里再兜一层，防止网络层完全卡死
@@ -2026,6 +2057,7 @@ async function generateSegment() {
     $('#btnSegRegen').disabled = !S.segData;
     $('#btnSegCopyAll').disabled = !S.segData;
     $('#btnSegSave').disabled = !S.segData;
+    $('#btnSegAddBoard').disabled = !S.segData;
     updateSegRefineUi();
   }
 }
@@ -2077,6 +2109,7 @@ function renderSegment(d) {
   $('#btnSegSave').disabled = false;
   $('#btnSegCopyAll').disabled = false;
   $('#btnSegRegen').disabled = false;
+  $('#btnSegAddBoard').disabled = false;
   updateSegRefineUi();
 }
 
@@ -2255,6 +2288,308 @@ function undoSegmentRefine() {
   renderSegment(d);
   updateSegmentHistoryEntry();
   hideSegErr();
+}
+
+/* ============ 拼装板（把多次生成的细分标签拼成一条完整提示词） ============ */
+
+// 固定顺序：不管先加入哪一类，拼出来的 tag 串顺序都稳定
+function boardSorted() {
+  const order = new Map(SEG_TYPES.map((t, i) => [t.id, i]));
+  return [...S.board].sort((a, b) => (order.get(a.type) ?? 99) - (order.get(b.type) ?? 99));
+}
+
+function renderBoardCount() {
+  const n = S.board.length;
+  const badge = $('#boardBtnCount');
+  if (badge) badge.textContent = String(n);
+  const count = $('#boardCount');
+  if (count) count.textContent = n ? `${n} / ${SEG_TYPES.length} 类` : '空';
+}
+
+function loadBoard() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BOARD_KEY) || 'null');
+    const items = Array.isArray(raw?.items) ? raw.items : [];
+    const seen = new Set();
+    S.board = [];
+    for (const it of items) {
+      const type = SEG_TYPES.some((t) => t.id === it?.type) ? it.type : '';
+      const tags = str(it?.tags).trim();
+      if (!type || !tags || seen.has(type)) continue;   // 坏数据直接跳过，别让它拖垮界面
+      seen.add(type);
+      S.board.push({
+        type,
+        tags,
+        title: str(it.title),
+        sentence: str(it.sentence),
+        at: Number(it.at) || Date.now(),
+      });
+    }
+    S.boardTitle = str(raw?.title);
+  } catch {
+    S.board = [];
+    S.boardTitle = '';
+  }
+  renderBoardCount();
+}
+
+function saveBoard() {
+  try {
+    localStorage.setItem(BOARD_KEY, JSON.stringify({ title: S.boardTitle || '', items: S.board }));
+  } catch {
+    /* 存不下就只在本次生效 */
+  }
+  renderBoardCount();
+}
+
+// 按类型顺序拼接，去掉完全相同的标签（大小写不敏感）
+function boardCombined() {
+  const seen = new Set();
+  const out = [];
+  for (const it of boardSorted()) {
+    for (const piece of String(it.tags || '').split(/[,，]/)) {
+      const tag = piece.trim();
+      if (!tag) continue;
+      const key = tag.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(tag);
+    }
+  }
+  return out.join(', ');
+}
+
+function addToBoard({ type, tags, title, sentence } = {}) {
+  const id = SEG_TYPES.some((t) => t.id === type) ? type : '';
+  const body = str(tags).trim();
+  if (!id) {
+    toast('这组标签缺少类型信息，先载入到细分页再加进拼装板', true);
+    return false;
+  }
+  if (!body) {
+    toast('这组标签是空的，没法加入拼装板', true);
+    return false;
+  }
+
+  const entry = {
+    type: id,
+    tags: body,
+    title: str(title),
+    sentence: str(sentence),
+    at: Date.now(),
+  };
+  const i = S.board.findIndex((x) => x.type === id);
+  const replaced = i >= 0;
+  if (replaced) S.board[i] = entry;
+  else S.board.push(entry);
+  saveBoard();
+  if (!$('#boardDrawer').hidden) renderBoard();
+
+  toast(replaced
+    ? `已更新拼装板的「${segTypeLabel(id)}」`
+    : `已加入拼装板：${segTypeLabel(id)}（${countTags(body)} 个标签）`);
+  return true;
+}
+
+function removeFromBoard(type) {
+  const item = S.board.find((x) => x.type === type);
+  if (!item) return;
+  S.board = S.board.filter((x) => x.type !== type);
+  saveBoard();
+  renderBoard();
+  toastUndo(`已从拼装板移除「${segTypeLabel(type)}」`, () => {
+    S.board.push(item);
+    saveBoard();
+    renderBoard();
+    toast('已恢复到拼装板');
+  });
+}
+
+function clearBoard() {
+  if (!S.board.length) return;
+  const backup = S.board.slice();
+  S.board = [];
+  saveBoard();
+  renderBoard();
+  toastUndo(`已清空拼装板的 ${backup.length} 类标签`, () => {
+    S.board = backup;
+    saveBoard();
+    renderBoard();
+    toast('拼装板已恢复');
+  });
+}
+
+function gotoSegmentType(type) {
+  closeBoard();
+  switchView('segment');
+  const id = SEG_TYPES.some((t) => t.id === type) ? type : S.segType;
+  S.segType = id;
+  document.querySelectorAll('#segTypeChips .chip').forEach((c) => {
+    c.classList.toggle('active', c.dataset.id === id);
+  });
+  // 拼装板里已有别的类型时，顺手把当时那句话填过去，省得重新打一遍
+  const first = boardSorted()[0];
+  if (!$('#segSentence').value.trim() && first?.sentence) {
+    $('#segSentence').value = first.sentence;
+    refreshCounter();
+  }
+  setTimeout(() => $('#segSentence').focus(), 60);
+}
+
+function openBoard() {
+  closeLibrary();
+  closeDrawer();
+  closeThemePop();
+  $('#boardMask').hidden = false;
+  $('#boardDrawer').hidden = false;
+  renderBoard();
+  setTimeout(() => $('#btnBoardClose').focus(), 40);
+}
+
+function closeBoard() {
+  $('#boardMask').hidden = true;
+  $('#boardDrawer').hidden = true;
+}
+
+function boardMarkdown(tags) {
+  const list = boardSorted();
+  const lines = [];
+  lines.push(`> 来源：拼装板（${list.length} 类细分标签）`);
+  lines.push(`> 组成：${list.map((x) => segTypeLabel(x.type)).join(' / ')}`);
+  const first = list[0];
+  if (first?.sentence) lines.push(`> 原始描述：${first.sentence}`);
+  const target = $('#targetModel').value.trim();
+  if (target && target !== '通用') lines.push(`> 目标模型：${target}`);
+
+  lines.push('', '## 正向提示词', '', tags);
+  lines.push('', '## 标签明细', '');
+  for (const it of list) lines.push(`- ${segTypeLabel(it.type)}：${it.tags}`);
+  return lines.join('\n').trim();
+}
+
+function renderBoard() {
+  const box = $('#boardList');
+  if (!box) return;
+  const list = boardSorted();
+  const byType = new Map(list.map((x) => [x.type, x]));
+  box.innerHTML = '';
+
+  const intro = document.createElement('p');
+  intro.className = 'board-intro dim small';
+  intro.textContent = list.length
+    ? '每个类型保留一组标签；加入同一类型会替换旧的，点「去生成」补齐缺的类型。'
+    : '还没有加入任何标签。在细分页生成结果后点「＋ 拼装板」，或从保存库的细分条目点「拼装」。';
+  box.appendChild(intro);
+
+  for (const t of SEG_TYPES) {
+    const item = byType.get(t.id);
+    const row = document.createElement('div');
+    row.className = 'board-slot' + (item ? '' : ' empty');
+    row.dataset.type = t.id;
+
+    const head = document.createElement('div');
+    head.className = 'board-slot-head';
+
+    const label = document.createElement('span');
+    label.className = 'board-slot-label';
+    label.textContent = t.label;
+    head.appendChild(label);
+
+    const meta = document.createElement('span');
+    meta.className = 'dim small';
+    meta.textContent = item ? `${countTags(item.tags)} 个标签` : '未添加';
+    head.appendChild(meta);
+
+    const grow = document.createElement('span');
+    grow.className = 'grow';
+    head.appendChild(grow);
+
+    if (item) {
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'btn tiny ghost board-remove';
+      rm.textContent = '移除';
+      rm.title = `从拼装板移除「${t.label}」`;
+      rm.addEventListener('click', () => removeFromBoard(t.id));
+      head.appendChild(rm);
+    } else {
+      const go = document.createElement('button');
+      go.type = 'button';
+      go.className = 'btn tiny ghost';
+      go.textContent = '去生成';
+      go.addEventListener('click', () => gotoSegmentType(t.id));
+      head.appendChild(go);
+    }
+    row.appendChild(head);
+
+    if (item) {
+      const tags = document.createElement('p');
+      tags.className = 'board-slot-tags mono';
+      tags.textContent = item.tags;
+      row.appendChild(tags);
+      if (item.title) {
+        const from = document.createElement('div');
+        from.className = 'board-slot-from dim small';
+        from.textContent = `来自：${item.title}`;
+        row.appendChild(from);
+      }
+    } else {
+      const hint = document.createElement('p');
+      hint.className = 'board-slot-hint dim small';
+      hint.textContent = `还没有「${t.label}」标签，生成后会自动补齐成完整提示词。`;
+      row.appendChild(hint);
+    }
+    box.appendChild(row);
+  }
+
+  const tags = boardCombined();
+  const preview = document.createElement('section');
+  preview.className = 'board-preview';
+  const previewHead = document.createElement('div');
+  previewHead.className = 'board-preview-head';
+  const previewTitle = document.createElement('strong');
+  previewTitle.textContent = '组合结果';
+  const previewCount = document.createElement('span');
+  previewCount.className = 'dim small';
+  previewCount.textContent = tags ? `${countTags(tags)} 个标签` : '还没有内容';
+  previewHead.append(previewTitle, previewCount);
+  preview.appendChild(previewHead);
+
+  const previewText = document.createElement('p');
+  previewText.className = 'board-preview-text mono';
+  previewText.id = 'boardPreviewText';
+  previewText.textContent = tags || '把任意一类标签加入拼装板后，这里会显示可直接粘贴的组合结果。';
+  preview.appendChild(previewText);
+  box.appendChild(preview);
+
+  const titleInput = $('#boardTitle');
+  if (titleInput && document.activeElement !== titleInput) titleInput.value = S.boardTitle;
+  $('#btnBoardCopy').disabled = !tags;
+  $('#btnBoardSave').disabled = !tags;
+  renderBoardCount();
+}
+
+async function saveBoardToLibrary(btn) {
+  const tags = boardCombined();
+  if (!tags) {
+    toast('拼装板还是空的，先加入至少一类标签', true);
+    return;
+  }
+  const list = boardSorted();
+  const first = list[0] || {};
+  const title = (S.boardTitle.trim() || first.title || '拼装标签').slice(0, 60);
+  await saveToLocal('prompt', title, boardMarkdown(tags), {
+    sentence: first.sentence || '',
+    style: S.style,
+    targetModel: $('#targetModel').value.trim(),
+    positive: tags,
+    negative: '',
+    translation: '',
+    params: {},
+    keywords: list.map((x) => segTypeLabel(x.type)),
+    assembly: true,
+    board: list.map((x) => ({ type: x.type, tags: x.tags })),
+  }, btn);
 }
 
 /* ============ 微调 ============ */
@@ -2457,6 +2792,8 @@ function refreshCounter() {
 }
 
 function openDrawer() {
+  closeLibrary();
+  closeBoard();
   $('#drawerMask').hidden = false;
   $('#drawer').hidden = false;
   const f = $('#histFilter');
@@ -2584,6 +2921,31 @@ function bind() {
       translation: d.translation || '',
       keywords: d.keywords || [],
     }, $('#btnSegSave'));
+  });
+
+  /* 拼装板 */
+  $('#btnSegAddBoard').addEventListener('click', () => {
+    if (!S.segData) return;
+    addToBoard({
+      type: S.segMeta?.type || S.segType,
+      tags: S.segData.tags,
+      title: S.segData.title,
+      sentence: S.segMeta?.sentence || S.segSentence,
+    });
+  });
+  $('#btnBoard').addEventListener('click', openBoard);
+  $('#btnBoardClose').addEventListener('click', closeBoard);
+  $('#boardMask').addEventListener('click', closeBoard);
+  $('#btnBoardClear').addEventListener('click', clearBoard);
+  $('#btnBoardCopy').addEventListener('click', (e) => {
+    copyText(boardCombined(), e.currentTarget);
+  });
+  $('#btnBoardSave').addEventListener('click', (e) => {
+    saveBoardToLibrary(e.currentTarget);
+  });
+  $('#boardTitle').addEventListener('input', () => {
+    S.boardTitle = $('#boardTitle').value;
+    saveBoard();
   });
 
   /* 细分标签的微调 */
@@ -2723,6 +3085,8 @@ function bind() {
       closeThemePop();
     } else if (!$('#libDrawer').hidden) {
       closeLibrary();
+    } else if (!$('#boardDrawer').hidden) {
+      closeBoard();
     } else if (!$('#drawer').hidden) {
       closeDrawer();
     } else {
