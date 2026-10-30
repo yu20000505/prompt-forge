@@ -1681,6 +1681,19 @@ async function callModelJson(ctx, messages, maxTokens = 1600) {
   }
 }
 
+// 设定集 AI 生成时，视觉锚点要足够具体，才能稳定复现
+const WORLD_VISUAL_RULES = {
+  character: 'visualAnchors 必须 8-14 项，用「、」分隔，至少覆盖：年龄感/脸型/肤色、发色+发型+发长、瞳色/眼型/眼神、身高体型、服装轮廓+主色+材质+纹样、鞋/手套/披风等配件、随身武器或道具、伤疤/纹身/首饰/异色瞳等识别点。不要只写“银发、长袍、刀”这种 3 项概括，不要写抽象形容词。',
+  item: 'visualAnchors 必须 6-12 项，用「、」分隔，覆盖：尺寸/轮廓、主材质、颜色与做旧程度、纹样/铭文、发光或反光部位、磨损/缺口、持有人标记、特殊结构。',
+  creature: 'visualAnchors 必须 6-12 项，用「、」分隔，覆盖：体型与轮廓、皮肤/毛发/鳞片、头部与五官、 limbs/翼/尾、颜色与斑纹、发光部位、环境适应性特征。',
+  location: 'visualAnchors 必须 6-12 项，用「、」分隔，覆盖：建筑轮廓、主要材质、主色、地标物、地形/植被、天气与光线、尺度感、可识别细节。',
+  faction: 'visualAnchors 必须 6-12 项，用「、」分隔，覆盖：徽记形状、主色与辅色、制服/盔甲轮廓、材质、旗帜/纹章、建筑或领地特征、标志性道具。',
+};
+
+function worldVisualRule(category) {
+  return WORLD_VISUAL_RULES[category] || WORLD_VISUAL_RULES.character;
+}
+
 async function handleWorlds(req, res, id = null, action = null) {
   if (!id && req.method === 'GET') {
     return json(res, 200, { items: await listWorlds() });
@@ -1747,9 +1760,9 @@ async function handleWorlds(req, res, id = null, action = null) {
           { role: 'system', content: '你是设定集策划。只输出 JSON，不要解释。不要与已有条目重名。' },
           {
             role: 'user',
-            content: `世界设定：\n${worldContextText(world, [])}\n\n已有条目：${existing || '无'}\n请生成 ${count} 个「${category}」分类的候选条目。补充提示：${hint || '无'}\n只输出：{"entries":[{"name":"","summary":"","facts":[{"label":"","value":""}],"visualAnchors":"","taboos":""}]}`,
+            content: `世界设定：\n${worldContextText(world, [])}\n\n已有条目：${existing || '无'}\n请生成 ${count} 个「${category}」分类的候选条目。补充提示：${hint || '无'}\n${worldVisualRule(category)}\nfacts 至少 4 条，写清身份、外观、服装/结构、关键关系或能力。\n只输出：{"entries":[{"name":"","summary":"","facts":[{"label":"","value":""}],"visualAnchors":"","taboos":""}]}`,
           },
-        ], 2400);
+        ], 3000);
         return json(res, 200, result);
       }
       if (body.task === 'expandSentence') {
@@ -1773,9 +1786,9 @@ async function handleWorlds(req, res, id = null, action = null) {
           { role: 'system', content: '你是设定集编辑。只输出 JSON，不要解释。保留已经确定的内容。' },
           {
             role: 'user',
-            content: `世界设定：\n${worldContextText(world, [])}\n\n当前条目：${JSON.stringify(entry)}\n请补全缺失字段并扩写，但不要改变已有事实。\n只输出：{"summary":"","facts":[{"label":"","value":""}],"visualAnchors":"","taboos":""}`,
+            content: `世界设定：\n${worldContextText(world, [])}\n\n当前条目：${JSON.stringify(entry)}\n请补全缺失字段并扩写，但不要改变已有事实。\n${worldVisualRule(entry.category)}\n如果当前 visualAnchors 少于 8 项，请重写为 8-14 项具体特征。\n只输出：{"summary":"","facts":[{"label":"","value":""}],"visualAnchors":"","taboos":""}`,
           },
-        ], 1800);
+        ], 2400);
         return json(res, 200, result);
       }
       return json(res, 400, { error: '未知 AI 任务' });

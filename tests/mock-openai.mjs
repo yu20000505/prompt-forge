@@ -172,9 +172,9 @@ const MOCK_WORLD_CORE = {
 };
 const MOCK_WORLD_ENTRIES = {
   entries: [
-    { name: '沈照雪', summary: '银发刀客，左眼有旧伤', facts: [{ label: '身份', value: '守夜人末裔' }, { label: '服装', value: '灰白长袍' }], visualAnchors: '银发、灰白长袍、断水刀', taboos: '现代服装' },
-    { name: '裴无咎', summary: '旧神祭司，笑面之下藏着疯狂', facts: [{ label: '身份', value: '残卷守藏人' }], visualAnchors: '黑金祭袍、铜面具', taboos: '阳光' },
-    { name: '白藏', summary: '雪原游医，随身带着一只铜药箱', facts: [{ label: '身份', value: '游医' }], visualAnchors: '灰白斗篷、铜药箱', taboos: '华丽服饰' },
+    { name: '沈照雪', summary: '银发刀客，左眼有旧伤', facts: [{ label: '身份', value: '守夜人末裔' }, { label: '服装', value: '灰白长袍' }], visualAnchors: '二十岁上下、冷白肤色、银发及腰、灰蓝瞳、左眼旧伤、灰白亚麻长袍、朱砂腰带、金属护腕、断水刀、颈侧旧疤', taboos: '现代服装' },
+    { name: '裴无咎', summary: '旧神祭司，笑面之下藏着疯狂', facts: [{ label: '身份', value: '残卷守藏人' }], visualAnchors: '三十岁上下、瘦高身形、黑色长发、琥珀瞳、黑金祭袍、铜面具、骨制念珠、左手指环、暗红披风', taboos: '阳光' },
+    { name: '白藏', summary: '雪原游医，随身带着一只铜药箱', facts: [{ label: '身份', value: '游医' }], visualAnchors: '四十岁上下、风霜脸、灰白短发、深褐眼、灰白斗篷、铜药箱、鹿皮手套、旧布靴、腰间药囊', taboos: '华丽服饰' },
   ],
 };
 const MOCK_WORLD_EXPAND = {

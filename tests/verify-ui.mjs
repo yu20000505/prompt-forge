@@ -392,7 +392,7 @@ async function main() {
   check('生成后保存按钮可用',
     (await evalJs(`document.querySelector('#btnSavePrompt').disabled`)) === false);
   await evalJs(`document.querySelector('#btnSavePrompt').click(); true`);
-  await sleep(1000);
+  await sleep(2000);
 
   const toastText = await evalJs(`document.querySelector('#toast').textContent`);
   check('保存后有提示', /已保存/.test(toastText), toastText);
@@ -541,7 +541,7 @@ async function main() {
   // 保存后要能带回完整的微调版本
   const savedBeforeVersions = savedFiles().length;
   await evalJs(`document.querySelector('#btnSavePrompt').click(); true`);
-  await sleep(1100);
+  await sleep(1800);
   const savedAfterVersions = savedFiles();
   check('微调后保存会新增文件', savedAfterVersions.length === savedBeforeVersions + 1);
   const versionFile = savedAfterVersions.filter((f) => f.includes('提示词')).pop() || '';
@@ -2756,6 +2756,9 @@ async function main() {
   check('采纳后条目进入设定集',
     (await evalJs(`S.currentWorld.entries.length`)) === 1
       && (await evalJs(`document.querySelectorAll('#worldEntryGrid .world-entry-card').length`)) === 1);
+  check('AI 人物的视觉锚点足够详细',
+    (await evalJs(`S.currentWorld.entries[0].visualAnchors.split(/[、,，]/).filter(Boolean).length`)) >= 8
+      && (await evalJs(`/灰蓝瞳|亚麻长袍|颈侧旧疤/.test(S.currentWorld.entries[0].visualAnchors)`)) === true);
   await evalJs(`document.querySelector('#btnEntryAiClose').click(); true`);
   await evalJs(`document.querySelector('#worldEntryGrid .world-entry-card').click(); true`);
   await sleep(300);
