@@ -2799,6 +2799,7 @@ async function main() {
   }
   check('设定集内能生成提示词',
     (await evalJs(`document.querySelector('#worldGenPositive').textContent.length`)) > 30
+      && (await evalJs(`document.querySelector('#worldGenPositive').textContent.startsWith(${JSON.stringify(PIN)})`)) === true
       && (await evalJs(`document.querySelector('#worldGenBased').textContent.includes('九霄残卷')`)) === true);
   check('设定集生成不污染首页历史',
     Number(await evalJs(`document.querySelector('#historyCount').textContent`)) === histBeforeWorldGen);

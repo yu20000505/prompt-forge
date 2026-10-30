@@ -2058,13 +2058,15 @@ async function generateWorldPrompt() {
     const raw = await readWorldStream(res);
     const parsed = parseResult(raw);
     if (!parsed || !parsed.positive) throw new Error('模型返回的不是标准 JSON');
+    const style = $('#worldGenStyle').value;
+    const pinned = applyLocalPins(parsed, style);
     const gen = {
       id: `g-${Date.now()}`,
       entryId: entryIds[0] || '',
       task: $('#worldGenTask').value,
       sentence,
-      positive: parsed.positive,
-      negative: parsed.negative || '',
+      positive: pinned.positive,
+      negative: pinned.negative || '',
       params: parsed.params || {},
       translation: parsed.translation || '',
       createdAt: Date.now(),
@@ -2414,6 +2416,18 @@ function joinPin(pin, body, taggy) {
   }
 
   return /[,，、;\n]$/.test(p) ? `${p} ${b}` : `${p}, ${b}`;
+}
+
+// 设定集结果也使用同一套本地置顶词（不会发给模型）
+function applyLocalPins(parsed, style) {
+  if (!pinOn()) return { positive: parsed.positive, negative: parsed.negative };
+  const taggy = isTagStyle(style);
+  const pinP = $('#pinPositive').value.trim();
+  const pinN = $('#pinNegative').value.trim();
+  return {
+    positive: joinPin(pinP, parsed.positive, taggy),
+    negative: joinPin(pinN, parsed.negative, taggy),
+  };
 }
 
 function withPins(parsed) {
