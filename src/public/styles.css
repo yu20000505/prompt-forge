@@ -2337,6 +2337,21 @@ mark {
   outline-offset: 2px;
 }
 
+.settings.expand-dialog {
+  width: min(640px, 94vw);
+}
+
+.expand-original {
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--ink-1);
+  color: var(--dim);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
 /* ---------- 设定集 ---------- */
 .worlds-page {
   max-width: 1280px;

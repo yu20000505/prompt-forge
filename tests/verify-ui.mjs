@@ -2675,6 +2675,36 @@ async function main() {
   await evalJs(`document.querySelector('#btnVariantClose').click(); true`);
   await sleep(200);
 
+  // ---------- 12.22b 中文描述 AI 扩写 ----------
+  await evalJs(`document.querySelector('#mainTabs .tab[data-view="prompt"]').click(); true`);
+  await sleep(200);
+  await evalJs(`(() => {
+    const s = document.querySelector('#sentence');
+    s.value = '雨夜女剑客';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#btnExpandPrompt').click();
+    return true;
+  })()`);
+  for (let i = 0; i < 60; i++) {
+    if (await evalJs(`document.querySelector('#expandText').value.length > 30`)) break;
+    await sleep(200);
+  }
+  check('AI 能把短句扩写成中文描述',
+    (await visible('#expandDialog')) === true
+      && (await evalJs(`document.querySelector('#expandText').value.length`)) > 40
+      && (await evalJs(`['btnExpandChar', 'btnExpandSeg', 'btnExpandWorld'].every((id) => !!document.getElementById(id))`)) === true);
+  await evalJs(`(() => {
+    const el = document.querySelector('#expandText');
+    el.value += '（手动微调）';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#btnExpandApply').click();
+    return true;
+  })()`);
+  await sleep(250);
+  check('扩写结果能微调后应用到输入框',
+    (await evalJs(`document.querySelector('#sentence').value`)).includes('手动微调')
+      && (await visible('#expandDialog')) === false);
+
   // ---------- 12.23 设定集 ----------
   await evalJs(`document.querySelector('#mainTabs .tab[data-view="worlds"]').click(); true`);
   await sleep(500);
@@ -2749,10 +2779,20 @@ async function main() {
   await sleep(300);
   await evalJs(`(() => {
     document.querySelector('#worldGenEntries .world-gen-entry-chip').click();
-    document.querySelector('#worldGenSentence').value = '雪夜里，她拔刀指向远处的旧神残影';
-    document.querySelector('#btnWorldGenerate').click();
+    document.querySelector('#worldGenSentence').value = '雪夜，她拔刀';
+    document.querySelector('#btnExpandWorld').click();
     return true;
   })()`);
+  for (let i = 0; i < 60; i++) {
+    if (await evalJs(`document.querySelector('#expandText').value.length > 30`)) break;
+    await sleep(200);
+  }
+  check('设定集生成前也能扩写中文',
+    (await visible('#expandDialog')) === true
+      && (await evalJs(`document.querySelector('#expandText').value.length`)) > 40);
+  await evalJs(`document.querySelector('#btnExpandApply').click(); true`);
+  await sleep(250);
+  await evalJs(`document.querySelector('#btnWorldGenerate').click(); true`);
   for (let i = 0; i < 80; i++) {
     if (await evalJs(`!!document.querySelector('#worldGenPositive').textContent`)) break;
     await sleep(200);

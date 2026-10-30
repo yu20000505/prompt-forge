@@ -107,6 +107,7 @@
         <div class="row-between">
           <div class="mini-actions">
             <button class="btn tiny" id="btnRandom">🎲 随机灵感</button>
+            <button class="btn tiny" id="btnExpandPrompt">✨ AI 扩写</button>
             <button class="btn tiny" id="btnVariants" title="一次生成 3 个候选方案">✨ 多方案</button>
             <button class="btn tiny" id="btnTemplates">📑 模板</button>
             <button class="btn tiny" id="btnImportPrompt" title="粘贴现成提示词，按当前风格改写">📥 导入改写</button>
@@ -293,6 +294,7 @@
         <div class="row-between">
           <div class="mini-actions">
             <button class="btn tiny" id="btnCharIdea">🎲 随机灵感</button>
+            <button class="btn tiny" id="btnExpandChar">✨ AI 扩写</button>
             <button class="btn tiny" id="btnCharClear">清空</button>
           </div>
           <span class="counter" id="charCounter">0 字</span>
@@ -405,6 +407,7 @@
         <div class="row-between">
           <div class="mini-actions">
             <button class="btn tiny" id="btnSegAll" title="依次生成七类标签，并自动加入拼装板">⚡ 一键七类</button>
+            <button class="btn tiny" id="btnExpandSeg">✨ AI 扩写</button>
             <button class="btn tiny" id="btnSegClear">清空</button>
           </div>
           <span class="counter" id="segCounter">0 字</span>
@@ -576,6 +579,7 @@
               </div>
               <div class="world-gen-actions">
                 <button class="btn primary" type="button" id="btnWorldGenerate">生成提示词</button>
+                <button class="btn ghost" type="button" id="btnExpandWorld">✨ 扩写中文</button>
                 <button class="btn ghost" type="button" id="btnWorldGenCancel" hidden>取消</button>
               </div>
               <div class="err" id="worldGenErr" hidden></div>
@@ -1038,6 +1042,25 @@
         <button class="btn primary" type="button" id="btnEntryAiRun">生成</button>
       </div>
       <div class="world-ai-results" id="entryAiResults"></div>
+    </form>
+  </dialog>
+
+  <!-- ============ 中文描述扩写 ============ -->
+  <dialog class="settings expand-dialog" id="expandDialog">
+    <form method="dialog">
+      <h3>AI 扩写中文描述</h3>
+      <p class="dim small">先让 AI 把短句扩成完整描述，你可以在结果里继续改，满意后应用到输入框。</p>
+      <label>原始描述</label>
+      <div class="expand-original" id="expandOriginal"></div>
+      <label for="expandText">扩写结果（可编辑）</label>
+      <textarea id="expandText" rows="10"></textarea>
+      <div class="err" id="expandErr" hidden></div>
+      <div class="dialog-actions">
+        <button class="btn tiny ghost" type="button" id="btnExpandAgain">重新扩写</button>
+        <span class="grow"></span>
+        <button class="btn ghost" type="button" id="btnExpandCancel">取消</button>
+        <button class="btn primary" type="button" id="btnExpandApply">应用到输入框</button>
+      </div>
     </form>
   </dialog>
 

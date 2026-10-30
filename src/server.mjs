@@ -774,6 +774,30 @@ async function handleImport(req, res) {
   return proxyChatStream(req, res, { ...ctx, messages, maxTokens: 2600 });
 }
 
+async function handleExpand(req, res) {
+  const ctx = await resolveUpstream(req, res);
+  if (!ctx) return;
+  const text = String(ctx.body.text || '').trim();
+  if (!text) return json(res, 400, { error: '先写一句中文描述' });
+  if (text.length > 2000) return json(res, 400, { error: '描述太长了，请控制在 2000 字以内' });
+  const mode = ['character', 'segment'].includes(ctx.body.mode) ? ctx.body.mode : 'prompt';
+  const label = mode === 'character' ? '一组角色设定' : mode === 'segment' ? '单个对象或场景' : '一个画面';
+  try {
+    const j = await callModelJson(ctx, [
+      { role: 'system', content: '你是中文画面与角色描述编辑。只输出 JSON，不要解释。' },
+      {
+        role: 'user',
+        content: `请把下面这句简短描述扩写成更完整的${label}中文描述。保留主体、关系和原意；补充必要的身份、外貌、服装、动作、环境、光线、构图、材质等细节，让后续生图更明确。不要输出英文 tag，不要写成提示词清单，只输出 JSON：{"text":"扩写后的中文描述"}\n\n用户原句：${text}\n补充要求：${String(ctx.body.extra || '').trim() || '无'}`,
+      },
+    ], 1200);
+    const out = String(j.text || j.expanded || '').trim();
+    if (!out) return json(res, 502, { error: '模型没有返回扩写内容，请重试' });
+    return json(res, 200, { ok: true, text: out });
+  } catch (err) {
+    return json(res, 502, { error: `AI 扩写失败：${err.message || err}` });
+  }
+}
+
 // 微调：拿已有提示词 + 一句话修改要求，产出改好的完整提示词
 async function handleRefine(req, res) {
   const ctx = await resolveUpstream(req, res);
@@ -1728,6 +1752,20 @@ async function handleWorlds(req, res, id = null, action = null) {
         ], 2400);
         return json(res, 200, result);
       }
+      if (body.task === 'expandSentence') {
+        const text = String(body.text || '').trim();
+        if (!text) return json(res, 400, { error: '先写一句中文描述' });
+        const result = await callModelJson(ctx, [
+          { role: 'system', content: '你是中文画面描述编辑。只输出 JSON，不要解释。' },
+          {
+            role: 'user',
+            content: `世界设定：\n${worldContextText(world, body.entryIds || [])}\n\n把下面这句简短画面扩写成更完整的中文描述。保留原意，补充人物状态、环境、光线、构图、材质等细节；不要输出英文 tag。\n只输出：{"text":"扩写后的中文描述"}\n\n原句：${text}\n补充要求：${String(body.extra || '').trim() || '无'}`,
+          },
+        ], 1200);
+        const out = String(result.text || result.expanded || '').trim();
+        if (!out) return json(res, 502, { error: '模型没有返回扩写内容' });
+        return json(res, 200, { ok: true, text: out });
+      }
       if (body.task === 'expand') {
         const entry = (world.entries || []).find((e) => e.id === body.entryId);
         if (!entry) return json(res, 404, { error: '条目不存在' });
@@ -2081,6 +2119,7 @@ async function serveStatic(req, res) {
 const server = http.createServer(async (req, res) => {
   const { pathname } = new URL(req.url, `http://${HOST}`);
   try {
+    if (pathname === '/api/expand' && req.method === 'POST') return await handleExpand(req, res);
     if (pathname === '/api/generate' && req.method === 'POST') return await handleGenerate(req, res);
     if (pathname === '/api/import' && req.method === 'POST') return await handleImport(req, res);
     if (pathname === '/api/refine' && req.method === 'POST') return await handleRefine(req, res);

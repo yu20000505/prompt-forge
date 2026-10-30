@@ -1356,13 +1356,107 @@ function autoGrowTextarea(el) {
 }
 
 function installAutoGrow() {
-  for (const sel of ['#entrySummary', '#entryFacts', '#worldEditLogline', '#worldEditRules', '#worldAiSeeds', '#entryAiHint', '#worldGenSentence']) {
+  for (const sel of ['#entrySummary', '#entryFacts', '#worldEditLogline', '#worldEditRules', '#worldAiSeeds', '#entryAiHint', '#worldGenSentence', '#expandText']) {
     const el = $(sel);
     if (!el) continue;
     el.style.overflowY = 'hidden';
     el.addEventListener('input', () => autoGrowTextarea(el));
     autoGrowTextarea(el);
   }
+}
+
+/* ============ 中文描述 AI 扩写 ============ */
+const EXPAND_TARGETS = {
+  prompt: { input: '#sentence', extra: '#extra', mode: 'prompt' },
+  character: { input: '#charSentence', extra: '#charExtra', mode: 'character' },
+  segment: { input: '#segSentence', extra: '#segExtra', mode: 'segment' },
+  world: { input: '#worldGenSentence', extra: '', mode: 'world' },
+};
+let expandState = null;
+let expandBusy = false;
+
+function openExpandDialog(mode) {
+  const t = EXPAND_TARGETS[mode];
+  if (!t) return;
+  const text = $(t.input).value.trim();
+  if (!text) {
+    toast('先写一句简短的中文描述', true);
+    $(t.input).focus();
+    return;
+  }
+  expandState = { mode, text, target: t };
+  $('#expandOriginal').textContent = text;
+  $('#expandText').value = '';
+  $('#expandErr').hidden = true;
+  $('#expandDialog').showModal();
+  autoGrowTextarea($('#expandText'));
+  runExpand();
+}
+
+async function runExpand() {
+  if (!expandState || expandBusy) return;
+  expandBusy = true;
+  const btn = $('#btnExpandAgain');
+  const apply = $('#btnExpandApply');
+  btn.disabled = true;
+  apply.disabled = true;
+  btn.textContent = '扩写中…';
+  $('#expandErr').hidden = true;
+  try {
+    let j;
+    if (expandState.mode === 'world') {
+      if (!S.currentWorld?.id) throw new Error('先打开一个设定集');
+      j = await worldApi(`/${encodeURIComponent(S.currentWorld.id)}/ai`, {
+        method: 'POST',
+        body: JSON.stringify({
+          task: 'expandSentence',
+          text: expandState.text,
+          extra: '',
+          entryIds: S.worldGenEntryIds || [],
+        }),
+      });
+    } else {
+      const t = expandState.target;
+      const r = await fetch('/api/expand', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: expandState.text,
+          mode: t.mode,
+          extra: $(t.extra)?.value?.trim() || '',
+          style: S.style,
+          targetModel: $('#targetModel').value.trim(),
+        }),
+      });
+      j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    }
+    const text = String(j.text || '').trim();
+    if (!text) throw new Error('模型没有返回扩写内容');
+    $('#expandText').value = text;
+    autoGrowTextarea($('#expandText'));
+    apply.disabled = false;
+  } catch (err) {
+    $('#expandErr').textContent = err.message || String(err);
+    $('#expandErr').hidden = false;
+  } finally {
+    expandBusy = false;
+    btn.disabled = false;
+    btn.textContent = '重新扩写';
+  }
+}
+
+function applyExpandedText() {
+  if (!expandState) return;
+  const text = $('#expandText').value.trim();
+  if (!text) return toast('扩写结果为空', true);
+  const input = $(expandState.target.input);
+  input.value = text;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  $('#expandDialog').close();
+  input.focus();
+  toast('已应用到输入框，可以继续手改');
+  expandState = null;
 }
 
 /* ============ 设定集 ============ */
@@ -6254,6 +6348,7 @@ function bind() {
   });
 
   $('#btnRandom').addEventListener('click', () => requestIdeas(IDEA_UI.prompt));
+  $('#btnExpandPrompt').addEventListener('click', () => openExpandDialog('prompt'));
   $('#btnVariants').addEventListener('click', openVariants);
   $('#btnVariantCancel').addEventListener('click', () => {
     if (S.variantAbort) S.variantAbort.abort();
@@ -6344,6 +6439,7 @@ function bind() {
   $('#btnEntryExpand').addEventListener('click', expandEntry);
 
   $('#btnWorldGenerate').addEventListener('click', generateWorldPrompt);
+  $('#btnExpandWorld').addEventListener('click', () => openExpandDialog('world'));
   $('#btnWorldGenCancel').addEventListener('click', () => {
     if (S.worldGenAbort) S.worldGenAbort.abort();
   });
@@ -6398,6 +6494,7 @@ function bind() {
     $('#charSentence').focus();
   });
   $('#btnCharIdea').addEventListener('click', () => requestIdeas(IDEA_UI.character));
+  $('#btnExpandChar').addEventListener('click', () => openExpandDialog('character'));
   $('#btnCharIdeaClose').addEventListener('click', () => {
     $('#charIdeaBar').hidden = true;
   });
@@ -6425,6 +6522,7 @@ function bind() {
   });
   $('#btnSegGenerate').addEventListener('click', generateSegment);
   $('#btnSegAll').addEventListener('click', () => generateAllSegments(false));
+  $('#btnExpandSeg').addEventListener('click', () => openExpandDialog('segment'));
   $('#btnSegCancel').addEventListener('click', () => {
     if (S.segAbort) S.segAbort.abort();
   });
@@ -6712,6 +6810,9 @@ function bind() {
     e.stopPropagation();
     closeThemePop();
   });
+  $('#btnExpandCancel').addEventListener('click', () => $('#expandDialog').close());
+  $('#btnExpandAgain').addEventListener('click', runExpand);
+  $('#btnExpandApply').addEventListener('click', applyExpandedText);
   document.addEventListener('click', (e) => {
     if ($('#themePop').hidden) return;
     if (!$('.theme-wrap').contains(e.target)) closeThemePop();

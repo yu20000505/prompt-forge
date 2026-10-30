@@ -194,6 +194,11 @@ function pickMockContent(payload) {
   const user = String(payload?.messages?.[1]?.content || '');
   if (sys.includes('创意搭档')) return JSON.stringify(MOCK_IDEAS);
   if (user.includes('"directions"')) return JSON.stringify(MOCK_WORLD_DIRECTIONS);
+  if (user.includes('扩写后的中文描述')) {
+    return JSON.stringify({
+      text: '雨夜的老城里，一位银发少女站在湿漉漉的石板路上，灰白长袍被风吹起，左手按着腰间的旧刀，远处旧神残影在雾中若隐若现；低饱和青灰色调，侧逆光，薄雾，电影感竖构图，细节清晰。',
+    });
+  }
   if (user.includes('"entries"')) return JSON.stringify(MOCK_WORLD_ENTRIES);
   if (user.includes('补全缺失字段')) return JSON.stringify(MOCK_WORLD_EXPAND);
   if (user.includes('"name":"","genre"')) return JSON.stringify(MOCK_WORLD_CORE);
