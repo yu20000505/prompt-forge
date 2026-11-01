@@ -87,7 +87,7 @@ const MOCK_IDEAS = [
 
 // 从系统提示词里把「用户自定义置顶要求」抽出来（回显用，验证它确实发给了模型）
 function extractApiPinned(sys) {
-  const m = String(sys).match(/# 用户自定义置顶要求[^\n]*\n([\s\S]*?)\n\n（注意/);
+  const m = String(sys).match(/# 用户自定义(?:置顶要求|系统提示词)[^\n]*\n([\s\S]*?)\n\n---/);
   return m ? m[1].trim() : '';
 }
 

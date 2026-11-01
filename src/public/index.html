@@ -900,17 +900,17 @@
         <span>JSON 模式（仅部分接口支持，开启后要求模型返回 JSON）</span>
       </label>
 
-      <label for="cfgApiPinned">置顶提示词（会发送给 API）<span class="dim small" id="apiPinnedCount"></span></label>
+      <label for="cfgApiPinned">系统提示词（追加到末尾）<span class="dim small" id="apiPinnedCount"></span></label>
       <textarea id="cfgApiPinned" rows="4" spellcheck="false"
-        placeholder="这里填的内容会加到系统提示词最前面，随每一次请求一起发给模型"></textarea>
+        placeholder="这里填的内容会追加到 system prompt 末尾，随每一次请求一起发给模型"></textarea>
       <p class="field-hint">
         和输入区的「置顶词」不是一回事：那个只在本地拼到输出里、不会出网；这个是真的发给模型的，
-        用来固定模型的行为习惯（比如固定的画风要求、固定的描述规则）。留空则不发送。
+        追加在任务规则之后、输出格式锁之前。留空则不发送。
       </p>
 
       <label class="check-row" for="cfgApiPinnedIdea">
         <input type="checkbox" id="cfgApiPinnedIdea" />
-        <span>随机灵感请求也发送置顶提示词</span>
+        <span>随机灵感请求也发送系统提示词</span>
       </label>
       <p class="field-hint">
         默认关闭：灵感只要一句中文，附带整段规范会白白消耗 token。生成提示词、微调、角色设定始终会发送。

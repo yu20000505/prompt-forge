@@ -666,9 +666,9 @@ async function main() {
   check('设置弹窗能打开', dialogOpen === true);
   check('设置弹窗真的可见', (await visible('#settings')) === true);
   const apiPinnedShown = await evalJs(`document.querySelector('#cfgApiPinned').value`);
-  check('设置里有「置顶提示词（会发送给 API）」这一栏',
+  check('设置里有「系统提示词（追加到末尾）」这一栏',
     (await visible('#cfgApiPinned')) === true, `值="${apiPinnedShown}"`);
-  check('已保存的置顶提示词能回显到设置里',
+  check('已保存的系统提示词能回显到设置里',
     apiPinnedShown === 'MARKER-固定画风-ABC123', apiPinnedShown);
   const ideaPinDefault = await evalJs(`document.querySelector('#cfgApiPinnedIdea').checked`);
   check('灵感请求的置顶开关默认关闭', ideaPinDefault === false);

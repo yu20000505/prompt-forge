@@ -116,23 +116,23 @@ function targetHint(target) {
   return TARGET_HINT[t] || '';
 }
 
-// 用户自定义的「置顶提示词」：真的会随请求发给模型，加在系统提示词最前面。
+// 用户自定义的「系统提示词」：真的会随请求发给模型，追加在任务规则末尾。
 // 和主页那个「置顶词」不是一回事——那个只在本地拼到输出里，永远不出网。
 function applyApiPinned(system, pinned) {
   const p = String(pinned || '').trim();
   if (!p) return system;
-  return `# 用户自定义置顶要求（长期偏好，优先级高于下面的默认规则）
-${p}
-
-（注意：上面这段是用户的长期偏好，与下面规则冲突处按它来；但输出格式仍必须是下面约定的 JSON。）
-
-${system}
+  return `${system}
 
 ---
 
-# 最后确认（优先级最高）
-即使上面的「用户自定义置顶要求」里描述了另一种输出格式（比如 Base Prompt、Character Prompts、纯文本、或者别的 JSON 结构），
-本次回复仍然只能输出本任务约定的那一个 JSON 对象。不要输出别的结构，不要附加解释，不要用 markdown 代码块包裹。`;
+# 用户自定义系统提示词（追加在规则末尾）
+${p}
+
+---
+
+# 输出格式确认（必须遵守）
+无论上面的自定义系统提示词怎么写，本次回复仍然只能输出本任务约定的那一个 JSON 对象。
+不要输出别的结构，不要附加解释，不要用 markdown 代码块包裹。`;
 }
 
 export function buildMessages(opts = {}) {

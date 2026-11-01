@@ -117,11 +117,11 @@ instead of hand-splicing tags.
 - **Hand editing** — fix the positive/negative prompt, interpretation, parameters, character text or
   segment tags directly; edited results are marked, flow into copy/save/history, and can be reverted
   to the model original in one click.
-- **Two independent pinning layers**
+- **Two independent rule layers**
   - *Local prefix* — fixed quality tags prepended in the browser. Never sent to the model.
-  - *API preamble* — your own standing instructions injected into the system prompt for prompt
-    generation, refinement, character sheets and segment tags. Idea requests skip it by default
-    to save tokens; you can opt in from Settings.
+  - *Custom system prompt* — your own additional rules appended after the task rules and before the
+    output-format lock; sent for prompt generation, refinement, character sheets and segment tags.
+    Idea requests skip it by default to save tokens; you can opt in from Settings.
 - **Idea generator** — asks the model for six fresh scene one-liners, avoiding topics you just used.
 - **History** — prompt, character and segment results are recorded automatically; filter by mode,
   search, favorite to pin on top, and click an entry to restore the full result. History and the

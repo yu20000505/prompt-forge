@@ -109,13 +109,14 @@ const gens = [
 ];
 for (const [name, msgs] of gens) {
   const sys = msgs[0].content;
-  check(`${name} 注入置顶并在最前`, sys.startsWith('# 用户自定义置顶要求') && sys.includes(PIN));
-  check(`${name} 有 JSON 格式保护`, sys.includes('输出格式仍必须是下面约定的 JSON'));
+  check(`${name} 注入系统提示词并放在规则后`,
+    sys.includes(PIN) && sys.indexOf(PIN) > sys.indexOf('# 输出格式（强制）'));
+  check(`${name} 有 JSON 格式保护`, sys.includes('无论上面的自定义系统提示词怎么写'));
   check(`${name} 末尾有最高优先级的格式确认`,
     sys.trimEnd().endsWith('不要用 markdown 代码块包裹。'), '');
 }
-check('填空时不注入置顶',
-  !buildMessages({ sentence: '猫' })[0].content.includes('用户自定义置顶要求'));
+check('填空时不注入系统提示词',
+  !buildMessages({ sentence: '猫' })[0].content.includes('用户自定义系统提示词'));
 
 // ---------- 其余 builder 仍正常 ----------
 check('generate 两种消息', buildMessages({ sentence: '猫' }).length === 2);
