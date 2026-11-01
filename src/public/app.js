@@ -380,7 +380,7 @@ const TEMPLATE_KEY = 'pf-templates-v1';
 const TARGET_PRESETS = [  'SDXL',
   'Stable Diffusion 1.5',
   'Flux.1',
-  'NovelAI V4',
+  'NovelAI',
   'Midjourney v6.1',
   'DALL·E 3',
   '即梦 / Seedream',

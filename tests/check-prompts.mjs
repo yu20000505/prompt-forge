@@ -35,23 +35,30 @@ check('角色设定含附加要求位', buildCharacterMessages({ sentence: 'x', 
 check('画幅 auto 时不给硬约束', !buildCharacterMessages({ sentence: 'x' })[0].content.includes('必须是'));
 
 const charRich = buildCharacterMessages({
-  sentence: 'x', detail: 'rich', style: 'anime', targetModel: 'NovelAI V4',
+  sentence: 'x', detail: 'rich', style: 'anime', targetModel: 'NovelAI',
 });
 check('角色设定详细程度映射到字数', charRich[0].content.includes('200-300'));
 check('角色设定带画风与目标模型',
-  charRich[0].content.includes('日系动漫') && charRich[0].content.includes('NovelAI V4'));
+  charRich[0].content.includes('日系动漫') && charRich[0].content.includes('NovelAI'));
 const charRefShort = buildCharacterRefineMessages({
   previous: { prompt_en: 'a cat' }, instruction: '更写实', style: 'photo', detail: 'short',
 });
 check('角色微调也带画风与详细程度',
   charRefShort[0].content.includes('80-120') && charRefShort[0].content.includes('纪实摄影'));
 
+const naiV5 = buildMessages({
+  sentence: '银发少女', style: 'anime', targetModel: 'NovelAI V5',
+});
+check('目标模型模糊匹配 NovelAI V5',
+  naiV5[0].content.includes('NovelAI（V4 / V5 通用）')
+    && naiV5[0].content.includes('danbooru'));
+
 // ---------- 细分标签（只生成一个维度的 tag） ----------
 const seg = buildSegmentMessages({
   sentence: '银发吸血鬼少女',
   segmentType: 'character',
   detail: 'rich',
-  targetModel: 'NovelAI V4',
+  targetModel: 'NovelAI',
   extra: '不要配饰',
   apiPinned: PIN,
 });
@@ -61,7 +68,7 @@ check('细分标签只要当前维度', segSys.includes('本次只写：人物�
 check('细分标签禁止混入其它维度', segSys.includes('只写「人物形象」这一个维度'));
 check('细分标签要求逗号分隔', segSys.includes('逗号加空格分隔'));
 check('细分标签 rich 数量 20-32', segSys.includes('20-32'));
-check('细分标签带目标模型约束', segSys.includes('NovelAI V4'));
+check('细分标签带目标模型约束', segSys.includes('NovelAI'));
 check('细分标签用户消息含原句与附加要求',
   seg[1].content.includes('银发吸血鬼少女') && seg[1].content.includes('不要配饰'));
 check('细分标签 7 种类型都能构造',

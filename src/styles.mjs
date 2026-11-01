@@ -94,6 +94,28 @@ const TARGET_HINT = {
   '通用': '请按该风格最通用的写法输出。',
 };
 
+// 目标模型是自由文本，做一点模糊匹配，避免用户写 NovelAI V5 / NAI 就没有提示
+function targetHint(target) {
+  const t = String(target || '').trim();
+  if (!t) return '';
+  if (/novelai|novel ai|\bnai\b/i.test(t)) {
+    return 'NovelAI（V4 / V5 通用）：英文小写 danbooru 标签、人数明确、画质词开头；不要写 Midjourney 参数。';
+  }
+  if (/sdxl|stable diffusion|\bsd\b/i.test(t)) {
+    return 'SD / SDXL：英文描述性短语，按「主体 → 外貌 → 服装 → 动作 → 场景 → 光线 → 镜头 → 画质」组织，避免堆砌空词。';
+  }
+  if (/flux/i.test(t)) {
+    return 'Flux：英文自然语言与描述性短语混用，句子要连贯，保留具体材质和光线。';
+  }
+  if (/midjourney|\bmj\b/i.test(t)) {
+    return 'Midjourney：自然语言为主，参数放进 params.extra，不要写进 positive 正文。';
+  }
+  if (/dall/i.test(t)) {
+    return 'DALL·E：自然语言描述，少用 tag 堆叠，画面关系要讲清楚。';
+  }
+  return TARGET_HINT[t] || '';
+}
+
 // 用户自定义的「置顶提示词」：真的会随请求发给模型，加在系统提示词最前面。
 // 和主页那个「置顶词」不是一回事——那个只在本地拼到输出里，永远不出网。
 function applyApiPinned(system, pinned) {
@@ -124,7 +146,7 @@ export function buildMessages(opts = {}) {
     : '语言：positive 与 negative 都用英文书写，translation 字段用中文。';
 
   const targetRule = target
-    ? `目标模型：${target}。请严格按该模型的语法习惯和提示词长度偏好输出。${TARGET_HINT[target] || ''}`
+    ? `目标模型：${target}。请严格按该模型的语法习惯和提示词长度偏好输出。${targetHint(target)}`
     : '目标模型：通用图像生成模型，按风格最通用的写法输出。';
 
   const system = [
@@ -163,7 +185,7 @@ export function buildImportMessages(opts = {}) {
     ? '语言：positive 与 negative 都用中文书写（标签类专有名词可保留英文）。'
     : '语言：positive 与 negative 都用英文书写，translation 字段用中文。';
   const targetRule = target
-    ? `目标模型：${target}。请严格按该模型的语法习惯和提示词长度偏好输出。${TARGET_HINT[target] || ''}`
+    ? `目标模型：${target}。请严格按该模型的语法习惯和提示词长度偏好输出。${targetHint(target)}`
     : '目标模型：通用图像生成模型，按风格最通用的写法输出。';
 
   const system = [
@@ -287,7 +309,7 @@ export function buildCharacterMessages(opts = {}) {
 - ${countRule}
 - ${aspectRule}
 - 整体画风：${STYLE_TONE[style]}。
-${target ? `- 目标模型：${target}。按该模型的语法习惯和长度偏好输出。` : ''}
+${target ? `- 目标模型：${target}。按该模型的语法习惯和长度偏好输出。${targetHint(target)}` : ''}
 - title：中文短标题，不超过 12 字。
 - 只输出一个 JSON 对象，不要 markdown 代码块，不要任何解释文字。
 
@@ -336,7 +358,7 @@ export function buildCharacterRefineMessages(opts = {}) {
   const system = [
     CHAR_REFINE_RULES.replace('120-200', range),
     `整体画风：${STYLE_TONE[style]}。`,
-    target ? `目标模型：${target}。保持该模型的语法习惯。` : '',
+    target ? `目标模型：${target}。保持该模型的语法习惯。${targetHint(target)}` : '',
     `# 输出格式（字段名不要改）
 {
   "title": "中文短标题",
@@ -459,7 +481,7 @@ export function buildSegmentMessages(opts = {}) {
   const target = String(opts.targetModel || '').trim();
 
   const targetRule = target
-    ? `目标模型：${target}。按它的标签习惯写：NovelAI 优先 danbooru 小写标签；SD / SDXL / Flux 用描述性短语；Midjourney 也只用逗号短语，但不要写任何 -- 参数。`
+    ? `目标模型：${target}。按它的标签习惯写：NovelAI 优先 danbooru 小写标签；SD / SDXL / Flux 用描述性短语；Midjourney 也只用逗号短语，但不要写任何 -- 参数。${targetHint(target)}`
     : '目标模型：通用图像生成模型，用兼容性最好的英文描述性标签。';
 
   const system = `# 你的角色
@@ -525,7 +547,7 @@ export function buildSegmentRefineMessages(opts = {}) {
     `# 本次维度：${info.label}
 ${SEGMENT_RULES[typeId]}`,
     `整体标签风格：${SEGMENT_STYLE_RULE[style]}。`,
-    target ? `目标模型：${target}。保持同样的标签习惯。` : '',
+    target ? `目标模型：${target}。保持同样的标签习惯。${targetHint(target)}` : '',
     `# 输出格式（字段名不要改）
 只输出一个 JSON 对象。不要 markdown 代码块，不要解释文字。
 
