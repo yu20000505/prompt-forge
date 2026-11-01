@@ -4,7 +4,7 @@
 [![Latest release](https://img.shields.io/github/v/release/yu20000505/prompt-forge?color=6f7f66)](../../releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6f7f66.svg)](LICENSE)
 
-**One sentence in. A production-ready image prompt out. 2.1**
+**One sentence in. A production-ready image prompt out. 2.2**
 
 Prompt Forge is a local-first desktop tool that turns a single plain-language sentence into
 prompts you can paste straight into Stable Diffusion, NovelAI, Midjourney, Flux or DALL·E.
@@ -17,12 +17,30 @@ searchable history, generate all seven tag groups at once and splice them into a
 full-text search and back up the library, retry flaky APIs automatically, and switch the whole UI
 between Chinese and English. Version 2.1 adds multi-variant comparison, templates and aspect
 shortcuts, draft recovery, trash management, provider profiles and desktop window details.
+Version 2.2 adds worldbooks: define a world, manage characters/items/creatures/locations/factions,
+and generate prompts inside that world; it also adds AI expansion for short Chinese descriptions,
+persistent refine versions, richer visual anchors and generic NovelAI targeting.
 No accounts, no telemetry, no cloud sync. It talks directly to whatever
 **OpenAI-compatible API** you configure, and your key never leaves your machine.
 
 [中文说明](README.md) · [Download](../../releases) · [Changelog](CHANGELOG.md) · [Build from source](#build-from-source)
 
 ![Main window](docs/screenshots/01-main.png)
+
+## What's new in 2.2
+
+- **Worldbooks** — multiple independent worlds with core lore and five entry types: character, item,
+  creature, location and faction; AI can draft world directions, core lore, entry candidates and expansions.
+- **Generate inside a world** — world rules and selected entries are injected automatically; results stay
+  in that worldbook and can be written back as an entry's reference prompt.
+- **AI description expansion** — before prompt/character/segment/world generation, expand a short Chinese
+  description, preview and edit it, then apply it to the input.
+- **Persistent refine versions** — saves and history keep the full version stack, so v1/v2 remain selectable
+  after reloading.
+- **Richer visual anchors** — characters require 8–14 reproducible visual traits; other entry types get
+  their own anchor checklists.
+- **Generic NovelAI target** — the preset is now `NovelAI`; typing `NovelAI V5` or `NAI` still matches the
+  danbooru-tag guidance.
 
 ## What's new in 2.1
 

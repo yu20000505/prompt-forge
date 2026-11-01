@@ -282,8 +282,8 @@ async function main() {
 
   const statusText = await evalJs(`document.querySelector('#statusText').textContent`);
   check('状态栏显示已配置 Key', /已配置|deepseek|mock/i.test(statusText), statusText);
-  check('界面显示 2.1 版本号',
-    (await evalJs(`document.querySelector('#appVersion').textContent`)) === 'v2.1.0');
+  check('界面显示 2.2 版本号',
+    (await evalJs(`document.querySelector('#appVersion').textContent`)) === 'v2.2.0');
 
   const serverFeatures = await evalJs(`fetch('/api/config').then(r=>r.json()).then(j=>j.features)`);
   check('服务端声明细分接口可用', serverFeatures?.segment === true, JSON.stringify(serverFeatures));
@@ -2620,7 +2620,7 @@ async function main() {
     !JSON.stringify(diagnostics).includes('sk-test-1234')
       && diagnostics.activeProfile?.hasKey === true);
   check('诊断信息包含版本和路径',
-    diagnostics.version === '2.1.0' && !!diagnostics.paths?.saved && !!diagnostics.keyStorage);
+    diagnostics.version === '2.2.0' && !!diagnostics.paths?.saved && !!diagnostics.keyStorage);
 
   await evalJs(`(() => {
     const sel = document.querySelector('#profileSelect');
