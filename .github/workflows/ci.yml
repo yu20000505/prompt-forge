@@ -87,6 +87,8 @@ jobs:
           $env:NO_OPEN = '1'
           $env:PF_CONFIG = $cfg
           $env:PF_SAVED = $saved
+          # 版本号从 package.json 读，避免每次发版都要手改这条断言
+          $expected = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $p = Start-Process -FilePath "release\PromptForge.exe" -ArgumentList 43211 -PassThru -WindowStyle Hidden
           try {
             $ok = $false
@@ -97,10 +99,10 @@ jobs:
               } catch { }
               Start-Sleep -Milliseconds 500
             }
-            if (-not $ok) { throw "2.2 exe 没有在 20 秒内启动" }
-            if ($config.version -ne '2.2.0') { throw "版本号不对: $($config.version)" }
+            if (-not $ok) { throw "exe 没有在 20 秒内启动" }
+            if ($config.version -ne $expected) { throw "版本号不对: $($config.version)，期望 $expected" }
             $vi = (Get-Item "release\PromptForge.exe").VersionInfo
-            if ($vi.ProductName -ne 'Prompt Forge' -or $vi.FileVersion -notlike '2.2.0*') {
+            if ($vi.ProductName -ne 'Prompt Forge' -or $vi.FileVersion -notlike "$expected*") {
               throw "exe 版本资源不对: $($vi.ProductName) / $($vi.FileVersion)"
             }
             $homePage = Invoke-WebRequest "http://127.0.0.1:43211/" -UseBasicParsing
