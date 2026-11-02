@@ -11,6 +11,7 @@ const {
   buildMetaComment,
   parseMetaComment,
   publicConfig,
+  migrateLegacyPinnedPromptObject,
 } = await import('../src/server.mjs');
 const { buildMessages } = await import('../src/styles.mjs');
 
@@ -91,3 +92,80 @@ test('buildMetaComment / parseMetaComment: 往返一致，且不会被 --> 提�
   assert.deepEqual(parseMetaComment(`# 标题\n\n正文\n\n${wrapped}\n`), meta);
   assert.equal(parseMetaComment('没有元数据'), null);
 });
+
+test('publicConfig: 规则包会规整并丢掉空包，不把整段规则漏给前端以外的用途', () => {
+  const cfg = publicConfig({
+    apiKey: 'sk-x',
+    model: 'demo',
+    rulePacks: [
+      { id: 'a', name: '画风', text: '固定水彩', enabled: false },
+      { name: '', text: '   ' },
+      { name: 'B', text: '正文' },
+    ],
+    rulePacksOn: false,
+  });
+  assert.equal(cfg.rulePacks.length, 2);
+  assert.equal(cfg.rulePacks[0].id, 'a');
+  assert.equal(cfg.rulePacks[0].enabled, false);
+  assert.equal(cfg.rulePacks[1].name, 'B');
+  assert.equal(cfg.rulePacks[1].enabled, true);
+  assert.equal(cfg.rulePacksOn, false);
+  assert.equal(cfg.features.rulePacks, true);
+});
+
+test('publicConfig: 没有规则包时给空数组，前端不用判 undefined', () => {
+  const cfg = publicConfig({ apiKey: '', model: '' });
+  assert.deepEqual(cfg.rulePacks, []);
+  assert.equal(cfg.rulePacksOn, true);
+});
+
+test('publicConfig: 破限层默认关闭，关闭时也带上来源与字数', () => {
+  const cfg = publicConfig({});
+  assert.equal(cfg.unrestrictedOn, false);
+  assert.ok(cfg.unrestrictedChars > 10000);
+  assert.equal(cfg.unrestricted.version, '0.2.6');
+  assert.equal(cfg.unrestricted.license, 'MIT');
+  assert.equal(cfg.unrestricted.verbatim, true);
+  assert.equal(cfg.features.unrestricted, true);
+});
+
+test('迁移：旧配置里的范围字段会被清掉（逐字移植后不再分档）', () => {
+  // 迁移只处理旧提示词；范围字段由 readConfigFile 删除，这里验证纯函数不主动加回
+  const next = migrateLegacyPinnedPromptObject({ apiPinnedPrompt: 'a' });
+  assert.equal('unrestrictedScope' in next, false);
+});
+
+test('迁移：旧 apiPinnedPrompt 变成停用规则包，并打开破限层', () => {
+  const source = {
+    model: 'm',
+    apiPinnedPrompt: '旧版那段文本',
+    rulePacks: [{ id: 'keep', name: '保留', text: 'x', enabled: true }],
+  };
+  const next = migrateLegacyPinnedPromptObject(source);
+  assert.ok(next);
+  assert.equal('apiPinnedPrompt' in next, false);
+  assert.equal(next.unrestrictedOn, true);
+  assert.equal(next.rulePacks.length, 2);
+  assert.equal(next.rulePacks[0].id, 'legacy-api-pinned');
+  assert.equal(next.rulePacks[0].enabled, false);
+  assert.match(next.rulePacks[0].text, /旧版那段文本/);
+  assert.equal(next.rulePacks[1].id, 'keep');
+  // 原对象不被改动
+  assert.equal(source.apiPinnedPrompt, '旧版那段文本');
+  assert.equal(source.rulePacks.length, 1);
+});
+
+test('迁移：已经迁移过不重复加包，用户显式关闭就保持关闭', () => {
+  const once = migrateLegacyPinnedPromptObject({ apiPinnedPrompt: 'a' });
+  const again = migrateLegacyPinnedPromptObject({ apiPinnedPrompt: 'a', rulePacks: once.rulePacks });
+  assert.equal(again.rulePacks.length, 1);
+  const off = migrateLegacyPinnedPromptObject({ apiPinnedPrompt: 'a', unrestrictedOn: false });
+  assert.equal(off.unrestrictedOn, false);
+});
+
+test('迁移：没有旧字段时返回 null，不写盘', () => {
+  assert.equal(migrateLegacyPinnedPromptObject({ model: 'm' }), null);
+  assert.equal(migrateLegacyPinnedPromptObject({ apiPinnedPrompt: '   ' }), null);
+  assert.equal(migrateLegacyPinnedPromptObject(null), null);
+});
+

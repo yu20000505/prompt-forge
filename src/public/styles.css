@@ -3091,6 +3091,135 @@ mark {
   flex: none;
 }
 
+/* ---------- 内置破限层 ---------- */
+.layer-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 16px 0 4px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+
+.layer-box.on {
+  border-color: rgba(var(--accent-rgb), .55);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.layer-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.layer-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: .01em;
+}
+
+.layer-badge {
+  font-size: 10.5px;
+  color: var(--dim);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.layer-box select {
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.layer-box .rule-pack-actions {
+  margin-top: 2px;
+}
+
+#unrestrictedCheckResult {
+  white-space: pre-line;
+  border-left: 2px solid var(--line-strong);
+  padding-left: 8px;
+}
+
+#unrestrictedCheckResult.hint-ok { color: var(--ok); border-left-color: var(--ok); }
+#unrestrictedCheckResult.hint-warn { color: var(--warn); border-left-color: var(--warn); }
+#unrestrictedCheckResult.hint-err { color: var(--danger); border-left-color: var(--danger); }
+
+/* ---------- 规则包 ---------- */
+.rule-packs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.rule-packs-empty {
+  padding: 8px 0;
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.6;
+}
+
+.rule-pack {
+  padding: 8px 10px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+
+.rule-pack-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rule-pack-head input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.rule-pack-head .btn {
+  flex: none;
+}
+
+.rule-pack textarea {
+  min-height: 74px;
+  margin-top: 6px;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.rule-pack-foot {
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--dim);
+}
+
+.rule-pack-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.rule-pack-actions .grow {
+  flex: 1;
+}
+
+.rule-preview textarea {
+  min-height: 40vh;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow: auto;
+}
+
 .dialog-actions {
   display: flex;
   align-items: center;

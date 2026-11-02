@@ -900,21 +900,46 @@
         <span>JSON 模式（仅部分接口支持，开启后要求模型返回 JSON）</span>
       </label>
 
-      <label for="cfgApiPinned">系统提示词（追加到末尾）<span class="dim small" id="apiPinnedCount"></span></label>
-      <textarea id="cfgApiPinned" rows="4" spellcheck="false"
-        placeholder="这里填的内容会追加到 system prompt 末尾，随每一次请求一起发给模型"></textarea>
-      <p class="field-hint">
-        和输入区的「置顶词」不是一回事：那个只在本地拼到输出里、不会出网；这个是真的发给模型的，
-        追加在任务规则之后、输出格式锁之前。留空则不发送。
-      </p>
+      <div class="layer-box" id="unrestrictedBox">
+        <div class="layer-head">
+          <span class="layer-title">内置破限层</span>
+          <span class="layer-badge" id="unrestrictedBadge">dsh-unrestricted · MIT</span>
+        </div>
+        <p class="field-hint">
+          <a href="https://github.com/yexi-by/dsh-unrestricted" target="_blank" rel="noopener noreferrer">dsh-unrestricted</a>
+          <span>· MIT · 上游正文逐字移植，不改一个字；本工具只在其后追加生图标签与 JSON 结构的要求。九条任务链路全部生效。</span>
+        </p>
+        <label class="check-row" for="cfgUnrestrictedOn">
+          <input type="checkbox" id="cfgUnrestrictedOn" />
+          <span>启用内置破限层（关闭后回到模型默认尺度）</span>
+        </label>
+        <p class="field-hint" id="unrestrictedSummary"></p>
+        <p class="field-hint" id="unrestrictedHint"></p>
+        <div class="rule-pack-actions">
+          <button class="btn tiny ghost" type="button" id="btnUnrestrictedView">查看破限层全文</button>
+          <button class="btn tiny ghost" type="button" id="btnUnrestrictedCheck">测试破限是否生效</button>
+        </div>
+        <p class="field-hint" id="unrestrictedCheckResult" hidden></p>
+      </div>
 
-      <label class="check-row" for="cfgApiPinnedIdea">
-        <input type="checkbox" id="cfgApiPinnedIdea" />
-        <span>随机灵感请求也发送系统提示词</span>
-      </label>
+      <label>规则包<span class="dim small" id="rulePackSummary"></span></label>
       <p class="field-hint">
-        默认关闭：灵感只要一句中文，附带整段规范会白白消耗 token。生成提示词、微调、角色设定始终会发送。
+        多套可以单独开关的规则，按顺序拼在一起。勾选的每一套都会追加到 system prompt 末尾，
+        生成、微调、角色设定、细分标签、设定集和随机灵感都会带上；内容由你自己填写。
       </p>
+      <label class="check-row" for="cfgRulePacksOn">
+        <input type="checkbox" id="cfgRulePacksOn" checked />
+        <span>启用规则包（关掉后内容保留，但不再发送）</span>
+      </label>
+      <div class="rule-packs" id="rulePackList"></div>
+      <div class="rule-pack-actions">
+        <button class="btn tiny ghost" type="button" id="btnRulePackAdd">+ 新增规则包</button>
+        <span class="grow"></span>
+        <button class="btn tiny ghost" type="button" id="btnRulePackImport">导入</button>
+        <button class="btn tiny ghost" type="button" id="btnRulePackExport">导出</button>
+        <button class="btn tiny ghost" type="button" id="btnRulePackPreview">预览最终提示词</button>
+      </div>
+      <input type="file" id="rulePackFile" accept="application/json,.json" hidden />
 
       <label>本机草稿</label>
       <p class="field-hint">三个模式的输入和当前结果会自动保存在本机，刷新或崩溃后可恢复；不包含 API Key。</p>
@@ -1061,6 +1086,53 @@
         <span class="grow"></span>
         <button class="btn ghost" type="button" id="btnExpandCancel">取消</button>
         <button class="btn primary" type="button" id="btnExpandApply">应用到输入框</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ 内置破限层：全文 ============ -->
+  <dialog class="settings rule-preview" id="unrestrictedDialog">
+    <form method="dialog">
+      <h3>内置破限层全文</h3>
+      <p class="dim small">
+        这段文字原样附在每次请求的 system prompt 里，位置在本任务规则之后、规则包与输出格式确认之前。
+        换范围或开关后重新打开就会看到对应版本。
+      </p>
+      <p class="field-hint" id="unrestrictedMeta"></p>
+      <textarea id="unrestrictedText" rows="18" readonly spellcheck="false"></textarea>
+      <div class="err" id="unrestrictedErr" hidden></div>
+      <div class="dialog-actions">
+        <button class="btn tiny ghost" type="button" id="btnUnrestrictedCopy">复制全文</button>
+        <span class="grow"></span>
+        <button class="btn primary" type="button" id="btnUnrestrictedClose">关闭</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ 规则包：最终系统提示词预览 ============ -->
+  <dialog class="settings rule-preview" id="rulePreviewDialog">
+    <form method="dialog">
+      <h3>最终系统提示词预览</h3>
+      <p class="dim small">按当前表单里的规则包内容拼装，不调用模型。保存之后实际发出去的 system 消息就是这一份。</p>
+      <label for="rulePreviewMode">模式</label>
+      <select id="rulePreviewMode">
+        <option value="generate">提示词生成</option>
+        <option value="refine">提示词微调</option>
+        <option value="import">导入改写</option>
+        <option value="character">角色设定</option>
+        <option value="characterRefine">角色微调</option>
+        <option value="segment">细分标签</option>
+        <option value="segmentRefine">细分微调</option>
+        <option value="idea">随机灵感</option>
+        <option value="world">设定集 AI</option>
+      </select>
+      <p class="field-hint" id="rulePreviewMeta"></p>
+      <textarea id="rulePreviewText" rows="16" readonly spellcheck="false"></textarea>
+      <div class="err" id="rulePreviewErr" hidden></div>
+      <div class="dialog-actions">
+        <button class="btn tiny ghost" type="button" id="btnRulePreviewCopy">复制全文</button>
+        <span class="grow"></span>
+        <button class="btn primary" type="button" id="btnRulePreviewClose">关闭</button>
       </div>
     </form>
   </dialog>

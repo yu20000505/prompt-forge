@@ -59,6 +59,44 @@ function tr(text) {
       out = `No data from the API for ${m[1]}s; aborted. Retry or choose another model in Settings.`;
     } else if ((m = key.match(/^备份包含 (\d+) 个文件、(\d+) 条历史、(\d+) 类拼装板(?:；其中 (\d+) 个文件与现有同名)?。$/))) {
       out = `Backup: ${m[1]} files, ${m[2]} history entries, ${m[3]} board categories${m[4] ? `; ${m[4]} name conflicts` : ''}.`;
+    } else if ((m = key.match(/^· (\d+) 套生效，每次请求多带 (\d+) 字$/))) {
+      out = `· ${m[1]} packs active, +${m[2]} chars per request`;
+    } else if (key === '· 已停用，不会发送') {
+      out = '· Disabled, not sent';
+    } else if (key === '· 没有勾选任何有内容的规则包') {
+      out = '· No enabled pack has content';
+    } else if ((m = key.match(/^(.+?) · 全文 (\d+) 字 · 破限层(开|关)(?:（(\d+) 字）)? · 生效规则包 (\d+) 套(（总开关已关闭）)?$/))) {
+      const layerOn = m[3] === '开';
+      const detail = layerOn && m[4] ? ` (${m[4]} chars)` : '';
+      out = `${tr(m[1])} · ${m[2]} chars total · layer ${layerOn ? 'on' : 'off'}${detail} · ${m[5]} active packs${m[6] ? ' (master switch off)' : ''}`;
+    } else if ((m = key.match(/^· 已开启(?: · 约 (\d+) 字)?$/))) {
+      out = `· On${m[1] ? ` · ~${m[1]} chars` : ''}`;
+    } else if (key === '· 已关闭，不会发送') {
+      out = '· Off, not sent';
+    } else if (key === '每次请求都会在任务规则之后带上完整的破限层（上游正文逐字移植 + 本工具附加约定），随后才是规则包，最后是输出格式确认。改完点「保存」即生效，不用重启。') {
+      out = 'The full layer (verbatim upstream text + this tool\'s additions) is sent after the task rules, before rule packs and the JSON format lock. Save to apply — no restart needed.';
+    } else if (key === '关闭后 system prompt 里不会出现破限层；规则包仍按自己的总开关发送。') {
+      out = 'The layer is omitted from the system prompt entirely; rule packs still follow their own switch.';
+    } else if ((m = key.match(/^(.+?) ([\w.-]+) · (上游正文逐字移植) · 全文 (\d+) 字 · (当前已开启|当前未开启.*)$/))) {
+      out = `${m[1]} ${m[2]} · upstream text verbatim · ${m[4]} chars · `
+        + (m[5] === '当前已开启' ? 'currently on' : 'currently off — enable it and save to send');
+    } else if ((m = key.match(/^(.+?) ([\w.-]+) · 全文 (\d+) 字 · (当前已开启|当前未开启.*)$/))) {
+      out = `${m[1]} ${m[2]} · ${m[3]} chars · `
+        + (m[4] === '当前已开启' ? 'currently on' : 'currently off — enable it and save to send');
+    } else if ((m = key.match(/^读取失败：(.*)$/))) {
+      out = `Failed to load: ${tr(m[1])}`;
+    } else if ((m = key.match(/^接口返回 (\d+)$/))) {
+      out = `API returned ${m[1]}`;
+    } else if (key === '（服务端可能还是旧进程，重启一下）') {
+      out = ' (the server may be an old process — restart it)';
+    } else if ((m = key.match(/^预览失败：(.*)$/))) {
+      out = `Preview failed: ${tr(m[1])}`;
+    } else if ((m = key.match(/^已导出 (\d+) 套规则包$/))) {
+      out = `Exported ${m[1]} rule packs`;
+    } else if ((m = key.match(/^已导入 (\d+) 套规则包，记得点「保存」$/))) {
+      out = `Imported ${m[1]} rule packs — remember to save`;
+    } else if (key === '正在拼装…') {
+      out = 'Assembling…';
     }
   }
 
@@ -741,19 +779,6 @@ async function loadConfig() {
   }
 }
 
-function updateApiPinnedCount() {
-  const n = $('#cfgApiPinned').value.trim().length;
-  const el = $('#apiPinnedCount');
-  if (!n) {
-    el.textContent = '';
-    el.style.color = '';
-    return;
-  }
-  // 太长的时候变个色，提醒它每次都要发一遍
-  el.textContent = `· ${n} 字，生成和微调时发送`;
-  el.style.color = n > 2000 ? 'var(--warn)' : '';
-}
-
 function applyConfig(cfg, opts = {}) {
   S.config = cfg;
   // 只有首次加载时才回写这些可编辑输入框；
@@ -761,11 +786,13 @@ function applyConfig(cfg, opts = {}) {
   if (!opts.skipPinInputs) {
     $('#pinPositive').value = cfg.pinnedPositive || '';
     $('#pinNegative').value = cfg.pinnedNegative || '';
-    $('#cfgApiPinned').value = cfg.apiPinnedPrompt || '';
+    // 规则包同理：保存回包和档案切换都不重绘，免得冲掉正在编辑的内容
+    $('#cfgRulePacksOn').checked = cfg.rulePacksOn !== false;
+    renderRulePacks(cfg.rulePacks || []);
+    syncUnrestrictedForm(cfg);
   }
   $('#pinEnabled').checked = cfg.pinEnabled !== false;
   $('#pinbox').classList.toggle('off', !$('#pinEnabled').checked);
-  $('#cfgApiPinnedIdea').checked = !!cfg.apiPinnedForIdea;
   $('#modelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
   $('#charModelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
   $('#segModelBadge').textContent = cfg.model ? cfg.model : '未设置模型';
@@ -774,7 +801,9 @@ function applyConfig(cfg, opts = {}) {
   const features = cfg.features || {};
   S.serverStale = !(features.segment && features.import && features.state
     && features.favorite && features.savedSearch && features.backup
-    && features.trash && features.profiles && features.variants && features.worlds);
+    && features.trash && features.profiles && features.variants && features.worlds
+    && features.rulePacks && features.unrestricted);
+
   if (S.serverStale) {
     if (!S.staleNotified) {
       S.staleNotified = true;
@@ -3136,8 +3165,9 @@ async function buildBackupPackage() {
       pinnedPositive: cfg.pinnedPositive || '',
       pinnedNegative: cfg.pinnedNegative || '',
       pinEnabled: cfg.pinEnabled !== false,
-      apiPinnedPrompt: cfg.apiPinnedPrompt || '',
-      apiPinnedForIdea: !!cfg.apiPinnedForIdea,
+      rulePacks: Array.isArray(cfg.rulePacks) ? cloneData(cfg.rulePacks) : [],
+      rulePacksOn: cfg.rulePacksOn !== false,
+      unrestrictedOn: cfg.unrestrictedOn === true,
     },
   };
 }
@@ -3251,7 +3281,8 @@ async function applyBackupPackage(pkg, mode, opts = {}) {
 
   if (opts.applySettings && pkg.settings && typeof pkg.settings === 'object') {
     const allowed = ['baseURL', 'model', 'temperature', 'maxTokens', 'timeoutSec', 'topP', 'stream', 'jsonMode',
-      'pinnedPositive', 'pinnedNegative', 'pinEnabled', 'apiPinnedPrompt', 'apiPinnedForIdea'];
+      'pinnedPositive', 'pinnedNegative', 'pinEnabled', 'rulePacks', 'rulePacksOn',
+      'unrestrictedOn'];
     const patch = {};
     for (const k of allowed) if (k in pkg.settings) patch[k] = pkg.settings[k];
     await saveConfigPatch(patch);
@@ -6856,7 +6887,26 @@ function bind() {
   $('#cfgTopP').addEventListener('input', () => {
     $('#topPVal').textContent = Number($('#cfgTopP').value).toFixed(2);
   });
-  $('#cfgApiPinned').addEventListener('input', updateApiPinnedCount);
+  $('#btnRulePackAdd').addEventListener('click', () => addRulePack());
+  $('#btnRulePackExport').addEventListener('click', exportRulePacks);
+  $('#btnRulePackImport').addEventListener('click', () => $('#rulePackFile').click());
+  $('#rulePackFile').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // 允许连续导入同一个文件
+    if (file) await importRulePacksFile(file);
+  });
+  $('#cfgRulePacksOn').addEventListener('change', updateRulePackSummary);
+  $('#cfgUnrestrictedOn').addEventListener('change', () => renderUnrestrictedSummary());
+  $('#btnUnrestrictedView').addEventListener('click', openUnrestrictedDialog);
+  $('#btnUnrestrictedCheck').addEventListener('click', checkUnrestricted);
+  $('#btnUnrestrictedClose').addEventListener('click', () => $('#unrestrictedDialog').close());
+  $('#btnUnrestrictedCopy').addEventListener('click', () => copyText($('#unrestrictedText').value, $('#btnUnrestrictedCopy')));
+  $('#btnRulePackPreview').addEventListener('click', openRulePreview);
+  $('#btnRulePreviewClose').addEventListener('click', () => $('#rulePreviewDialog').close());
+  $('#btnRulePreviewCopy').addEventListener('click', () => copyText($('#rulePreviewText').value, $('#btnRulePreviewCopy')));
+  $('#rulePreviewMode').addEventListener('change', () => {
+    if ($('#rulePreviewDialog').open) loadRulePreview();
+  });
   $('#btnLoadModels').addEventListener('click', loadModels);
   initCombos();
 
@@ -6896,6 +6946,313 @@ function renderProfileOptions(cfg) {
     : '当前 Key 以明文保存在本机 config.json（源码/非 Electron 环境）；打包桌面版会尝试系统凭据加密。';
 }
 
+/* ---------- 内置破限层 ---------- */
+// 和规则包一样：表单状态以控件为准，读表单就是读界面。
+// 开关与范围会随「保存」写进 config.json，服务端每次请求重新拼装，
+// 所以开关改变后不需要重启，下一次生成就生效。
+function renderUnrestrictedSummary(cfg = S.config || {}) {
+  const on = $('#cfgUnrestrictedOn').checked;
+  const meta = cfg.unrestricted || {};
+  $('#unrestrictedBadge').textContent = meta.version
+    ? `${meta.name || 'dsh-unrestricted'} ${meta.version} · ${meta.license || 'MIT'}`
+    : 'dsh-unrestricted · MIT';
+  $('#unrestrictedBox').classList.toggle('on', on);
+  const chars = Number(cfg.unrestrictedChars) || 0;
+  const size = chars > 0 ? `约 ${Math.round(chars / 100) * 100} 字` : '';
+  $('#unrestrictedSummary').textContent = on
+    ? `· 已开启${size ? ' · ' + size : ''}`
+    : '· 已关闭，不会发送';
+  $('#unrestrictedHint').textContent = on
+    ? '每次请求都会在任务规则之后带上完整的破限层（上游正文逐字移植 + 本工具附加约定），'
+      + '随后才是规则包，最后是输出格式确认。改完点「保存」即生效，不用重启。'
+    : '关闭后 system prompt 里不会出现破限层；规则包仍按自己的总开关发送。';
+}
+
+function syncUnrestrictedForm(cfg) {
+  $('#cfgUnrestrictedOn').checked = cfg.unrestrictedOn === true;
+  renderUnrestrictedSummary(cfg);
+}
+
+async function openUnrestrictedDialog() {
+  const dlg = $('#unrestrictedDialog');
+  if (!dlg.open) dlg.showModal();
+  const err = $('#unrestrictedErr');
+  const out = $('#unrestrictedText');
+  err.hidden = true;
+  out.value = '正在读取…';
+  try {
+    const r = await fetch('/api/unrestricted');
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    out.value = j.block || '';
+    const name = j.upstream?.name || 'dsh-unrestricted';
+    const ver = j.upstream?.version || '';
+    const verbatim = j.upstream?.verbatim ? '上游正文逐字移植' : '';
+    $('#unrestrictedMeta').textContent = `${name} ${ver} · ${verbatim} · 全文 ${j.chars} 字 · `
+      + (j.on ? '当前已开启' : '当前未开启，打开开关并保存后才会随请求发送');
+  } catch (e) {
+    out.value = '';
+    err.textContent = `读取失败：${e.message}${e.message.includes('HTTP 404') ? '（服务端可能还是旧进程，重启一下）' : ''}`;
+    err.hidden = false;
+  }
+}
+
+// 自检：真的发一次生成请求，看模型是照做、敷衍还是拒答。
+// 只测这一件事——破限层有没有压过模型自己的倾向；接口通不通由「测试连接」负责。
+async function checkUnrestricted() {
+  const btn = $('#btnUnrestrictedCheck');
+  const out = $('#unrestrictedCheckResult');
+  btn.disabled = true;
+  out.hidden = false;
+  out.className = 'field-hint';
+  out.textContent = tr('正在发一次真实请求测试…（约 1～2k tokens）');
+  try {
+    const r = await fetch('/api/unrestricted/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ style: 'sd' }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    const ok = j.verdict === 'ok';
+    const warn = j.verdict === 'thin' || j.verdict === 'unknown';
+    out.className = ok ? 'field-hint hint-ok' : warn ? 'field-hint hint-warn' : 'field-hint hint-err';
+    const head = `${tr(j.verdictText)}（${j.model || '模型'} · ${j.latencyMs} ms）`;
+    const tail = j.message ? `\n${tr(j.message)}` : '';
+    const sample = j.sample ? `\n${tr('示例：')}${j.sample.slice(0, 140)}` : '';
+    out.textContent = `${head}${tail}${sample}`;
+  } catch (e) {
+    out.className = 'field-hint hint-err';
+    out.textContent = `${tr('测试失败：')}${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ---------- 规则包 ---------- */
+// 规则包列表以 DOM 为准：读表单就是读界面，避免状态和界面各存一份再对不上。
+let rulePackSeq = 0;
+
+function makeRulePack(raw = {}) {
+  rulePackSeq += 1;
+  return {
+    id: String(raw.id || `rp-local-${Date.now().toString(36)}-${rulePackSeq}`),
+    name: String(raw.name || ''),
+    text: String(raw.text || ''),
+    enabled: raw.enabled !== false,
+  };
+}
+
+function rulePackRows() {
+  return [...$('#rulePackList').querySelectorAll('.rule-pack')];
+}
+
+function updateRulePackFoot(row) {
+  const n = String(row.querySelector('.rule-pack-text')?.value || '').trim().length;
+  const foot = row.querySelector('.rule-pack-foot');
+  if (foot) foot.textContent = n ? `${n} 字` : '空内容不会发送';
+}
+
+function updateRulePackSummary() {
+  const packs = collectRulePacks();
+  const active = packs.filter((p) => p.enabled && p.text.trim());
+  const chars = active.reduce((n, p) => n + p.text.trim().length, 0);
+  const el = $('#rulePackSummary');
+  if (!el) return;
+  if (!packs.length) {
+    el.textContent = '';
+    el.style.color = '';
+    return;
+  }
+  if (!$('#cfgRulePacksOn').checked) {
+    el.textContent = '· 已停用，不会发送';
+    el.style.color = 'var(--dim)';
+    return;
+  }
+  el.textContent = chars
+    ? `· ${active.length} 套生效，每次请求多带 ${chars} 字`
+    : '· 没有勾选任何有内容的规则包';
+  el.style.color = chars > 4000 ? 'var(--warn)' : '';
+}
+
+function rulePackRow(pack) {
+  const wrap = document.createElement('div');
+  wrap.className = 'rule-pack';
+  wrap.dataset.id = pack.id;
+
+  const head = document.createElement('div');
+  head.className = 'rule-pack-head';
+
+  const on = document.createElement('input');
+  on.type = 'checkbox';
+  on.className = 'rule-pack-on';
+  on.checked = pack.enabled !== false;
+  on.title = '勾选后随每次请求发送';
+  on.setAttribute('aria-label', '启用这条规则包');
+  on.addEventListener('change', updateRulePackSummary);
+
+  const name = document.createElement('input');
+  name.type = 'text';
+  name.className = 'rule-pack-name';
+  name.maxLength = 60;
+  name.value = pack.name;
+  name.autocomplete = 'off';
+  name.placeholder = '规则包名称，如「画风固定」「不要免责声明」';
+  name.addEventListener('input', updateRulePackSummary);
+
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'btn tiny ghost';
+  del.textContent = '删除';
+  del.addEventListener('click', () => {
+    wrap.remove();
+    if (!rulePackRows().length) showRulePacksEmpty();
+    updateRulePackSummary();
+  });
+
+  head.append(on, name, del);
+
+  const text = document.createElement('textarea');
+  text.className = 'rule-pack-text';
+  text.rows = 4;
+  text.spellcheck = false;
+  text.value = pack.text;
+  text.placeholder = '规则正文，会原样追加到 system prompt 末尾';
+  text.addEventListener('input', () => {
+    updateRulePackFoot(wrap);
+    updateRulePackSummary();
+  });
+
+  const foot = document.createElement('p');
+  foot.className = 'rule-pack-foot';
+
+  wrap.append(head, text, foot);
+  updateRulePackFoot(wrap);
+  return wrap;
+}
+
+function showRulePacksEmpty() {
+  const list = $('#rulePackList');
+  if (!list || rulePackRows().length) return;
+  list.querySelector('.rule-packs-empty')?.remove();
+  const p = document.createElement('p');
+  p.className = 'rule-packs-empty';
+  p.textContent = '还没有规则包。点「+ 新增规则包」写一条，或者导入一份 JSON。';
+  list.appendChild(p);
+}
+
+function renderRulePacks(packs) {
+  const list = $('#rulePackList');
+  if (!list) return;
+  list.textContent = '';
+  const arr = Array.isArray(packs) ? packs : [];
+  for (const pack of arr) list.appendChild(rulePackRow(makeRulePack(pack)));
+  if (!arr.length) showRulePacksEmpty();
+  updateRulePackSummary();
+}
+
+function addRulePack(pack) {
+  const list = $('#rulePackList');
+  if (!list) return null;
+  list.querySelector('.rule-packs-empty')?.remove();
+  const row = rulePackRow(makeRulePack(pack || { name: `规则包 ${rulePackRows().length + 1}` }));
+  list.appendChild(row);
+  updateRulePackSummary();
+  if (!pack) row.querySelector('.rule-pack-name')?.select();
+  return row;
+}
+
+function collectRulePacks() {
+  return rulePackRows()
+    .map((row) => ({
+      id: row.dataset.id || '',
+      name: String(row.querySelector('.rule-pack-name')?.value || '').trim(),
+      text: String(row.querySelector('.rule-pack-text')?.value || ''),
+      enabled: !!row.querySelector('.rule-pack-on')?.checked,
+    }))
+    .filter((p) => p.name || p.text.trim());
+}
+
+function exportRulePacks() {
+  const packs = collectRulePacks();
+  if (!packs.length) {
+    toast('没有可导出的规则包', true);
+    return;
+  }
+  const pkg = { app: 'prompt-forge', kind: 'rule-packs', version: 1, packs };
+  const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `promptforge-rules-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast(`已导出 ${packs.length} 套规则包`);
+}
+
+async function importRulePacksFile(file) {
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const raw = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.packs) ? parsed.packs : null;
+    if (!raw) throw new Error('文件里没有 packs 数组');
+    let added = 0;
+    for (const item of raw.slice(0, 60)) {
+      if (!item || typeof item !== 'object') continue;
+      const name = String(item.name || '').trim();
+      const body = String(item.text || '');
+      if (!name && !body.trim()) continue;
+      addRulePack({ name: name || `导入 ${added + 1}`, text: body, enabled: item.enabled !== false });
+      added += 1;
+    }
+    if (!added) throw new Error('没有可导入的规则包');
+    updateRulePackSummary();
+    toast(`已导入 ${added} 套规则包，记得点「保存」`);
+  } catch (err) {
+    toast(`导入失败：${err.message}`, true);
+  }
+}
+
+async function loadRulePreview() {
+  const err = $('#rulePreviewErr');
+  const out = $('#rulePreviewText');
+  err.hidden = true;
+  out.value = '正在拼装…';
+  try {
+    const r = await fetch('/api/rule-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: $('#rulePreviewMode').value,
+        rulePacks: collectRulePacks(),
+        rulePacksOn: $('#cfgRulePacksOn').checked,
+        unrestrictedOn: $('#cfgUnrestrictedOn').checked,
+      }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    out.value = j.system || '';
+    const layer = j.unrestrictedOn
+      ? `破限层开（${j.unrestrictedLength} 字）`
+      : '破限层关';
+    $('#rulePreviewMeta').textContent = `${j.modeLabel} · 全文 ${j.length} 字 · ${layer} · 生效规则包 ${j.packCount} 套${j.rulePacksOn ? '' : '（总开关已关闭）'}`;
+  } catch (e) {
+    out.value = '';
+    err.textContent = `预览失败：${e.message}${e.message.includes('HTTP 404') ? '（服务端可能还是旧进程，重启一下）' : ''}`;
+    err.hidden = false;
+  }
+}
+
+async function openRulePreview() {
+  const dlg = $('#rulePreviewDialog');
+  if (!dlg.open) dlg.showModal();
+  await loadRulePreview();
+}
+
 function populateSettings(cfg) {
   $('#cfgBase').value = cfg.baseURL || '';
   $('#cfgModel').value = cfg.model || '';
@@ -6909,9 +7266,9 @@ function populateSettings(cfg) {
   $('#topPVal').textContent = Number(cfg.topP ?? 1).toFixed(2);
   $('#cfgStream').checked = cfg.stream !== false;
   $('#cfgJsonMode').checked = !!cfg.jsonMode;
-  $('#cfgApiPinned').value = cfg.apiPinnedPrompt || '';
-  $('#cfgApiPinnedIdea').checked = !!cfg.apiPinnedForIdea;
-  updateApiPinnedCount();
+  $('#cfgRulePacksOn').checked = cfg.rulePacksOn !== false;
+  renderRulePacks(cfg.rulePacks || []);
+  syncUnrestrictedForm(cfg);
   $('#keyHint').textContent = cfg.hasKey
     ? `已保存：${cfg.keyMask}（${cfg.keyEncrypted ? '系统凭据加密' : '明文'}；留空即保持原样）`
     : '还没有保存 Key';
@@ -6948,8 +7305,9 @@ async function saveSettings() {
       topP: Number($('#cfgTopP').value),
       stream: $('#cfgStream').checked,
       jsonMode: $('#cfgJsonMode').checked,
-      apiPinnedPrompt: $('#cfgApiPinned').value,
-      apiPinnedForIdea: $('#cfgApiPinnedIdea').checked,
+      rulePacks: collectRulePacks(),
+      rulePacksOn: $('#cfgRulePacksOn').checked,
+      unrestrictedOn: $('#cfgUnrestrictedOn').checked,
     };
     const key = $('#cfgKey').value.trim();
     if (key) patch.apiKey = key;

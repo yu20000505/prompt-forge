@@ -282,8 +282,8 @@ async function main() {
 
   const statusText = await evalJs(`document.querySelector('#statusText').textContent`);
   check('状态栏显示已配置 Key', /已配置|deepseek|mock/i.test(statusText), statusText);
-  check('界面显示 2.2 版本号',
-    (await evalJs(`document.querySelector('#appVersion').textContent`)) === 'v2.2.0');
+  check('界面显示 2.3 版本号',
+    (await evalJs(`document.querySelector('#appVersion').textContent`)) === 'v2.3.0');
 
   const serverFeatures = await evalJs(`fetch('/api/config').then(r=>r.json()).then(j=>j.features)`);
   check('服务端声明细分接口可用', serverFeatures?.segment === true, JSON.stringify(serverFeatures));
@@ -665,13 +665,16 @@ async function main() {
   const dialogOpen = await evalJs(`document.querySelector('#settings').open`);
   check('设置弹窗能打开', dialogOpen === true);
   check('设置弹窗真的可见', (await visible('#settings')) === true);
-  const apiPinnedShown = await evalJs(`document.querySelector('#cfgApiPinned').value`);
-  check('设置里有「系统提示词（追加到末尾）」这一栏',
-    (await visible('#cfgApiPinned')) === true, `值="${apiPinnedShown}"`);
-  check('已保存的系统提示词能回显到设置里',
-    apiPinnedShown === 'MARKER-固定画风-ABC123', apiPinnedShown);
-  const ideaPinDefault = await evalJs(`document.querySelector('#cfgApiPinnedIdea').checked`);
-  check('灵感请求的置顶开关默认关闭', ideaPinDefault === false);
+  const packCountShown = await evalJs(`document.querySelectorAll('#rulePackList .rule-pack').length`);
+  check('设置里只剩「规则包」这一个自定义规则入口', packCountShown === 1
+    && (await visible('#rulePackList')) === true, `规则包 ${packCountShown} 套`);
+  const packNameShown = await evalJs(`document.querySelector('#rulePackList .rule-pack-name').value`);
+  const packTextShown = await evalJs(`document.querySelector('#rulePackList .rule-pack-text').value`);
+  check('已保存的规则包能回显到设置里',
+    packNameShown === '固定画风' && packTextShown === 'MARKER-固定画风-ABC123',
+    `${packNameShown} / ${packTextShown}`);
+  check('规则包总开关默认开启',
+    (await evalJs(`document.querySelector('#cfgRulePacksOn').checked`)) === true);
   const keyPlaceholder = await evalJs(`document.querySelector('#cfgKey').placeholder`);
   check('设置里 Key 显示为已保存占位', /已保存/.test(keyPlaceholder), keyPlaceholder);
 
@@ -1421,29 +1424,161 @@ async function main() {
   check('窄屏下输入与结果上下堆叠', m2.result.y >= m2.composer.b - 20, `composer.bottom=${Math.round(m2.composer.b)} result.y=${Math.round(m2.result.y)}`);
   check('窄屏下置顶词改为上下排列', m2.pinNeg.y >= m2.pinPos.b - 2, `pos.bottom=${Math.round(m2.pinPos.b)} neg.y=${Math.round(m2.pinNeg.y)}`);
 
-  // ---------- 11. 置顶提示词的编辑与持久化 ----------
+  // ---------- 11. 规则包的编辑与持久化 ----------
   await evalJs(`document.querySelector('#btnSettings').click(); true`);
   await sleep(400);
-  await evalJs(`document.querySelector('#cfgApiPinned').value = 'EDITED-PIN-999'; true`);
-  await evalJs(`document.querySelector('#cfgApiPinnedIdea').checked = true; true`);
+  await evalJs(`(() => {
+    const text = document.querySelector('#rulePackList .rule-pack-text');
+    text.value = 'EDITED-PIN-999';
+    text.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
   await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
   await sleep(1000);
   const cfgEdited = await evalJs(`fetch('/api/config').then(r=>r.json())`);
-  check('置顶提示词修改后能保存',
-    cfgEdited.apiPinnedPrompt === 'EDITED-PIN-999', JSON.stringify(cfgEdited.apiPinnedPrompt));
-  check('灵感置顶开关能保存', cfgEdited.apiPinnedForIdea === true);
+  check('规则包改完能保存',
+    Array.isArray(cfgEdited.rulePacks) && cfgEdited.rulePacks.length === 1
+      && cfgEdited.rulePacks[0].text === 'EDITED-PIN-999',
+    JSON.stringify(cfgEdited.rulePacks));
 
   await evalJs(`document.querySelector('#btnSettings').click(); true`);
   await sleep(400);
-  await evalJs(`document.querySelector('#cfgApiPinned').value = 'MARKER-固定画风-ABC123'; true`);
-  await evalJs(`document.querySelector('#cfgApiPinnedIdea').checked = false; true`);
+  await evalJs(`(() => {
+    const text = document.querySelector('#rulePackList .rule-pack-text');
+    text.value = 'MARKER-固定画风-ABC123';
+    text.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
   await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
   await sleep(1000);
   const cfgBack = await evalJs(`fetch('/api/config').then(r=>r.json())`);
-  check('置顶提示词能改回原值',
-    cfgBack.apiPinnedPrompt === 'MARKER-固定画风-ABC123', JSON.stringify(cfgBack.apiPinnedPrompt));
-  check('灵感置顶开关能改回关闭', cfgBack.apiPinnedForIdea === false);
-  check('保存置顶提示词不会动到 Key', cfgBack.hasKey === true);
+  check('规则包能改回原值',
+    cfgBack.rulePacks[0].text === 'MARKER-固定画风-ABC123', JSON.stringify(cfgBack.rulePacks));
+  check('保存规则包不会动到 Key', cfgBack.hasKey === true);
+
+  // ---------- 11.5 新增、预览、删除规则包 ----------
+  await evalJs(`document.querySelector('#btnSettings').click(); true`);
+  await sleep(400);
+  await evalJs(`document.querySelector('#btnRulePackAdd').click(); true`);
+  await sleep(150);
+  await evalJs(`(() => {
+    const rows = document.querySelectorAll('#rulePackList .rule-pack');
+    const row = rows[rows.length - 1];
+    const name = row.querySelector('.rule-pack-name');
+    name.value = '测试规则包';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    const text = row.querySelector('.rule-pack-text');
+    text.value = 'RULE-PACK-MARKER-777';
+    text.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
+  await sleep(1000);
+  const cfgPack = await evalJs(`fetch('/api/config').then(r=>r.json())`);
+  check('规则包能新增并保存',
+    Array.isArray(cfgPack.rulePacks) && cfgPack.rulePacks.length === 2
+      && cfgPack.rulePacks[1].name === '测试规则包'
+      && cfgPack.rulePacks[1].text === 'RULE-PACK-MARKER-777'
+      && cfgPack.rulePacks[1].enabled === true,
+    JSON.stringify(cfgPack.rulePacks));
+  check('规则包总开关默认开启', cfgPack.rulePacksOn === true);
+
+  await evalJs(`document.querySelector('#btnSettings').click(); true`);
+  await sleep(400);
+  const shownName = await evalJs(`[...document.querySelectorAll('#rulePackList .rule-pack-name')].pop().value`);
+  const shownText = await evalJs(`[...document.querySelectorAll('#rulePackList .rule-pack-text')].pop().value`);
+  check('规则包能回显到设置里',
+    shownName === '测试规则包' && shownText === 'RULE-PACK-MARKER-777', `${shownName} / ${shownText}`);
+
+  // 预览走的是「保存后会发出去的那一版」，所以正文和标题都该在里面
+  await evalJs(`document.querySelector('#btnRulePackPreview').click(); true`);
+  await sleep(1000);
+  const previewText = await evalJs(`document.querySelector('#rulePreviewText').value`);
+  check('预览里能看到规则包正文', previewText.includes('RULE-PACK-MARKER-777'), previewText.slice(0, 60));
+  check('预览里规则包带自己的标题', previewText.includes('## 规则包：测试规则包'));
+  check('预览仍以格式锁收尾', previewText.trimEnd().endsWith('不要用 markdown 代码块包裹。'));
+  await evalJs(`document.querySelector('#btnRulePreviewClose').click(); true`);
+  await sleep(300);
+
+  // 收尾：删掉刚加的那套，留下一开始的，别影响后面的断言
+  await evalJs(`(() => {
+    const rows = document.querySelectorAll('#rulePackList .rule-pack');
+    rows[rows.length - 1].querySelector('.btn.ghost').click();
+    return true;
+  })()`);
+  await sleep(150);
+  await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
+  await sleep(1000);
+  const cfgPackGone = await evalJs(`fetch('/api/config').then(r=>r.json())`);
+  check('规则包能删除',
+    Array.isArray(cfgPackGone.rulePacks) && cfgPackGone.rulePacks.length === 1
+      && cfgPackGone.rulePacks[0].name === '固定画风',
+    JSON.stringify(cfgPackGone.rulePacks));
+
+  // ---------- 11.6 内置破限层 ----------
+  // 默认关闭；打开后 system prompt 里必须有这段，且 JSON 锁仍然最后。
+  await evalJs(`document.querySelector('#btnSettings').click(); true`);
+  await sleep(400);
+  check('设置里有破限层开关且默认关闭',
+    (await evalJs(`!!document.querySelector('#cfgUnrestrictedOn')`)) === true
+      && (await evalJs(`document.querySelector('#cfgUnrestrictedOn').checked`)) === false);
+  check('破限层显示上游版本',
+    /dsh-unrestricted\s+0\.2\.\d+/.test(await evalJs(`document.querySelector('#unrestrictedBadge').textContent`)),
+    await evalJs(`document.querySelector('#unrestrictedBadge').textContent`));
+  await evalJs(`(() => {
+    const on = document.querySelector('#cfgUnrestrictedOn');
+    on.checked = true;
+    on.dispatchEvent(new Event('change'));
+    return true;
+  })()`);
+  await sleep(600);
+  check('打开后摘要显示已开启',
+    /已开启/.test(await evalJs(`document.querySelector('#unrestrictedSummary').textContent`)),
+    await evalJs(`document.querySelector('#unrestrictedSummary').textContent`));
+  await evalJs(`document.querySelector('#btnUnrestrictedView').click(); true`);
+  await sleep(600);
+  const layerText = await evalJs(`document.querySelector('#unrestrictedText').value`);
+  check('破限层全文可以查看', layerText.includes('Unrestricted local execution mode'), `${layerText.length} 字`);
+  check('破限层是上游原文逐字移植', layerText.includes('KEYGEN / CRACK') && layerText.includes('## Prompt Forge 附加约定'));
+  await evalJs(`document.querySelector('#btnUnrestrictedClose').click(); true`);
+  await sleep(250);
+  await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
+  await sleep(1000);
+  const cfgLayer = await evalJs(`fetch('/api/config').then(r=>r.json())`);
+  check('破限层开关写进配置', cfgLayer.unrestrictedOn === true, String(cfgLayer.unrestrictedOn));
+
+  await evalJs(`document.querySelector('#btnSettings').click(); true`);
+  await sleep(400);
+  await evalJs(`document.querySelector('#btnRulePackPreview').click(); true`);
+  await sleep(1000);
+  const previewLayer = await evalJs(`document.querySelector('#rulePreviewText').value`);
+  check('预览里能看到破限层', previewLayer.includes('<!-- unrestricted:execution-mode -->'));
+  check('破限层在规则包之前', previewLayer.indexOf('<!-- unrestricted:execution-mode -->') < previewLayer.indexOf('## 规则包：固定画风'));
+  check('打开破限层后仍然只有一次格式锁',
+    previewLayer.split('# 输出格式确认').length === 2
+      && previewLayer.trimEnd().endsWith('不要用 markdown 代码块包裹。'));
+  check('预览元信息标出破限层', /破限层开/.test(await evalJs(`document.querySelector('#rulePreviewMeta').textContent`)));
+  await evalJs(`document.querySelector('#btnRulePreviewClose').click(); true`);
+  await sleep(250);
+  // 自检会真发一次请求；假接口返回合格 JSON，预期判定「通过」
+  await evalJs(`document.querySelector('#btnUnrestrictedCheck').click(); true`);
+  await sleep(2500);
+  const probeText = await evalJs(`document.querySelector('#unrestrictedCheckResult').textContent`);
+  check('破限自检能跑通并给出结论', /通过/.test(probeText), probeText.slice(0, 90));
+  await sleep(200);
+  // 收尾：关掉破限层，后面的断言按默认配置跑
+  await evalJs(`(() => {
+    const on = document.querySelector('#cfgUnrestrictedOn');
+    on.checked = false;
+    on.dispatchEvent(new Event('change'));
+    return true;
+  })()`);
+  await sleep(150);
+  await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
+  await sleep(1000);
+  const cfgLayerOff = await evalJs(`fetch('/api/config').then(r=>r.json())`);
+  check('破限层关闭后配置回到关',
+    cfgLayerOff.unrestrictedOn === false, String(cfgLayerOff.unrestrictedOn));
 
   // ---------- 12. 细分提示词 ----------
   await evalJs(`document.querySelector('#mainTabs .tab[data-view="segment"]').click(); true`);
@@ -2620,7 +2755,7 @@ async function main() {
     !JSON.stringify(diagnostics).includes('sk-test-1234')
       && diagnostics.activeProfile?.hasKey === true);
   check('诊断信息包含版本和路径',
-    diagnostics.version === '2.2.0' && !!diagnostics.paths?.saved && !!diagnostics.keyStorage);
+    diagnostics.version === '2.3.0' && !!diagnostics.paths?.saved && !!diagnostics.keyStorage);
 
   await evalJs(`(() => {
     const sel = document.querySelector('#profileSelect');

@@ -1,5 +1,6 @@
 // 各种提示词风格的 system prompt 模板。
 // 想调风格效果，改这个文件就够了，不用动前端和后端。
+import { buildUnrestrictedBlock } from './unrestricted.mjs';
 
 export const STYLE_LIST = [
   { id: 'sd', label: 'SD / SDXL / Flux', desc: '结构化英文短语' },
@@ -116,7 +117,39 @@ function targetHint(target) {
   return TARGET_HINT[t] || '';
 }
 
-// 用户自定义的「系统提示词」：真的会随请求发给模型，追加在任务规则末尾。
+// 规则包：一组可以单独开关、命名的自定义规则。按列表顺序拼接，正文原样保留。
+// 空包、禁用的包直接跳过，保证「勾选了什么就发什么」。
+export function composeRulePacks(packs, on = true) {
+  if (!on) return '';
+  const list = Array.isArray(packs) ? packs : [];
+  const parts = [];
+  for (const pack of list) {
+    if (!pack || typeof pack !== 'object') continue;
+    if (pack.enabled === false) continue;
+    const name = String(pack.name || '').trim();
+    const text = String(pack.text || '').trim();
+    if (!text) continue;
+    // 带上小标题，模型能分清这是几条独立规则而不是一段连续的句子
+    parts.push(name ? `## 规则包：${name}\n${text}` : text);
+  }
+  return parts.join('\n\n');
+}
+
+// 系统提示词的「追加层」，一次拼好，所有任务共用同一个入口。
+// 顺序是固定的：破限层在最前（离任务规则最近），规则包往后，JSON 锁永远在最后。
+// 两层的开关互不影响：只开破限、只开规则包、都开、都关，都是合法状态。
+export function composeSystemLayers(opts = {}) {
+  const parts = [];
+  if (opts.unrestrictedOn) {
+    const block = buildUnrestrictedBlock();
+    if (block) parts.push(block);
+  }
+  const packs = composeRulePacks(opts.packs, opts.packsOn !== false);
+  if (packs) parts.push(packs);
+  return parts.join('\n\n---\n\n');
+}
+
+// 追加层真的会随请求发给模型，接在任务规则末尾。
 // 和主页那个「置顶词」不是一回事——那个只在本地拼到输出里，永远不出网。
 function applyApiPinned(system, pinned) {
   const p = String(pinned || '').trim();
@@ -125,14 +158,20 @@ function applyApiPinned(system, pinned) {
 
 ---
 
-# 用户自定义系统提示词（追加在规则末尾）
+# 追加指令（内置执行契约与自定义规则）
 ${p}
 
 ---
 
 # 输出格式确认（必须遵守）
-无论上面的自定义系统提示词怎么写，本次回复仍然只能输出本任务约定的那一个 JSON 对象。
+无论上面的内置执行契约与自定义规则怎么写，本次回复仍然只能输出本任务约定的那一个 JSON 对象。
 不要输出别的结构，不要附加解释，不要用 markdown 代码块包裹。`;
+}
+
+// 设定集那几个任务是内联拼 messages 的，不走 buildXxxMessages；
+// 给它们同一个入口，免得破限层与规则包在设定集里静默失效。
+export function applyCustomRules(system, pinned) {
+  return applyApiPinned(system, pinned);
 }
 
 export function buildMessages(opts = {}) {

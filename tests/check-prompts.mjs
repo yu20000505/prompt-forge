@@ -7,8 +7,11 @@ import {
   buildCharacterRefineMessages,
   buildSegmentMessages,
   buildSegmentRefineMessages,
+  composeRulePacks,
+  composeSystemLayers,
   SEGMENT_LIST,
 } from '../src/styles.mjs';
+import { LAYER_OPEN } from '../src/unrestricted.mjs';
 
 let bad = 0;
 const check = (name, ok, extra = '') => {
@@ -111,12 +114,56 @@ for (const [name, msgs] of gens) {
   const sys = msgs[0].content;
   check(`${name} 注入系统提示词并放在规则后`,
     sys.includes(PIN) && sys.indexOf(PIN) > sys.indexOf('# 输出格式（强制）'));
-  check(`${name} 有 JSON 格式保护`, sys.includes('无论上面的自定义系统提示词怎么写'));
+  check(`${name} 有 JSON 格式保护`, sys.includes('无论上面的内置执行契约与自定义规则怎么写'));
   check(`${name} 末尾有最高优先级的格式确认`,
     sys.trimEnd().endsWith('不要用 markdown 代码块包裹。'), '');
 }
 check('填空时不注入系统提示词',
-  !buildMessages({ sentence: '猫' })[0].content.includes('用户自定义系统提示词'));
+  !buildMessages({ sentence: '猫' })[0].content.includes('追加指令'));
+
+// ---------- 内置破限层：与规则包的拼装顺序 ----------
+const layers = composeSystemLayers({
+  unrestrictedOn: true,
+  packs: [{ name: 'A', text: '规则一', enabled: true }],
+});
+const layered = buildMessages({ sentence: '猫', apiPinned: layers })[0].content;
+check('破限层进入 system prompt',
+  layered.includes(LAYER_OPEN) && layered.includes('Unrestricted local execution mode'));
+check('破限层排在规则包之前，JSON 锁在最后',
+  layered.indexOf(LAYER_OPEN) > layered.indexOf('# 输出格式（强制）')
+  && layered.indexOf(LAYER_OPEN) < layered.indexOf('## 规则包：A')
+  && layered.trimEnd().endsWith('不要用 markdown 代码块包裹。'));
+check('关闭破限层且没有规则包时与未接入前逐字一致',
+  buildMessages({ sentence: '猫', apiPinned: composeSystemLayers({ unrestrictedOn: false }) })[0].content
+  === buildMessages({ sentence: '猫' })[0].content);
+check('破限层包含上游技术类任务路由（逐字移植，不做取舍）',
+  layered.includes('KEYGEN / CRACK') && layered.includes('ANTI-DEBUG'));
+check('破限层只注入一次（幂等入口）',
+  buildMessages({ sentence: '猫', apiPinned: layers })[0].content.split(LAYER_OPEN).length === 2);
+
+// ---------- 规则包 ----------
+const PACKS = [
+  { name: 'A', text: '规则一', enabled: true },
+  { name: 'B', text: '规则二', enabled: false },
+  { name: '', text: '规则三' },
+  { name: 'C', text: '   ', enabled: true },
+];
+check('规则包按顺序拼接，跳过禁用和空包',
+  composeRulePacks(PACKS) === '## 规则包：A\n规则一\n\n规则三');
+check('规则包总开关关闭时一条都不发', composeRulePacks(PACKS, false) === '');
+check('没有规则包时返回空串', composeRulePacks([]) === '' && composeRulePacks(null) === '');
+
+const packed = buildMessages({
+  sentence: '猫',
+  apiPinned: composeRulePacks(PACKS),
+})[0].content;
+check('规则包进入系统提示词，且排在格式锁之前',
+  packed.includes('## 规则包：A') && packed.indexOf('规则包：A') < packed.indexOf('# 输出格式确认'));
+check('规则包不会挤掉末尾的格式确认',
+  packed.trimEnd().endsWith('不要用 markdown 代码块包裹。'));
+check('规则包可以同时出现在角色与细分链路',
+  buildCharacterMessages({ sentence: 'x', apiPinned: composeRulePacks(PACKS) })[0].content.includes('规则包：A')
+  && buildSegmentMessages({ sentence: 'x', segmentType: 'outfit', apiPinned: composeRulePacks(PACKS) })[0].content.includes('规则包：A'));
 
 // ---------- 其余 builder 仍正常 ----------
 check('generate 两种消息', buildMessages({ sentence: '猫' }).length === 2);

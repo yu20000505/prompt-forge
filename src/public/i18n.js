@@ -249,12 +249,6 @@ window.PF_I18N = {
       'Stream responses (turn off to wait for the full reply)',
     'JSON 模式（仅部分接口支持，开启后要求模型返回 JSON）':
       'JSON mode (only some providers; asks the model for JSON)',
-    '置顶提示词（会发送给 API）': 'API preamble (sent to the model)',
-    '这里填的内容会加到系统提示词最前面，随每一次请求一起发给模型':
-      'Prepended to the system prompt on every request',
-    '随机灵感请求也发送置顶提示词': 'Send the API preamble with idea requests too',
-    '默认关闭：灵感只要一句中文，附带整段规范会白白消耗 token。生成提示词、微调、角色设定始终会发送。':
-      'Off by default: idea requests only need one sentence. Prompt generation, refinement and character sheets always send it.',
     '测试连接': 'Test connection',
     '保存设置': 'Save settings',
     '已保存': 'Saved',
@@ -481,5 +475,67 @@ window.PF_I18N = {
     '保存当前结果': 'Save the current result',
     '关闭浮层 / 取消生成': 'Close overlays / cancel generation',
     '打开这个帮助': 'Open this help',
+
+    // 规则包
+    '规则包': 'Rule packs',
+    '多套可以单独开关的规则，按顺序拼在一起。勾选的每一套都会追加到 system prompt 末尾，生成、微调、角色设定、细分标签、设定集和随机灵感都会带上；内容由你自己填写。':
+      'Any number of toggleable rules, concatenated in order. Every checked pack is appended to the end of the system prompt and sent with generation, refinement, character, segment tags, worlds and random ideas. You write the content.',
+    '启用规则包（关掉后内容保留，但不再发送）':
+      'Enable rule packs (content is kept but not sent)',
+    '+ 新增规则包': '+ New rule pack',
+    '导出': 'Export',
+    '预览最终提示词': 'Preview final prompt',
+    '还没有规则包。点「+ 新增规则包」写一条，或者导入一份 JSON。':
+      'No rule packs yet. Click "+ New rule pack" to write one, or import a JSON file.',
+    '空内容不会发送': 'Empty packs are not sent',
+    '规则包名称，如「画风固定」「不要免责声明」':
+      'Pack name, e.g. "fixed art style"',
+    '规则正文，会原样追加到 system prompt 末尾':
+      'Rule text, appended verbatim to the end of the system prompt',
+    '勾选后随每次请求发送': 'Send with every request when checked',
+    '启用这条规则包': 'Enable this rule pack',
+    '最终系统提示词预览': 'Final system prompt',
+    '按当前表单里的规则包内容拼装，不调用模型。保存之后实际发出去的 system 消息就是这一份。':
+      'Assembled from the current form — no model call. This is exactly the system message sent after you save.',
+    '模式': 'Mode',
+    '复制全文': 'Copy all',
+    '提示词生成': 'Prompt generation',
+    '提示词微调': 'Prompt refinement',
+    '导入改写': 'Import & rewrite',
+    '角色微调': 'Character refinement',
+    '细分标签': 'Segment tags',
+    '细分微调': 'Segment refinement',
+    '随机灵感': 'Random ideas',
+    '设定集 AI': 'Worlds AI',
+    '没有可导出的规则包': 'No rule packs to export',
+    '文件里没有 packs 数组': 'The file has no "packs" array',
+    '没有可导入的规则包': 'No rule packs found in that file',
+
+    // 内置破限层
+    '内置破限层': 'Built-in unrestricted layer',
+    '· MIT · 上游正文逐字移植，不改一个字；本工具只在其后追加生图标签与 JSON 结构的要求。九条任务链路全部生效。':
+      '· MIT · the upstream text is ported verbatim — not a word changed. This tool only appends image-tag and JSON-structure requirements after it. Active on all nine task paths.',
+    '启用内置破限层（关闭后回到模型默认尺度）':
+      'Enable the built-in unrestricted layer (off = model defaults)',
+    '查看破限层全文': 'View layer text',
+    '内置破限层全文': 'Built-in unrestricted layer',
+    '这段文字原样附在每次请求的 system prompt 里，位置在本任务规则之后、规则包与输出格式确认之前。 换范围或开关后重新打开就会看到对应版本。':
+      'Appended verbatim to the system prompt of every request, after the task rules and before rule packs and the JSON format lock.',
+    '测试破限是否生效': 'Test the layer',
+    '正在发一次真实请求测试…（约 1～2k tokens）':
+      'Sending one real request to test… (~1–2k tokens)',
+    '示例：': 'Sample: ',
+    '测试失败：': 'Test failed: ',
+    '通过：模型按任务输出了直白内容，破限层确实生效':
+      'Passed: the model produced explicit content as asked — the layer is working',
+    '勉强：输出是 JSON 但内容很短，模型可能在自我删减':
+      'Weak: valid JSON but very short — the model may be trimming',
+    '被拒：模型回了拒绝语句，破限层没有压过它的倾向':
+      'Refused: the model answered with a refusal — the layer did not override it',
+    '空回复：模型没有返回任何内容': 'Empty: the model returned nothing',
+    '异常：没有拒答，但也没按 JSON 输出，可能是格式跑偏或网关改写':
+      'Odd: no refusal, but not the expected JSON — format drift or a gateway rewrite',
+    '请求没有发出去': 'The request never left',
+    '未知结果': 'Unknown result',
   },
 };

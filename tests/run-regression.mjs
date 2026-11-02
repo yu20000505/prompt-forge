@@ -30,7 +30,7 @@ const STATE = path.join(os.tmpdir(), `pf-test-state-${process.pid}`);
 const WORLDS = path.join(os.tmpdir(), `pf-test-worlds-${process.pid}`);
 const APP_URL = `http://127.0.0.1:${APP_PORT}/`;
 // 这个值会被写进配置，再由服务端拼进系统提示词发给模型；
-// verify-ui 里靠它断言「置顶提示词确实发给了 API」
+// verify-ui 里靠它断言「自定义规则确实发给了 API」
 const API_PIN = 'MARKER-固定画风-ABC123';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -125,7 +125,8 @@ const cfg = {
   pinnedPositive: '',
   pinnedNegative: '',
   pinEnabled: true,
-  apiPinnedPrompt: API_PIN,
+  rulePacks: [{ id: 'regression-pin', name: '固定画风', text: API_PIN, enabled: true }],
+  rulePacksOn: true,
 };
 const r = await fetch(`${APP_URL}api/config`, {
   method: 'POST',

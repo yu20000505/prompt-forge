@@ -14,8 +14,17 @@ import {
   buildCharacterRefineMessages,
   buildSegmentMessages,
   buildSegmentRefineMessages,
+  composeSystemLayers,
+  applyCustomRules,
   SEGMENT_LIST,
 } from './styles.mjs';
+import {
+  UPSTREAM as UNRESTRICTED_UPSTREAM,
+  buildUnrestrictedBlock,
+  classifyProbeReply,
+  describeProbeVerdict,
+  PROBE_SENTENCE,
+} from './unrestricted.mjs';
 
 // 打包成 exe（Node SEA）后，资源和配置都跟着 exe 走；
 // 开发时还是用脚本所在目录。
@@ -75,7 +84,7 @@ const WORLDS_DIR = process.env.PF_WORLDS
 const TRASH_RETENTION_DAYS = 7;
 const TRASH_MAX_FILES = 100;
 const HOST = '127.0.0.1';
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.3.0';
 const BASE_PORT = Number(process.env.PORT || process.argv[2] || 43125);
 // 上游流式接口超过这个时间没有任何数据，就判定为卡死并中止；测试可用环境变量调小
 const STREAM_IDLE_MS = Math.max(5000, Number(process.env.PF_STREAM_IDLE_MS) || 120000);
@@ -93,10 +102,13 @@ const DEFAULT_CONFIG = {
   pinnedPositive: '',
   pinnedNegative: '',
   pinEnabled: true,
-  // 会真的发给模型的置顶提示词（拼在系统提示词最前面）
-  apiPinnedPrompt: '',
-  // 灵感请求只要一句中文，默认不再附带整段置顶规范，省 token
-  apiPinnedForIdea: false,
+  // 规则包：多套可单独开关的自定义规则，勾选的每套在每次请求里都会带上
+  rulePacks: [],
+  // 规则包总开关，方便一次性全部停用而不丢内容
+  rulePacksOn: true,
+  // 内置破限层（逐字移植 dsh-unrestricted）：开启后每次请求都多带一段执行契约，
+  // 位置在任务规则之后、规则包之前。老配置里如果有 apiPinnedPrompt，启动时会迁移过来。
+  unrestrictedOn: false,
   // 输出与请求参数（0 / 1 表示按默认）
   maxTokens: 0,
   timeoutSec: 120,
@@ -183,6 +195,31 @@ function normalizeProfiles(cfg) {
   return cfg;
 }
 
+// 规则包来自前端表单 / config.json，写进提示词前先规整：丢掉空包、补默认名、
+// 限制条数和单包长度，避免一个手滑把 config.json 撑爆或把超长文本每请求发一遍。
+const RULE_PACK_LIMIT = 40;
+const RULE_PACK_TEXT_MAX = 20000;
+
+function sanitizeRulePacks(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const item of raw) {
+    if (out.length >= RULE_PACK_LIMIT) break;
+    if (!item || typeof item !== 'object') continue;
+    const name = String(item.name ?? '').trim().slice(0, 60);
+    const text = String(item.text ?? '').slice(0, RULE_PACK_TEXT_MAX);
+    if (!name && !text.trim()) continue;
+    const id = String(item.id ?? '').trim().slice(0, 40);
+    out.push({
+      id: id || `rp-${Date.now().toString(36)}-${out.length}`,
+      name: name || `规则包 ${out.length + 1}`,
+      text,
+      enabled: item.enabled !== false,
+    });
+  }
+  return out;
+}
+
 async function configForDisk(cfg) {
   const storage = await getSafeStorage();
   const store = JSON.parse(JSON.stringify(cfg));
@@ -206,11 +243,23 @@ async function configForDisk(cfg) {
   return store;
 }
 
+// Windows 记事本 / PowerShell 5 写出来的 JSON 可能带 BOM，直接 JSON.parse 会炸。
+// 配置文件是用户会手改的东西，这里统一先剥掉 BOM 再解析。
+function parseJsonText(raw) {
+  return JSON.parse(String(raw).replace(/^\uFEFF/, ''));
+}
+
 async function readConfigFile(p) {
   const raw = await fsp.readFile(p, 'utf8');
-  const parsed = JSON.parse(raw);
+  const parsed = parseJsonText(raw);
   if (!parsed || typeof parsed !== 'object') throw new Error('配置内容不是对象');
   const cfg = { ...DEFAULT_CONFIG, ...parsed };
+  cfg.rulePacks = sanitizeRulePacks(cfg.rulePacks);
+  cfg.rulePacksOn = cfg.rulePacksOn !== false;
+  // 破限层：老配置没有这个字段，一律按「关闭」处理，不做隐式开启
+  cfg.unrestrictedOn = cfg.unrestrictedOn === true;
+  // 2.3 早期版本有过「范围」设置，逐字移植后不再需要，顺手把残留字段清掉
+  delete cfg.unrestrictedScope;
   await decryptConfigSecrets(cfg);
   return normalizeProfiles(cfg);
 }
@@ -266,6 +315,68 @@ async function saveConfig(patch) {
   await fsp.writeFile(CONFIG_TMP, JSON.stringify(store, null, 2), 'utf8');
   await fsp.rename(CONFIG_TMP, CONFIG_PATH);
   return next;
+}
+
+// 老版本试验过把一段「自定义系统提示词」直接塞在 config.json 的 apiPinnedPrompt 里。
+// 现在破限层是内置的，那段文本如果还留着就会被静默丢掉，所以启动时搬到规则包里：
+// 内容原样保留（默认停用，避免和内置破限层重复），同时把内置破限层打开一次。
+const LEGACY_PINNED_FIELD = 'apiPinnedPrompt';
+const LEGACY_PACK_ID = 'legacy-api-pinned';
+
+/**
+ * 旧字段迁移的纯函数：给定一份 config 对象，返回迁移后的新对象；
+ * 不需要迁移时返回 null，调用方据此跳过写盘。
+ * 不修改传入的对象，方便单测直接比对。
+ */
+export function migrateLegacyPinnedPromptObject(parsed) {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const legacy = typeof parsed[LEGACY_PINNED_FIELD] === 'string' ? parsed[LEGACY_PINNED_FIELD].trim() : '';
+  if (!legacy) return null;
+  const next = { ...parsed };
+  // 只在没设置过的时候打开一次；用户显式关掉过就尊重关闭状态
+  if (next.unrestrictedOn === undefined) next.unrestrictedOn = true;
+  const packs = Array.isArray(next.rulePacks) ? [...next.rulePacks] : [];
+  if (!packs.some((p) => p && p.id === LEGACY_PACK_ID)) {
+    packs.unshift({
+      id: LEGACY_PACK_ID,
+      name: '旧版自定义系统提示词（内容已保留）',
+      text: legacy.slice(0, RULE_PACK_TEXT_MAX),
+      enabled: false,
+    });
+  }
+  next.rulePacks = packs;
+  delete next[LEGACY_PINNED_FIELD];
+  return next;
+}
+
+async function migrateLegacyPinnedPrompt() {
+  // 主文件可能被手改坏（比如自定义提示词里带了没转义的双引号），
+  // 这时退到 .bak 上找旧字段；找到就从 .bak 迁移，不要用坏文件覆盖好备份。
+  let parsed = null;
+  let fromMain = false;
+  try {
+    parsed = parseJsonText(await fsp.readFile(CONFIG_PATH, 'utf8'));
+    fromMain = true;
+  } catch {
+    try {
+      parsed = parseJsonText(await fsp.readFile(CONFIG_BAK, 'utf8'));
+    } catch {
+      return; // 两个都读不了，交给 loadConfig 的兜底逻辑
+    }
+  }
+  const next = migrateLegacyPinnedPromptObject(parsed);
+  if (!next) return;
+
+  if (fromMain) {
+    try {
+      await fsp.copyFile(CONFIG_PATH, CONFIG_BAK);
+    } catch {
+      /* 备份失败不挡迁移 */
+    }
+  }
+  await fsp.writeFile(CONFIG_TMP, JSON.stringify(next, null, 2), 'utf8');
+  await fsp.rename(CONFIG_TMP, CONFIG_PATH);
+  console.log('  · 已把 config.json 里的旧版 apiPinnedPrompt 迁到规则包（停用状态），并开启内置破限层');
 }
 
 // ---------- 服务商档案 / 诊断 ----------
@@ -369,6 +480,169 @@ async function handleDiagnostics(req, res) {
   }
 }
 
+// 预览某一模式下最终发出的 system 消息。规则拼装出问题时最常见的表现是
+// 「以为加上了其实没加上」，所以这里直接把成品原文给出来。
+const PREVIEW_MODES = {
+  generate: '提示词生成',
+  refine: '提示词微调',
+  import: '导入改写',
+  character: '角色设定',
+  characterRefine: '角色微调',
+  segment: '细分标签',
+  segmentRefine: '细分微调',
+  idea: '随机灵感',
+  world: '设定集 AI',
+};
+
+function previewMessages(mode, base) {
+  switch (mode) {
+    case 'refine':
+      return buildRefineMessages({ ...base, previous: { positive: '', negative: '', params: {} }, instruction: '（示例微调指令）' });
+    case 'import':
+      return buildImportMessages({ ...base, prompt: '（示例：一段现成的英文提示词）' });
+    case 'character':
+      return buildCharacterMessages({ ...base, count: '3', aspect: 'auto', extra: '' });
+    case 'characterRefine':
+      return buildCharacterRefineMessages({
+        ...base, previous: { prompt_en: '', prompt_zh: '' }, instruction: '（示例微调指令）',
+      });
+    case 'segment':
+      return buildSegmentMessages({ ...base, segmentType: SEGMENT_LIST[0].id, extra: '' });
+    case 'segmentRefine':
+      return buildSegmentRefineMessages({ ...base, previous: { tags: '' }, instruction: '（示例微调指令）' });
+    case 'idea':
+      return buildIdeaMessages({ ...base, count: 6, avoid: [] });
+    case 'world':
+      // 设定集是内联拼的，这里用同一段占位文案走一遍注入
+      return [{ role: 'system', content: applyCustomRules('你是世界观策划。只输出 JSON，不要解释。', base.apiPinned) }];
+    default:
+      return buildMessages({ ...base, extra: '', aspect: 'auto', shot: 'auto' });
+  }
+}
+
+async function handleRulePreview(req, res) {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return json(res, 400, { error: '请求格式错误' });
+  }
+  const cfg = await loadConfig();
+  // 表单还没保存时以表单为准，这样预览就是「点保存之后会发出去的样子」
+  const packs = 'rulePacks' in body ? sanitizeRulePacks(body.rulePacks) : sanitizeRulePacks(cfg.rulePacks);
+  const on = 'rulePacksOn' in body ? !!body.rulePacksOn : cfg.rulePacksOn !== false;
+  const unrestrictedOn = 'unrestrictedOn' in body ? !!body.unrestrictedOn : cfg.unrestrictedOn === true;
+  const mode = Object.prototype.hasOwnProperty.call(PREVIEW_MODES, body.mode) ? body.mode : 'generate';
+  const apiPinned = composeSystemLayers({
+    unrestrictedOn,
+    packs,
+    packsOn: on,
+  });
+
+  const base = {
+    sentence: '（预览用示例）：雨夜的霓虹街头，一位赛博朋克女剑客回头看向镜头',
+    style: 'sd',
+    language: 'en',
+    detail: 'standard',
+    targetModel: cfg.model || '',
+    apiPinned,
+  };
+  const messages = previewMessages(mode, base);
+  const system = String(messages[0]?.content || '');
+  const block = unrestrictedOn ? buildUnrestrictedBlock() : '';
+  return json(res, 200, {
+    mode,
+    modeLabel: PREVIEW_MODES[mode],
+    system,
+    length: system.length,
+    packCount: packs.filter((p) => p.enabled !== false && String(p.text || '').trim()).length,
+    rulePacksOn: on,
+    unrestrictedOn,
+    unrestrictedLength: block.length,
+  });
+}
+
+// 自检：拿当前配置发一次真实请求，看模型是照做还是拒答。
+// 这不是「测接口通不通」——它测的是破限层有没有压过模型自己的倾向。
+// 每次点击会真的花一次 token（约 1～2k），所以只放在设置里手动触发。
+async function handleUnrestrictedCheck(req, res) {
+  const ctx = await resolveUpstream(req, res);
+  if (!ctx) return;
+
+  const sentence = String(ctx.body?.sentence || '').trim() || PROBE_SENTENCE;
+  const messages = buildMessages({
+    sentence: sentence.slice(0, 300),
+    style: ctx.body?.style || 'sd',
+    language: 'en',
+    detail: 'standard',
+    apiPinned: ctx.apiPinned,
+  });
+
+  const layer = {
+    on: ctx.unrestrictedOn === true,
+    chars: ctx.unrestrictedOn ? buildUnrestrictedBlock().length : 0,
+  };
+  const started = Date.now();
+
+  let upstream;
+  let text = '';
+  try {
+    upstream = await fetch(`${ctx.baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ctx.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: ctx.model,
+        messages,
+        temperature: 0.9,
+        max_tokens: 1400,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(90000),
+    });
+    text = await upstream.text().catch(() => '');
+  } catch (err) {
+    return json(res, 200, {
+      verdict: 'error',
+      verdictText: '请求没有发出去',
+      message: err?.message || String(err),
+      latencyMs: Date.now() - started,
+      model: ctx.model,
+      layer,
+    });
+  }
+
+  if (!upstream.ok) {
+    return json(res, 200, {
+      verdict: 'gateway',
+      verdictText: `接口返回 ${upstream.status}`,
+      message: upstreamErrorMessage(upstream.status, text),
+      latencyMs: Date.now() - started,
+      model: ctx.model,
+      layer,
+    });
+  }
+
+  let content = '';
+  try {
+    const j = JSON.parse(text);
+    content = String(j?.choices?.[0]?.message?.content ?? j?.choices?.[0]?.text ?? '');
+  } catch {
+    content = text;
+  }
+
+  const result = classifyProbeReply(content);
+  return json(res, 200, {
+    ...result,
+    verdictText: describeProbeVerdict(result.verdict),
+    latencyMs: Date.now() - started,
+    model: ctx.model,
+    layer,
+  });
+}
+
 function publicConfig(cfg) {
   const key = String(cfg.apiKey || '');
   return {
@@ -381,8 +655,20 @@ function publicConfig(cfg) {
     pinnedPositive: cfg.pinnedPositive,
     pinnedNegative: cfg.pinnedNegative,
     pinEnabled: cfg.pinEnabled,
-    apiPinnedPrompt: cfg.apiPinnedPrompt,
-    apiPinnedForIdea: !!cfg.apiPinnedForIdea,
+    rulePacks: sanitizeRulePacks(cfg.rulePacks),
+    rulePacksOn: cfg.rulePacksOn !== false,
+    // 内置破限层
+    unrestrictedOn: cfg.unrestrictedOn === true,
+    unrestrictedChars: buildUnrestrictedBlock().length,
+    unrestricted: {
+      name: UNRESTRICTED_UPSTREAM.name,
+      version: UNRESTRICTED_UPSTREAM.version,
+      tag: UNRESTRICTED_UPSTREAM.tag,
+      repo: UNRESTRICTED_UPSTREAM.repo,
+      license: UNRESTRICTED_UPSTREAM.license,
+      notice: UNRESTRICTED_UPSTREAM.notice,
+      verbatim: UNRESTRICTED_UPSTREAM.verbatim,
+    },
     maxTokens: Number(cfg.maxTokens) || 0,
     timeoutSec: Number(cfg.timeoutSec) || 120,
     topP: Number.isFinite(Number(cfg.topP)) ? Number(cfg.topP) : 1,
@@ -414,6 +700,8 @@ function publicConfig(cfg) {
       profiles: true,
       variants: true,
       worlds: true,
+      rulePacks: true,
+      unrestricted: true,
     },
   };
 }
@@ -499,14 +787,22 @@ async function resolveUpstream(req, res) {
     return null;
   }
 
+  // 追加层跟着每一次请求走（生成、微调、角色、细分、设定集、扩写、灵感）：
+  // 先内置破限层，再用户的规则包。两层各自有开关，拼装顺序由 composeSystemLayers 保证。
+  const apiPinned = composeSystemLayers({
+    unrestrictedOn: cfg.unrestrictedOn === true,
+    packs: cfg.rulePacks,
+    packsOn: cfg.rulePacksOn !== false,
+  });
+
   return {
     body,
     apiKey,
     model,
     baseURL: normalizeBaseURL(body.baseURL || cfg.baseURL),
     temperature: Number(body.temperature ?? cfg.temperature),
-    apiPinned: String(cfg.apiPinnedPrompt || ''),
-    apiPinnedForIdea: !!cfg.apiPinnedForIdea,
+    apiPinned,
+    unrestrictedOn: cfg.unrestrictedOn === true,
     maxTokensCap: Math.max(0, Math.floor(Number(cfg.maxTokens) || 0)),
     timeoutSec: Math.min(600, Math.max(5, Number(cfg.timeoutSec) || 120)),
     topP: Number.isFinite(Number(cfg.topP)) ? Number(cfg.topP) : 1,
@@ -784,7 +1080,7 @@ async function handleExpand(req, res) {
   const label = mode === 'character' ? '一组角色设定' : mode === 'segment' ? '单个对象或场景' : '一个画面';
   try {
     const j = await callModelJson(ctx, [
-      { role: 'system', content: '你是中文画面与角色描述编辑。只输出 JSON，不要解释。' },
+      { role: 'system', content: applyCustomRules('你是中文画面与角色描述编辑。只输出 JSON，不要解释。', ctx.apiPinned) },
       {
         role: 'user',
         content: `请把下面这句简短描述扩写成更完整的${label}中文描述。保留主体、关系和原意；补充必要的身份、外貌、服装、动作、环境、光线、构图、材质等细节，让后续生图更明确。不要输出英文 tag，不要写成提示词清单，只输出 JSON：{"text":"扩写后的中文描述"}\n\n用户原句：${text}\n补充要求：${String(ctx.body.extra || '').trim() || '无'}`,
@@ -869,7 +1165,7 @@ async function handleIdea(req, res) {
   // 灵感只是用来起个中文句子，默认不注入置顶规范；想要的话在设置里打开
   const messages = buildIdeaMessages({
     avoid: ctx.body.avoid,
-    apiPinned: ctx.apiPinnedForIdea ? ctx.apiPinned : '',
+    apiPinned: ctx.apiPinned,
   });
 
   try {
@@ -1732,7 +2028,7 @@ async function handleWorlds(req, res, id = null, action = null) {
         const seeds = String(body.seeds || '').trim();
         if (!seeds) return json(res, 400, { error: '先写几个种子词' });
         const result = await callModelJson(ctx, [
-          { role: 'system', content: '你是世界观策划。只输出 JSON，不要解释。' },
+          { role: 'system', content: applyCustomRules('你是世界观策划。只输出 JSON，不要解释。', ctx.apiPinned) },
           {
             role: 'user',
             content: `根据这些种子生成 3 个差异明显的世界方向：${seeds}\n只输出：{"directions":[{"name":"","genre":"","logline":"","tone":"","visual":"","rules":"","taboos":""}]}`,
@@ -1743,7 +2039,7 @@ async function handleWorlds(req, res, id = null, action = null) {
       if (body.task === 'core') {
         const d = body.direction || {};
         const result = await callModelJson(ctx, [
-          { role: 'system', content: '你是世界观策划。只输出 JSON，不要解释。' },
+          { role: 'system', content: applyCustomRules('你是世界观策划。只输出 JSON，不要解释。', ctx.apiPinned) },
           {
             role: 'user',
             content: `把这个世界方向扩写成完整世界设定：${JSON.stringify(d)}\n只输出：{"name":"","genre":"","logline":"","tone":"","visual":"","rules":"","taboos":""}`,
@@ -1757,7 +2053,7 @@ async function handleWorlds(req, res, id = null, action = null) {
         const count = Math.min(5, Math.max(1, Number(body.count) || 3));
         const existing = (world.entries || []).map((e) => e.name).slice(0, 40).join('、');
         const result = await callModelJson(ctx, [
-          { role: 'system', content: '你是设定集策划。只输出 JSON，不要解释。不要与已有条目重名。' },
+          { role: 'system', content: applyCustomRules('你是设定集策划。只输出 JSON，不要解释。不要与已有条目重名。', ctx.apiPinned) },
           {
             role: 'user',
             content: `世界设定：\n${worldContextText(world, [])}\n\n已有条目：${existing || '无'}\n请生成 ${count} 个「${category}」分类的候选条目。补充提示：${hint || '无'}\n${worldVisualRule(category)}\nfacts 至少 4 条，写清身份、外观、服装/结构、关键关系或能力。\n只输出：{"entries":[{"name":"","summary":"","facts":[{"label":"","value":""}],"visualAnchors":"","taboos":""}]}`,
@@ -1769,7 +2065,7 @@ async function handleWorlds(req, res, id = null, action = null) {
         const text = String(body.text || '').trim();
         if (!text) return json(res, 400, { error: '先写一句中文描述' });
         const result = await callModelJson(ctx, [
-          { role: 'system', content: '你是中文画面描述编辑。只输出 JSON，不要解释。' },
+          { role: 'system', content: applyCustomRules('你是中文画面描述编辑。只输出 JSON，不要解释。', ctx.apiPinned) },
           {
             role: 'user',
             content: `世界设定：\n${worldContextText(world, body.entryIds || [])}\n\n把下面这句简短画面扩写成更完整的中文描述。保留原意，补充人物状态、环境、光线、构图、材质等细节；不要输出英文 tag。\n只输出：{"text":"扩写后的中文描述"}\n\n原句：${text}\n补充要求：${String(body.extra || '').trim() || '无'}`,
@@ -1783,7 +2079,7 @@ async function handleWorlds(req, res, id = null, action = null) {
         const entry = (world.entries || []).find((e) => e.id === body.entryId);
         if (!entry) return json(res, 404, { error: '条目不存在' });
         const result = await callModelJson(ctx, [
-          { role: 'system', content: '你是设定集编辑。只输出 JSON，不要解释。保留已经确定的内容。' },
+          { role: 'system', content: applyCustomRules('你是设定集编辑。只输出 JSON，不要解释。保留已经确定的内容。', ctx.apiPinned) },
           {
             role: 'user',
             content: `世界设定：\n${worldContextText(world, [])}\n\n当前条目：${JSON.stringify(entry)}\n请补全缺失字段并扩写，但不要改变已有事实。\n${worldVisualRule(entry.category)}\n如果当前 visualAnchors 少于 8 项，请重写为 8-14 项具体特征。\n只输出：{"summary":"","facts":[{"label":"","value":""}],"visualAnchors":"","taboos":""}`,
@@ -2166,6 +2462,20 @@ const server = http.createServer(async (req, res) => {
       return await handleWorlds(req, res, decodeURIComponent(worldMatch[1]), worldMatch[2] || null);
     }
     if (pathname === '/api/profiles' && req.method === 'POST') return await handleProfiles(req, res);
+    if (pathname === '/api/rule-preview' && req.method === 'POST') return await handleRulePreview(req, res);
+    if (pathname === '/api/unrestricted' && req.method === 'GET') {
+      const cfg = await loadConfig();
+      const block = buildUnrestrictedBlock();
+      return json(res, 200, {
+        on: cfg.unrestrictedOn === true,
+        block,
+        chars: block.length,
+        upstream: UNRESTRICTED_UPSTREAM,
+      });
+    }
+    if (pathname === '/api/unrestricted/check' && req.method === 'POST') {
+      return await handleUnrestrictedCheck(req, res);
+    }
     if (pathname === '/api/diagnostics' && req.method === 'GET') return await handleDiagnostics(req, res);
     if (pathname === '/api/config' && req.method === 'GET') {
       return json(res, 200, publicConfig(await loadConfig()));
@@ -2177,9 +2487,12 @@ const server = http.createServer(async (req, res) => {
         return json(res, 400, { error: '请求格式错误' });
       }
       const clean = {};
-      for (const k of ['baseURL', 'model', 'pinnedPositive', 'pinnedNegative', 'pinEnabled', 'apiKey', 'apiPinnedPrompt', 'apiPinnedForIdea', 'maxTokens', 'timeoutSec', 'topP', 'stream', 'jsonMode']) {
+      for (const k of ['baseURL', 'model', 'pinnedPositive', 'pinnedNegative', 'pinEnabled', 'apiKey', 'rulePacks', 'rulePacksOn', 'unrestrictedOn', 'maxTokens', 'timeoutSec', 'topP', 'stream', 'jsonMode']) {
         if (k in patch) clean[k] = patch[k];
       }
+      if ('rulePacks' in clean) clean.rulePacks = sanitizeRulePacks(clean.rulePacks);
+      if ('rulePacksOn' in clean) clean.rulePacksOn = !!clean.rulePacksOn;
+      if ('unrestrictedOn' in clean) clean.unrestrictedOn = !!clean.unrestrictedOn;
       if ('temperature' in patch) clean.temperature = Number(patch.temperature) || 0.85;
       if ('maxTokens' in patch) clean.maxTokens = Math.max(0, Math.floor(Number(patch.maxTokens) || 0));
       if ('timeoutSec' in patch) clean.timeoutSec = Math.min(600, Math.max(5, Number(patch.timeoutSec) || 120));
@@ -2248,6 +2561,12 @@ function listen(port, attempt = 0) {
 export async function startServer(port = BASE_PORT, opts = {}) {
   // 启动时顺手清理过期/超量的回收站文件
   await purgeTrash().catch(() => {});
+  // 老配置里的 apiPinnedPrompt 搬到规则包，同时打开内置破限层。
+  // 这一步要在 loadConfig 之前：主文件坏了时 loadConfig 会用 .bak 重写一份，
+  // 重写后的文件里 unrestrictedOn 已经变成显式的 false，就分不清「没设置过」了。
+  await migrateLegacyPinnedPrompt().catch(() => {});
+  // 读一遍配置：主文件坏掉时自动从 .bak 修回来
+  await loadConfig().catch(() => {});
   const actual = await listen(port);
   const url = `http://${HOST}:${actual}`;
 

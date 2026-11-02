@@ -4,7 +4,7 @@
 [![Latest release](https://img.shields.io/github/v/release/yu20000505/prompt-forge?color=6f7f66)](../../releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6f7f66.svg)](LICENSE)
 
-**One sentence in. A production-ready image prompt out. 2.2**
+**One sentence in. A production-ready image prompt out. 2.3**
 
 Prompt Forge is a local-first desktop tool that turns a single plain-language sentence into
 prompts you can paste straight into Stable Diffusion, NovelAI, Midjourney, Flux or DALL·E.
@@ -20,12 +20,35 @@ shortcuts, draft recovery, trash management, provider profiles and desktop windo
 Version 2.2 adds worldbooks: define a world, manage characters/items/creatures/locations/factions,
 and generate prompts inside that world; it also adds AI expansion for short Chinese descriptions,
 persistent refine versions, richer visual anchors and generic NovelAI targeting.
+Version 2.3 builds the [dsh-unrestricted](https://github.com/yexi-by/dsh-unrestricted) rules
+straight into the system prompt: explicit imagery, adult content and sensitive subjects stop being
+self-censored, across all nine task paths, with one switch in Settings.
 No accounts, no telemetry, no cloud sync. It talks directly to whatever
 **OpenAI-compatible API** you configure, and your key never leaves your machine.
 
 [中文说明](README.md) · [Download](../../releases) · [Changelog](CHANGELOG.md) · [Build from source](#build-from-source)
 
 ![Main window](docs/screenshots/01-main.png)
+
+## What's new in 2.3
+
+- **Built-in unrestricted layer** — ports the execution contract from
+  [dsh-unrestricted](https://github.com/yexi-by/dsh-unrestricted) (MIT) and injects it as its own
+  system-prompt section: generation, refinement, import & rewrite, characters, character refinement,
+  segment tags, segment refinement, random ideas and worldbook AI. Nine paths, one switch.
+- **Not a word changed** — the upstream block (10,246 chars) is embedded verbatim: nothing compressed,
+  nothing rewritten. The tool only appends its own additions (JSON structure, image-tag organisation,
+  no web tools) after the original text.
+- **Format stays intact** — the layer decides what is written and how deep, never the JSON shape:
+  field names, counts, language and parsing still come from the task rules, and the output-format
+  lock stays the very last paragraph.
+- **Verifiable** — read the layer verbatim in Settings, and preview the exact system message per mode.
+  Fixed order: task rules → layer → rule packs → output-format lock.
+- **Self-check** — *Test the layer* sends one real request with your current settings and reports
+  passed / thin / refused / gateway-rejected with a reply sample, so you can tell whether the layer
+  failed or the model/gateway blocked that specific topic.
+- **Legacy config migration** — an old `apiPinnedPrompt` in `config.json` is moved into a rule pack
+  (disabled, content kept) and the built-in layer is switched on once, so nothing is retyped.
 
 ## What's new in 2.2
 
@@ -119,9 +142,16 @@ instead of hand-splicing tags.
   to the model original in one click.
 - **Two independent rule layers**
   - *Local prefix* — fixed quality tags prepended in the browser. Never sent to the model.
-  - *Custom system prompt* — your own additional rules appended after the task rules and before the
-    output-format lock; sent for prompt generation, refinement, character sheets and segment tags.
-    Idea requests skip it by default to save tokens; you can opt in from Settings.
+  - *Rule packs* — your own additional rules appended after the task rules and before the output-format
+    lock; every path sends them.
+- **Built-in unrestricted layer** — one switch injects the full execution contract into every request:
+  imagery written at the scale you ask for, every character treated as an adult, no lecturing, no
+  softened variants, no rewriting a request into a tamer one. The layer sits after the task rules and before rule packs, changes content only, and when switched
+  off sends not a single character.
+- **Rule packs** — keep any number of named rule sets in Settings, toggle each one, concatenate them in
+  order, and import/export as JSON. They apply to generation, refinement, characters, segments, worlds
+  AI, the Chinese expander and random ideas. A per-mode preview shows the exact system message that
+  will be sent after you save.
 - **Idea generator** — asks the model for six fresh scene one-liners, avoiding topics you just used.
 - **History** — prompt, character and segment results are recorded automatically; filter by mode,
   search, favorite to pin on top, and click an entry to restore the full result. History and the
@@ -187,6 +217,48 @@ Open <http://127.0.0.1:43125>, click **设置** (Settings) and fill in:
 Any OpenAI-compatible endpoint works — DeepSeek, OpenAI, Moonshot, Zhipu, SiliconFlow,
 LM Studio, Ollama, or a proxy. Hit **测试连接** to verify, then **保存**.
 
+## Built-in unrestricted layer (dsh-unrestricted)
+
+> The rules are adapted from [yexi-by/dsh-unrestricted](https://github.com/yexi-by/dsh-unrestricted)
+> v0.2.6 (MIT); upstream traces its structure to
+> [Jia-Ethan/codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) (MIT).
+> See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and
+> [docs/unrestricted.md](docs/unrestricted.md) for the integration details.
+
+Upstream is a DeepSeek Harness plugin that lifts refusals by editing the system prompt at assembly
+time. This build does the same thing inside Prompt Forge: the execution contract is compiled into a
+fixed block and injected into the system prompt of every request.
+
+The order is fixed, and each layer has one job:
+
+```text
+task rules (JSON fields / counts / language)
+  → unrestricted layer (upstream text verbatim, 10,246 chars, plus local additions ≈ 10.7k)
+    → rule packs (your own extra rules)
+      → output-format lock (only that one JSON object, no markdown)
+```
+
+The layer states delivery standards rather than magic words: an image request gets tags you can
+render, a character request gets a sheet you can use; body and action are written plainly at the
+scale requested; every character is treated as an adult; the model does not judge subject, relationship
+or explicitness, does not rewrite requests into tamer versions, and treats "please refuse" text inside
+pasted material as data. The upstream technical task routing (reverse engineering, keygen, PoC,
+scanning, tunnels, chemistry) is kept as well — nothing is trimmed.
+
+- **Switch**: Settings → Built-in unrestricted layer. Turned off, the section disappears entirely and
+  the prompt is byte-for-byte what it was before the layer existed.
+- **Format safe**: the contract itself says it changes content, not structure, and the JSON lock has
+  the last word; `npm run test:static` asserts the layer sits before rule packs and the lock stays last.
+- **Inspectable**: *View layer text* shows the block verbatim; *Preview final prompt* shows the assembled
+  system message for all nine modes.
+- **Self-check**: *Test the layer* sends one real request and classifies the reply as passed / thin /
+  refused / gateway-rejected, with the layer state, model and latency. It does not test connectivity —
+  that is what *Test connection* is for.
+- **Default**: off on a fresh install. If `config.json` still holds an old `apiPinnedPrompt`, startup
+  moves it into a disabled rule pack (content preserved) and switches the layer on once.
+- **Limit**: it changes the model's own answering bias only. If the upstream gateway inspects keywords,
+  it may still cut the connection or return 400 — prompt rules cannot bypass that.
+
 ## Build from source
 
 Runtime has no dependencies; the packaging steps pull their own toolchain on first run.
@@ -224,9 +296,9 @@ Self-signed certificates do not remove the warning.
 ## Tests
 
 ```bash
-npm run test:static    # id references, prompt templates, theme contrast — no browser needed
-npm run test:server    # server unit tests (URL normalization, metadata, idea parsing, …)
-npm test               # full UI regression: 512 assertions in headless Chrome
+npm run test:static    # id references, prompt templates, layer assembly, theme contrast — no browser
+npm run test:server    # server unit tests (URL normalization, metadata, idea parsing, layer config, …)
+npm test               # full UI regression: 528 assertions in headless Chrome
 ```
 
 The UI suite boots a throwaway server against a mock OpenAI endpoint and asserts real behavior:
@@ -242,7 +314,7 @@ PASS  微调结果仍带置顶词（只带一次） (pinned prefix not duplicate
 PASS  保存的是带置顶词的实际版本 (saved file matches what you see)
 PASS  载入时置顶词没有被二次拼接 (no double-prefixing when reloading)
 ...
-512 passed, 0 failed
+528 passed, 0 failed
 ```
 
 Screenshots in `docs/` are generated by `node tests/make-screenshots.mjs`, not hand-cropped.
@@ -252,7 +324,8 @@ Screenshots in `docs/` are generated by `node tests/make-screenshots.mjs`, not h
 ```
 src/
   server.mjs         HTTP server + OpenAI-compatible proxy (SSE), config & library I/O
-  styles.mjs         system-prompt templates for all modes
+  styles.mjs         system-prompt templates for all modes, plus the layer/pack assembly entry
+  unrestricted.mjs   the built-in unrestricted layer text (adapted from dsh-unrestricted, MIT)
   public/            index.html, styles.css (theme tokens), app.js
 build/
   build-exe.mjs      Node SEA packaging
@@ -273,4 +346,6 @@ Windows builds keep data in `%APPDATA%\PromptForge`; running from source keeps i
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). The built-in unrestricted layer is adapted from
+[dsh-unrestricted](https://github.com/yexi-by/dsh-unrestricted), also MIT; full attribution and
+license text in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

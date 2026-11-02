@@ -1,8 +1,8 @@
 {
   "name": "prompt-forge-desktop",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
-  "description": "Prompt Forge 2.2 桌面版 —— 一句话生成生图提示词，设定集、AI 扩写、多方案与多服务商",
+  "description": "Prompt Forge 2.3 桌面版 —— 一句话生成生图提示词，内置破限层、设定集、AI 扩写与多服务商",
   "author": "Prompt Forge",
   "copyright": "Copyright © 2026 Prompt Forge",
   "main": "main.cjs",
