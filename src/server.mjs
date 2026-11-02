@@ -84,7 +84,7 @@ const WORLDS_DIR = process.env.PF_WORLDS
 const TRASH_RETENTION_DAYS = 7;
 const TRASH_MAX_FILES = 100;
 const HOST = '127.0.0.1';
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.4.0';
 const BASE_PORT = Number(process.env.PORT || process.argv[2] || 43125);
 // 上游流式接口超过这个时间没有任何数据，就判定为卡死并中止；测试可用环境变量调小
 const STREAM_IDLE_MS = Math.max(5000, Number(process.env.PF_STREAM_IDLE_MS) || 120000);
@@ -379,7 +379,9 @@ async function migrateLegacyPinnedPrompt() {
   console.log('  · 已把 config.json 里的旧版 apiPinnedPrompt 迁到规则包（停用状态），并开启内置破限层');
 }
 
-// ---------- 服务商档案 / 诊断 ----------
+// ---------- API 预设 / 诊断 ----------
+// 一个预设 = 一套 BaseURL + Key + 模型，本地存多套，随时一键切换。
+// 切换就是把这套值写成当前配置，下一次请求立刻生效。
 async function handleProfiles(req, res) {
   let body;
   try {
@@ -390,22 +392,30 @@ async function handleProfiles(req, res) {
   const action = String(body.action || '');
   const cfg = await loadConfig();
   cfg.profiles = Array.isArray(cfg.profiles) ? cfg.profiles : [];
+  const find = (id) => cfg.profiles.find((x) => x.id === String(id || ''));
 
   if (action === 'save') {
     const input = body.profile && typeof body.profile === 'object' ? body.profile : {};
-    const name = String(input.name || '').trim();
-    if (!name) return json(res, 400, { error: '请先给档案起个名字' });
-    let p = cfg.profiles.find((x) => x.id === input.id);
+    const name = String(input.name || '').trim().slice(0, 40);
+    let p = input.id ? find(input.id) : null;
     const created = !p;
     if (!p) {
-      p = { id: `p-${Date.now()}`, name, baseURL: cfg.baseURL, model: cfg.model, apiKey: cfg.apiKey || '' };
+      if (!name) return json(res, 400, { error: '请先给预设起个名字' });
+      p = {
+        id: `p-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+        name,
+        baseURL: cfg.baseURL,
+        model: cfg.model,
+        apiKey: cfg.apiKey || '',
+      };
       cfg.profiles.push(p);
     }
-    p.name = name.slice(0, 40);
+    // 更新时允许只改一部分：名字不填就沿用旧名，Key 留空就沿用旧 Key
+    if (name) p.name = name;
     if (input.baseURL) p.baseURL = normalizeBaseURL(input.baseURL);
     if (input.model) p.model = String(input.model).trim();
-    if (input.apiKey) {
-      p.apiKey = String(input.apiKey).trim();
+    if (typeof input.apiKey === 'string' && input.apiKey.trim()) {
+      p.apiKey = input.apiKey.trim();
       delete p.apiKeyEnc;
     }
     if (created || body.activate) cfg.activeProfile = p.id;
@@ -414,13 +424,19 @@ async function handleProfiles(req, res) {
       cfg.model = p.model;
       cfg.apiKey = p.apiKey || '';
     }
-    await saveConfig({ profiles: cfg.profiles, activeProfile: cfg.activeProfile, baseURL: cfg.baseURL, model: cfg.model, apiKey: cfg.apiKey });
-    return json(res, 200, { ok: true, created, profile: p.id, config: publicConfig(await loadConfig()) });
+    await saveConfig({
+      profiles: cfg.profiles,
+      activeProfile: cfg.activeProfile,
+      baseURL: cfg.baseURL,
+      model: cfg.model,
+      apiKey: cfg.apiKey,
+    });
+    return json(res, 200, { ok: true, created, id: p.id, config: publicConfig(await loadConfig()) });
   }
 
   if (action === 'activate') {
-    const p = cfg.profiles.find((x) => x.id === body.id);
-    if (!p) return json(res, 404, { error: '找不到这个档案' });
+    const p = find(body.id);
+    if (!p) return json(res, 404, { error: '找不到这个预设' });
     cfg.activeProfile = p.id;
     await saveConfig({
       activeProfile: p.id,
@@ -431,19 +447,79 @@ async function handleProfiles(req, res) {
     return json(res, 200, { ok: true, config: publicConfig(await loadConfig()) });
   }
 
+  if (action === 'duplicate') {
+    const p = find(body.id);
+    if (!p) return json(res, 404, { error: '找不到这个预设' });
+    const copy = {
+      id: `p-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+      name: `${p.name} 副本`.slice(0, 40),
+      baseURL: p.baseURL,
+      model: p.model,
+      apiKey: p.apiKey || '',
+    };
+    cfg.profiles.push(copy);
+    await saveConfig({ profiles: cfg.profiles });
+    return json(res, 200, { ok: true, id: copy.id, config: publicConfig(await loadConfig()) });
+  }
+
+  if (action === 'test') {
+    const p = find(body.id);
+    if (!p) return json(res, 404, { error: '找不到这个预设' });
+    const key = String(p.apiKey || '').trim();
+    if (!key) return json(res, 200, { ok: false, ms: 0, error: '这个预设还没有 API Key' });
+    const started = Date.now();
+    try {
+      const upstream = await fetch(`${normalizeBaseURL(p.baseURL)}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model: p.model,
+          messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
+          temperature: 0,
+          max_tokens: 16,
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const text = await upstream.text().catch(() => '');
+      const ms = Date.now() - started;
+      if (!upstream.ok) {
+        return json(res, 200, { ok: false, ms, error: upstreamErrorMessage(upstream.status, text) });
+      }
+      let model = p.model;
+      let reply = '';
+      try {
+        const j = JSON.parse(text);
+        model = j?.model || p.model;
+        reply = String(j?.choices?.[0]?.message?.content ?? j?.choices?.[0]?.text ?? '').trim();
+      } catch {
+        /* 兼容非标准返回 */
+      }
+      return json(res, 200, { ok: true, ms, model, reply: reply.slice(0, 60) });
+    } catch (err) {
+      return json(res, 200, { ok: false, ms: Date.now() - started, error: err?.message || String(err) });
+    }
+  }
+
   if (action === 'delete') {
-    if (cfg.profiles.length <= 1) return json(res, 400, { error: '至少保留一个服务商档案' });
-    const p = cfg.profiles.find((x) => x.id === body.id);
-    if (!p) return json(res, 404, { error: '找不到这个档案' });
-    cfg.profiles = cfg.profiles.filter((x) => x.id !== body.id);
-    if (cfg.activeProfile === body.id) {
-      cfg.activeProfile = cfg.profiles[0].id;
+    if (cfg.profiles.length <= 1) return json(res, 400, { error: '至少保留一个预设' });
+    const p = find(body.id);
+    if (!p) return json(res, 404, { error: '找不到这个预设' });
+    cfg.profiles = cfg.profiles.filter((x) => x.id !== p.id);
+    if (cfg.activeProfile === p.id) {
       const next = cfg.profiles[0];
+      cfg.activeProfile = next.id;
       cfg.baseURL = next.baseURL;
       cfg.model = next.model;
       cfg.apiKey = next.apiKey || '';
     }
-    await saveConfig({ profiles: cfg.profiles, activeProfile: cfg.activeProfile });
+    await saveConfig({
+      profiles: cfg.profiles,
+      activeProfile: cfg.activeProfile,
+      baseURL: cfg.baseURL,
+      model: cfg.model,
+      apiKey: cfg.apiKey,
+    });
     return json(res, 200, { ok: true, config: publicConfig(await loadConfig()) });
   }
 

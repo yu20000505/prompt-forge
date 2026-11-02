@@ -69,6 +69,8 @@ function tr(text) {
       const layerOn = m[3] === '开';
       const detail = layerOn && m[4] ? ` (${m[4]} chars)` : '';
       out = `${tr(m[1])} · ${m[2]} chars total · layer ${layerOn ? 'on' : 'off'}${detail} · ${m[5]} active packs${m[6] ? ' (master switch off)' : ''}`;
+    } else if ((m = key.match(/^· (\d+) 套$/))) {
+      out = `· ${m[1]} presets`;
     } else if ((m = key.match(/^· 已开启(?: · 约 (\d+) 字)?$/))) {
       out = `· On${m[1] ? ` · ~${m[1]} chars` : ''}`;
     } else if (key === '· 已关闭，不会发送') {
@@ -85,6 +87,26 @@ function tr(text) {
         + (m[4] === '当前已开启' ? 'currently on' : 'currently off — enable it and save to send');
     } else if ((m = key.match(/^读取失败：(.*)$/))) {
       out = `Failed to load: ${tr(m[1])}`;
+    } else if ((m = key.match(/^已切换到「(.+)」$/))) {
+      out = `Switched to "${tr(m[1])}"`;
+    } else if ((m = key.match(/^已保存预设：(.+)$/))) {
+      out = `Preset saved: ${tr(m[1])}`;
+    } else if ((m = key.match(/^保存修改到「(.+)」$/))) {
+      out = `Save changes to "${tr(m[1])}"`;
+    } else if ((m = key.match(/^连接正常 · (\d+) ms · (.+)$/))) {
+      out = `Connected · ${m[1]} ms · ${m[2]}`;
+    } else if ((m = key.match(/^测试失败：(.*)$/))) {
+      out = `Test failed: ${tr(m[1])}`;
+    } else if ((m = key.match(/^保存预设失败：(.*)$/))) {
+      out = `Could not save preset: ${tr(m[1])}`;
+    } else if ((m = key.match(/^更新预设失败：(.*)$/))) {
+      out = `Could not update preset: ${tr(m[1])}`;
+    } else if ((m = key.match(/^切换失败：(.*)$/))) {
+      out = `Switch failed: ${tr(m[1])}`;
+    } else if ((m = key.match(/^复制失败：(.*)$/))) {
+      out = `Duplicate failed: ${tr(m[1])}`;
+    } else if ((m = key.match(/^删除失败：(.*)$/))) {
+      out = `Delete failed: ${tr(m[1])}`;
     } else if ((m = key.match(/^接口返回 (\d+)$/))) {
       out = `API returned ${m[1]}`;
     } else if (key === '（服务端可能还是旧进程，重启一下）') {
@@ -781,6 +803,8 @@ async function loadConfig() {
 
 function applyConfig(cfg, opts = {}) {
   S.config = cfg;
+  // 顶部的一键切换永远跟着最新配置走
+  renderPresetMenu(cfg);
   // 只有首次加载时才回写这些可编辑输入框；
   // 保存接口回包一律跳过，避免把正在编辑的内容冲掉。
   if (!opts.skipPinInputs) {
@@ -6866,9 +6890,36 @@ function bind() {
   $('#btnSettings').addEventListener('click', openSettings);
   $('#btnLang').addEventListener('click', toggleLanguage);
   $('#btnClearDrafts').addEventListener('click', clearDrafts);
-  $('#btnProfileActivate').addEventListener('click', activateProfile);
-  $('#btnProfileSave').addEventListener('click', saveProfile);
-  $('#btnProfileDelete').addEventListener('click', deleteProfile);
+  $('#btnProfileSave').addEventListener('click', saveNewProfile);
+  $('#btnProfileUpdate').addEventListener('click', updateProfile);
+  $('#profileList').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-act]');
+    const row = btn?.closest('.profile-item');
+    if (!btn || !row) return;
+    const id = row.dataset.id;
+    const act = btn.dataset.act;
+    if (act === 'switch') await switchProfile(id);
+    else if (act === 'load') loadProfileIntoForm(id);
+    else if (act === 'test') await testProfile(id, btn);
+    else if (act === 'dup') await duplicateProfile(id);
+    else if (act === 'del') await removeProfile(id);
+  });
+  $('#btnPreset').addEventListener('click', (e) => {
+    e.stopPropagation();
+    togglePresetMenu();
+  });
+  $('#presetPop').addEventListener('click', async (e) => {
+    const item = e.target.closest('.preset-item');
+    if (!item) return;
+    await switchProfile(item.dataset.id);
+  });
+  document.addEventListener('click', (e) => {
+    if ($('#presetPop').hidden) return;
+    if (!$('#presetWrap').contains(e.target)) closePresetMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('#presetPop').hidden) closePresetMenu();
+  });
   $('#btnDiagnostics').addEventListener('click', downloadDiagnostics);
   $('#btnShortcuts').addEventListener('click', openShortcuts);
   $('#btnShortcutsClose').addEventListener('click', () => $('#shortcuts').close());
@@ -6930,20 +6981,311 @@ function debounce(fn, ms) {
 }
 
 /* ============ 设置弹窗逻辑 ============ */
-function renderProfileOptions(cfg) {
-  const sel = $('#profileSelect');
-  if (!sel) return;
-  sel.innerHTML = '';
-  for (const p of cfg.profiles || []) {
-    const o = document.createElement('option');
-    o.value = p.id;
-    o.textContent = `${p.name} · ${p.model || '未设置模型'}${p.hasKey ? '' : ' · 无 Key'}`;
-    o.selected = p.active;
-    sel.appendChild(o);
+/* ---------- API 预设 ---------- */
+// 每个预设 = BaseURL + Key + 模型。列表以服务端配置为准，本地只记「正在编辑哪一个」。
+let editingProfileId = '';
+
+function hostOf(p) {
+  try {
+    const u = new URL(String(p.baseURL || ''));
+    return u.host + (u.pathname && u.pathname !== '/' ? u.pathname.replace(/\/$/, '') : '');
+  } catch {
+    return String(p.baseURL || '未设置地址');
   }
-  $('#profileHint').textContent = cfg.keyEncrypted
-    ? '当前 Key 已用系统凭据加密保存；切换档案不会回显 Key。'
-    : '当前 Key 以明文保存在本机 config.json（源码/非 Electron 环境）；打包桌面版会尝试系统凭据加密。';
+}
+
+function profileMeta(p) {
+  const bits = [hostOf(p), p.model || '未设置模型'];
+  bits.push(p.hasKey ? `Key ${p.keyMask || '已保存'}` : '无 Key');
+  return bits.join(' · ');
+}
+
+function activeProfileOf(cfg = S.config || {}) {
+  return (cfg.profiles || []).find((p) => p.active) || null;
+}
+
+function renderProfiles(cfg = S.config || {}) {
+  const list = $('#profileList');
+  if (!list) return;
+  const profiles = Array.isArray(cfg.profiles) ? cfg.profiles : [];
+  const activeId = activeProfileOf(cfg)?.id || '';
+  list.innerHTML = '';
+  for (const p of profiles) {
+    const row = document.createElement('div');
+    row.className = `profile-item${p.id === activeId ? ' active' : ''}`;
+    row.dataset.id = p.id;
+    const main = document.createElement('div');
+    main.className = 'profile-main';
+    const title = document.createElement('div');
+    title.className = 'profile-title';
+    const name = document.createElement('span');
+    name.className = 'profile-name';
+    name.textContent = p.name || '未命名预设';
+    title.appendChild(name);
+    if (p.id === activeId) {
+      const badge = document.createElement('span');
+      badge.className = 'profile-active';
+      badge.textContent = '当前';
+      title.appendChild(badge);
+    }
+    const meta = document.createElement('div');
+    meta.className = 'profile-meta';
+    meta.textContent = profileMeta(p);
+    main.append(title, meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'profile-actions';
+    const acts = [
+      ['switch', '切换', p.id === activeId],
+      ['load', '编辑', false],
+      ['test', '测试', !p.hasKey],
+      ['dup', '复制', false],
+      ['del', '删除', profiles.length <= 1],
+    ];
+    for (const [id, label, disabled] of acts) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = id === 'switch' ? 'btn tiny' : 'btn tiny ghost';
+      b.dataset.act = id;
+      b.textContent = label;
+      b.disabled = disabled;
+      actions.appendChild(b);
+    }
+    row.append(main, actions);
+    list.appendChild(row);
+  }
+  $('#profileSummary').textContent = profiles.length
+    ? ` · ${profiles.length} 套`
+    : ' · 还没有预设';
+  const btn = $('#btnProfileUpdate');
+  const editing = profiles.find((p) => p.id === editingProfileId);
+  if (btn) {
+    btn.textContent = editing ? `保存修改到「${editing.name}」` : '把表单内容保存到当前预设';
+  }
+  renderPresetMenu(cfg);
+}
+
+// 顶部那个一键切换：只负责显示与开关弹层，真正的切换走 switchProfile。
+function renderPresetMenu(cfg = S.config || {}) {
+  const pop = $('#presetPop');
+  if (!pop) return;
+  const profiles = Array.isArray(cfg.profiles) ? cfg.profiles : [];
+  const active = activeProfileOf(cfg);
+  $('#presetBtnText').textContent = active?.name || 'API 预设';
+  $('#btnPreset').title = active ? `${active.name} · ${active.model || '未设置模型'}` : '切换 API 预设';
+  pop.innerHTML = '';
+  if (!profiles.length) {
+    const empty = document.createElement('div');
+    empty.className = 'preset-empty';
+    empty.textContent = '还没有保存的预设，先去设置里添加';
+    pop.appendChild(empty);
+    return;
+  }
+  for (const p of profiles) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `preset-item${p.active ? ' active' : ''}`;
+    b.dataset.id = p.id;
+    b.setAttribute('role', 'option');
+    b.setAttribute('aria-selected', p.active ? 'true' : 'false');
+    const n = document.createElement('span');
+    n.className = 'preset-item-name';
+    n.textContent = p.name || '未命名预设';
+    const m = document.createElement('span');
+    m.className = 'preset-item-meta';
+    m.textContent = `${hostOf(p)} · ${p.model || '未设置模型'}`;
+    b.append(n, m);
+    pop.appendChild(b);
+  }
+}
+
+function togglePresetMenu(force) {
+  const pop = $('#presetPop');
+  if (!pop) return;
+  const open = typeof force === 'boolean' ? force : pop.hidden;
+  pop.hidden = !open;
+  $('#btnPreset').setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function closePresetMenu() {
+  togglePresetMenu(false);
+}
+
+async function switchProfile(id) {
+  try {
+    const r = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'activate', id }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    S.config = j.config;
+    applyConfig(j.config, { skipPinInputs: true });
+    editingProfileId = '';
+    if ($('#settings').open) populateSettings(j.config);
+    else renderProfiles(j.config);
+    const p = activeProfileOf(j.config);
+    toast(`已切换到「${p?.name || '预设'}」`);
+    closePresetMenu();
+  } catch (err) {
+    toast(`切换失败：${err.message}`, true);
+  }
+}
+
+function loadProfileIntoForm(id) {
+  const cfg = S.config || {};
+  const p = (cfg.profiles || []).find((x) => x.id === id);
+  if (!p) return;
+  editingProfileId = id;
+  $('#cfgBase').value = p.baseURL || '';
+  $('#cfgModel').value = p.model || '';
+  $('#cfgKey').value = '';
+  $('#cfgKey').placeholder = p.hasKey
+    ? `已保存（${p.keyMask || '••••'}），留空表示不修改`
+    : '这个预设还没有 Key，填一个';
+  renderProfiles(cfg);
+  $('#cfgBase').scrollIntoView({ block: 'center' });
+}
+
+async function saveNewProfile() {
+  const name = $('#profileName').value.trim();
+  if (!name) {
+    $('#profileName').focus();
+    return toast('先给预设起个名字', true);
+  }
+  try {
+    validateProviderFields($('#cfgBase').value.trim(), $('#cfgModel').value.trim());
+  } catch (err) {
+    return toast(err.message, true);
+  }
+  try {
+    const r = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save',
+        activate: true,
+        profile: {
+          name,
+          baseURL: $('#cfgBase').value.trim(),
+          model: $('#cfgModel').value.trim(),
+          apiKey: $('#cfgKey').value.trim(),
+        },
+      }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    S.config = j.config;
+    applyConfig(j.config, { skipPinInputs: true });
+    editingProfileId = '';
+    populateSettings(j.config);
+    $('#profileName').value = '';
+    toast(`已保存预设：${name}`);
+  } catch (err) {
+    toast(`保存预设失败：${err.message}`, true);
+  }
+}
+
+async function updateProfile() {
+  const cfg = S.config || {};
+  const id = editingProfileId || activeProfileOf(cfg)?.id;
+  if (!id) return toast('还没有可更新的预设', true);
+  try {
+    validateProviderFields($('#cfgBase').value.trim(), $('#cfgModel').value.trim());
+  } catch (err) {
+    return toast(err.message, true);
+  }
+  try {
+    const r = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save',
+        activate: id === activeProfileOf(cfg)?.id,
+        profile: {
+          id,
+          baseURL: $('#cfgBase').value.trim(),
+          model: $('#cfgModel').value.trim(),
+          apiKey: $('#cfgKey').value.trim(),
+        },
+      }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    S.config = j.config;
+    applyConfig(j.config, { skipPinInputs: true });
+    editingProfileId = '';
+    populateSettings(j.config);
+    toast('预设已更新');
+  } catch (err) {
+    toast(`更新预设失败：${err.message}`, true);
+  }
+}
+
+async function duplicateProfile(id) {
+  try {
+    const r = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'duplicate', id }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    S.config = j.config;
+    applyConfig(j.config, { skipPinInputs: true });
+    renderProfiles(j.config);
+    toast('已复制一份预设');
+  } catch (err) {
+    toast(`复制失败：${err.message}`, true);
+  }
+}
+
+async function removeProfile(id) {
+  if (!confirm('删除这个 API 预设？Key 也会一起删掉。')) return;
+  try {
+    const r = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', id }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    S.config = j.config;
+    applyConfig(j.config, { skipPinInputs: true });
+    editingProfileId = '';
+    if ($('#settings').open) populateSettings(j.config);
+    else renderProfiles(j.config);
+    toast('已删除预设');
+  } catch (err) {
+    toast(`删除失败：${err.message}`, true);
+  }
+}
+
+async function testProfile(id, btn) {
+  const old = btn?.textContent || '测试';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '测试中…';
+  }
+  try {
+    const r = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'test', id }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    if (j.ok) toast(`连接正常 · ${j.ms} ms · ${j.model}`);
+    else toast(`测试失败：${j.error || '没有返回内容'}`, true);
+  } catch (err) {
+    toast(`测试失败：${err.message}`, true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = old;
+    }
+  }
 }
 
 /* ---------- 内置破限层 ---------- */
@@ -7272,7 +7614,10 @@ function populateSettings(cfg) {
   $('#keyHint').textContent = cfg.hasKey
     ? `已保存：${cfg.keyMask}（${cfg.keyEncrypted ? '系统凭据加密' : '明文'}；留空即保持原样）`
     : '还没有保存 Key';
-  renderProfileOptions(cfg);
+  renderProfiles(cfg);
+  $('#profileHint').textContent = cfg.keyEncrypted
+    ? 'Key 已用系统凭据加密保存在本机；切换预设不会回显 Key。'
+    : 'Key 以明文保存在本机 config.json（源码/非 Electron 环境）；打包桌面版会尝试系统凭据加密。';
   $('#cfgErr').hidden = true;
   S.combos.model?.close();
   $('#modelHint').textContent = '可以直接手填，也可以点右侧箭头从列表里选';
@@ -7280,6 +7625,7 @@ function populateSettings(cfg) {
 
 async function openSettings() {
   const cfg = S.config || (await (await fetch('/api/config')).json());
+  editingProfileId = '';
   populateSettings(cfg);
   $('#profileName').value = '';
   $('#settings').showModal();
@@ -7319,85 +7665,6 @@ async function saveSettings() {
     el.hidden = false;
   } finally {
     btn.disabled = false;
-  }
-}
-
-async function activateProfile() {
-  const id = $('#profileSelect').value;
-  if (!id) return;
-  try {
-    const r = await fetch('/api/profiles', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'activate', id }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-    S.config = j.config;
-    applyConfig(j.config, { skipPinInputs: true });
-    populateSettings(j.config);
-    toast('已切换服务商档案');
-  } catch (err) {
-    toast(`切换失败：${err.message}`, true);
-  }
-}
-
-async function saveProfile() {
-  const name = $('#profileName').value.trim();
-  if (!name) {
-    $('#profileName').focus();
-    return toast('先给档案起个名字', true);
-  }
-  try {
-    validateProviderFields($('#cfgBase').value.trim(), $('#cfgModel').value.trim());
-  } catch (err) {
-    return toast(err.message, true);
-  }
-  try {
-    const r = await fetch('/api/profiles', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'save',
-        activate: true,
-        profile: {
-          name,
-          baseURL: $('#cfgBase').value.trim(),
-          model: $('#cfgModel').value.trim(),
-          apiKey: $('#cfgKey').value.trim(),
-        },
-      }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-    S.config = j.config;
-    applyConfig(j.config, { skipPinInputs: true });
-    populateSettings(j.config);
-    $('#profileName').value = '';
-    toast(`已保存档案：${name}`);
-  } catch (err) {
-    toast(`保存档案失败：${err.message}`, true);
-  }
-}
-
-async function deleteProfile() {
-  const id = $('#profileSelect').value;
-  if (!id) return;
-  if (!confirm('删除当前选中的服务商档案？')) return;
-  try {
-    const r = await fetch('/api/profiles', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'delete', id }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-    S.config = j.config;
-    applyConfig(j.config, { skipPinInputs: true });
-    populateSettings(j.config);
-    toast('已删除服务商档案');
-  } catch (err) {
-    toast(`删除失败：${err.message}`, true);
   }
 }
 

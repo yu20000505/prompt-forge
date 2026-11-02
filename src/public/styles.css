@@ -3091,6 +3091,167 @@ mark {
   flex: none;
 }
 
+/* ---------- API 预设 ---------- */
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.profile-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+
+.profile-item.active {
+  border-color: rgba(var(--accent-rgb), .5);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.profile-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.profile-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.profile-active {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--accent-deep);
+  background: rgba(var(--accent-rgb), .14);
+}
+
+.profile-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--dim);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-actions {
+  display: flex;
+  gap: 4px;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.profile-actions .btn {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+
+/* 顶部一键切换 */
+.preset-wrap {
+  position: relative;
+}
+
+.preset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 190px;
+}
+
+.preset-btn #presetBtnText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-caret {
+  font-size: 10px;
+  opacity: .7;
+}
+
+.preset-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .18);
+}
+
+.preset-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.preset-item:hover {
+  background: var(--ink-2);
+}
+
+.preset-item.active {
+  background: rgba(var(--accent-rgb), .12);
+}
+
+.preset-item-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.preset-item-meta {
+  font-size: 10.5px;
+  color: var(--dim);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-empty {
+  padding: 8px 9px;
+  font-size: 11px;
+  color: var(--dim);
+}
+
 /* ---------- 内置破限层 ---------- */
 .layer-box {
   display: flex;

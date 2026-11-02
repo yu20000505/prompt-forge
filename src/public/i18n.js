@@ -537,5 +537,30 @@ window.PF_I18N = {
       'Odd: no refusal, but not the expected JSON — format drift or a gateway rewrite',
     '请求没有发出去': 'The request never left',
     '未知结果': 'Unknown result',
+
+    // API 预设
+    'API 预设': 'API presets',
+    '每个预设存一套 BaseURL / Key / 模型，本地保存多套，点「切换」立即生效。 Key 只在本机，界面上只显示掩码。':
+      'Each preset stores one BaseURL / key / model. Keep as many as you like locally and switch with one click. Keys stay on this machine and are only shown masked.',
+    '预设名称，如 DeepSeek 官方 / 本地 Ollama':
+      'Preset name, e.g. DeepSeek or local Ollama',
+    '保存当前设置为新预设': 'Save current settings as a new preset',
+    '把表单内容保存到当前预设': 'Save form into the active preset',
+    '编辑': 'Edit',
+    '测试': 'Test',
+    '当前': 'Active',
+    '切换 API 预设': 'Switch API preset',
+    '还没有预设': 'No presets yet',
+    '先给预设起个名字': 'Give the preset a name first',
+    '预设已更新': 'Preset updated',
+    '已复制一份预设': 'Preset duplicated',
+    '已删除预设': 'Preset deleted',
+    '还没有可更新的预设': 'No preset to update yet',
+    '删除这个 API 预设？Key 也会一起删掉。':
+      'Delete this API preset? Its key will be deleted too.',
+    'Key 已用系统凭据加密保存在本机；切换预设不会回显 Key。':
+      'Keys are encrypted with the OS credential store; switching presets never echoes a key.',
+    'Key 以明文保存在本机 config.json（源码/非 Electron 环境）；打包桌面版会尝试系统凭据加密。':
+      'Keys are stored in plain text in the local config.json (source build). The desktop build uses OS encryption when available.',
   },
 };

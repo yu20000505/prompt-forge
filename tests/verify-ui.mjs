@@ -282,8 +282,8 @@ async function main() {
 
   const statusText = await evalJs(`document.querySelector('#statusText').textContent`);
   check('状态栏显示已配置 Key', /已配置|deepseek|mock/i.test(statusText), statusText);
-  check('界面显示 2.3 版本号',
-    (await evalJs(`document.querySelector('#appVersion').textContent`)) === 'v2.3.0');
+  check('界面显示 2.4 版本号',
+    (await evalJs(`document.querySelector('#appVersion').textContent`)) === 'v2.4.0');
 
   const serverFeatures = await evalJs(`fetch('/api/config').then(r=>r.json()).then(j=>j.features)`);
   check('服务端声明细分接口可用', serverFeatures?.segment === true, JSON.stringify(serverFeatures));
@@ -2719,54 +2719,91 @@ async function main() {
   await evalJs(`document.querySelector('#btnLibClose').click(); true`);
   await sleep(250);
 
-  // ---------- 12.21 多服务商档案与诊断 ----------
+  // ---------- 12.21 API 预设与诊断 ----------
   await evalJs(`document.querySelector('#btnSettings').click(); true`);
-  await sleep(350);
-  check('设置里有服务商档案选择',
-    (await evalJs(`document.querySelectorAll('#profileSelect option').length`)) >= 1);
+  await sleep(400);
+  check('设置里有 API 预设列表',
+    (await evalJs(`document.querySelectorAll('#profileList .profile-item').length`)) >= 1,
+    String(await evalJs(`document.querySelectorAll('#profileList .profile-item').length`)));
   const originalBase = await evalJs(`document.querySelector('#cfgBase').value`);
+  const originalCount = await evalJs(`fetch('/api/config').then((r) => r.json()).then((c) => c.profiles.length)`);
+
+  // 用当前表单存一套新预设（会自动切过去）
   await evalJs(`(() => {
     document.querySelector('#cfgBase').value = 'http://127.0.0.1:43199/no-models/v1';
-    document.querySelector('#cfgModel').value = 'profile-model';
-    document.querySelector('#profileName').value = '第二档案';
+    document.querySelector('#cfgModel').value = 'preset-model';
+    document.querySelector('#profileName').value = '第二预设';
     document.querySelector('#btnProfileSave').click();
     return true;
   })()`);
-  await sleep(700);
-  const profilesAfterSave = await evalJs(`fetch('/api/config').then((r) => r.json()).then((c) => c.profiles)`);
-  check('能保存新的服务商档案',
-    profilesAfterSave.length >= 2 && profilesAfterSave.some((p) => p.name === '第二档案' && p.active),
-    JSON.stringify(profilesAfterSave.map((p) => ({ name: p.name, active: p.active }))));
-  check('切换档案后当前 BaseURL 跟着变',
-    (await evalJs(`fetch('/api/config').then((r) => r.json()).then((c) => c.baseURL)`)) === 'http://127.0.0.1:43199/no-models/v1');
+  await sleep(900);
+  const cfgAfterSave = await evalJs(`fetch('/api/config').then((r) => r.json())`);
+  check('能保存新的 API 预设',
+    cfgAfterSave.profiles.length === originalCount + 1
+      && cfgAfterSave.profiles.some((p) => p.name === '第二预设' && p.active),
+    JSON.stringify(cfgAfterSave.profiles.map((p) => ({ name: p.name, active: p.active }))));
+  check('保存后端到端切到新预设',
+    cfgAfterSave.baseURL === 'http://127.0.0.1:43199/no-models/v1');
+  check('预设列表标出当前预设',
+    (await evalJs(`document.querySelectorAll('#profileList .profile-item.active').length`)) === 1
+      && (await evalJs(`document.querySelector('#profileList .profile-item.active .profile-name').textContent`)) === '第二预设');
 
+  // 列表里一键切回原预设
   await evalJs(`(() => {
-    const sel = document.querySelector('#profileSelect');
-    sel.value = [...sel.options].find((o) => !o.textContent.includes('第二档案')).value;
-    document.querySelector('#btnProfileActivate').click();
+    const rows = [...document.querySelectorAll('#profileList .profile-item')];
+    const row = rows.find((r) => !r.classList.contains('active'));
+    row.querySelector('button[data-act="switch"]').click();
     return true;
   })()`);
-  await sleep(700);
-  check('能切回原来的服务商档案',
+  await sleep(900);
+  check('切换预设后 BaseURL 跟着变',
     (await evalJs(`fetch('/api/config').then((r) => r.json()).then((c) => c.baseURL)`)) === originalBase);
+  check('切换后列表的当前标记跟着走',
+    (await evalJs(`document.querySelector('#profileList .profile-item.active .profile-name').textContent`)) !== '第二预设');
 
   const diagnostics = await evalJs(`fetch('/api/diagnostics').then((r) => r.json())`);
   check('诊断信息不含明文 Key',
     !JSON.stringify(diagnostics).includes('sk-test-1234')
       && diagnostics.activeProfile?.hasKey === true);
   check('诊断信息包含版本和路径',
-    diagnostics.version === '2.3.0' && !!diagnostics.paths?.saved && !!diagnostics.keyStorage);
+    diagnostics.version === '2.4.0' && !!diagnostics.paths?.saved && !!diagnostics.keyStorage);
 
+  // 顶部一键切换：关掉设置，从顶栏切到第二预设
+  await evalJs(`document.querySelector('#btnCancelSettings').click(); true`);
+  await sleep(250);
+  await evalJs(`document.querySelector('#btnPreset').click(); true`);
+  await sleep(300);
+  check('顶栏能打开预设菜单',
+    (await evalJs(`document.querySelector('#presetPop').hidden`)) === false
+      && (await evalJs(`document.querySelectorAll('#presetPop .preset-item').length`)) === originalCount + 1);
   await evalJs(`(() => {
-    const sel = document.querySelector('#profileSelect');
-    sel.value = [...sel.options].find((o) => o.textContent.includes('第二档案')).value;
+    const item = [...document.querySelectorAll('#presetPop .preset-item')]
+      .find((b) => b.querySelector('.preset-item-name').textContent === '第二预设');
+    item.click();
     return true;
   })()`);
-  await evalJs(`window.confirm = () => true; document.querySelector('#btnProfileDelete').click(); true`);
-  await sleep(700);
+  await sleep(900);
+  check('顶栏一键切换生效',
+    (await evalJs(`fetch('/api/config').then((r) => r.json()).then((c) => c.baseURL)`)) === 'http://127.0.0.1:43199/no-models/v1'
+      && (await evalJs(`document.querySelector('#presetBtnText').textContent`)) === '第二预设');
+  check('切完菜单自动收起', (await evalJs(`document.querySelector('#presetPop').hidden`)) === true);
+
+  // 删掉这套预设，回到原来的
+  await evalJs(`document.querySelector('#btnSettings').click(); true`);
+  await sleep(350);
+  await evalJs(`window.confirm = () => true; true`);
+  await evalJs(`(() => {
+    const row = [...document.querySelectorAll('#profileList .profile-item')]
+      .find((r) => r.querySelector('.profile-name').textContent === '第二预设');
+    row.querySelector('button[data-act="del"]').click();
+    return true;
+  })()`);
+  await sleep(900);
   const profilesAfterDelete = await evalJs(`fetch('/api/config').then((r) => r.json()).then((c) => c.profiles)`);
-  check('能删除多余的服务商档案',
-    profilesAfterDelete.length === profilesAfterSave.length - 1, String(profilesAfterDelete.length));
+  check('能删除多余的 API 预设',
+    profilesAfterDelete.length === originalCount, String(profilesAfterDelete.length));
+  check('删除当前预设后自动切到别的预设',
+    (await evalJs(`fetch('/api/config').then((r) => r.json()).then((c) => c.baseURL)`)) === originalBase);
   await evalJs(`document.querySelector('#btnCancelSettings').click(); true`);
   await sleep(200);
 

@@ -32,6 +32,12 @@
       </div>
       <div class="topbar-right">
         <span class="status" id="status"><i></i><span id="statusText">未配置</span></span>
+        <div class="preset-wrap" id="presetWrap">
+          <button class="btn ghost preset-btn" id="btnPreset" aria-haspopup="listbox" aria-expanded="false" title="切换 API 预设">
+            <span id="presetBtnText">API 预设</span><span class="preset-caret">▾</span>
+          </button>
+          <div class="preset-pop" id="presetPop" role="listbox" aria-label="API 预设" hidden></div>
+        </div>
         <button class="btn ghost" id="btnLang" title="Switch to English">EN</button>
         <div class="theme-wrap">
           <button class="btn ghost" id="btnTheme" aria-haspopup="dialog" aria-expanded="false" aria-controls="themePop">
@@ -865,15 +871,18 @@
         <span class="field-hint" id="modelHint">可以直接手填，也可以点右侧箭头从列表里选</span>
       </div>
 
-      <label for="profileSelect">服务商档案</label>
+      <label>API 预设<span class="dim small" id="profileSummary"></span></label>
+      <p class="field-hint">
+        每个预设存一套 BaseURL / Key / 模型，本地保存多套，点「切换」立即生效。
+        Key 只在本机，界面上只显示掩码。
+      </p>
+      <div class="profile-list" id="profileList"></div>
       <div class="profile-row">
-        <select id="profileSelect"></select>
-        <button class="btn tiny" type="button" id="btnProfileActivate">切换</button>
-        <button class="btn tiny ghost" type="button" id="btnProfileDelete">删除</button>
+        <input id="profileName" maxlength="40" autocomplete="off" placeholder="预设名称，如 DeepSeek 官方 / 本地 Ollama" />
+        <button class="btn tiny ghost" type="button" id="btnProfileSave">保存当前设置为新预设</button>
       </div>
       <div class="profile-row">
-        <input id="profileName" maxlength="40" autocomplete="off" placeholder="新档案名称，如 DeepSeek / 本地 Ollama" />
-        <button class="btn tiny ghost" type="button" id="btnProfileSave">保存当前为新档案</button>
+        <button class="btn tiny ghost" type="button" id="btnProfileUpdate">把表单内容保存到当前预设</button>
       </div>
       <p class="field-hint" id="profileHint"></p>
 
