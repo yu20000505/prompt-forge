@@ -4,31 +4,32 @@
 [![Latest release](https://img.shields.io/github/v/release/yu20000505/prompt-forge?color=6f7f66)](../../releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6f7f66.svg)](LICENSE)
 
-**One sentence in. A production-ready image prompt out. 2.3**
+**One sentence in. A production-ready image prompt out.**
 
-Prompt Forge is a local-first desktop tool that turns a single plain-language sentence into
-prompts you can paste straight into Stable Diffusion, NovelAI, Midjourney, Flux or DALL·E.
-It also builds character sheets with an English prompt and a Chinese translation, plus seven
-segment-tag groups (outfit, character look, scene, pose, props, lighting, style) you can combine
-freely.
+Type one sentence, get prompts you can paste straight into Stable Diffusion, NovelAI, Midjourney,
+Flux or DALL·E; plus character sheets (English prompt + Chinese translation) and seven mix-and-match
+segment-tag groups. Local-first, zero runtime dependencies, and it talks directly to whatever
+**OpenAI-compatible API** you configure — your key never leaves your machine.
 
-Version 2.0 completes the workflow after generation: edit results by hand, keep every mode in one
-searchable history, generate all seven tag groups at once and splice them into a single prompt,
-full-text search and back up the library, retry flaky APIs automatically, and switch the whole UI
-between Chinese and English. Version 2.1 adds multi-variant comparison, templates and aspect
-shortcuts, draft recovery, trash management, provider profiles and desktop window details.
-Version 2.2 adds worldbooks: define a world, manage characters/items/creatures/locations/factions,
-and generate prompts inside that world; it also adds AI expansion for short Chinese descriptions,
-persistent refine versions, richer visual anchors and generic NovelAI targeting.
-Version 2.3 builds the [dsh-unrestricted](https://github.com/yexi-by/dsh-unrestricted) rules
-straight into the system prompt: explicit imagery, adult content and sensitive subjects stop being
-self-censored, across all nine task paths, with one switch in Settings.
-No accounts, no telemetry, no cloud sync. It talks directly to whatever
-**OpenAI-compatible API** you configure, and your key never leaves your machine.
+> **New in 2.3**: the built-in unrestricted layer — the
+> [dsh-unrestricted](https://github.com/yexi-by/dsh-unrestricted) contract ported verbatim
+> (10,246 chars, not a word changed) into the system prompt on all nine task paths, behind one
+> switch, with a one-click self-check. Plus rule packs and automatic config migration.
 
-[中文说明](README.md) · [Download](../../releases) · [Changelog](CHANGELOG.md) · [Build from source](#build-from-source)
+[中文说明](README.md) · [Download](../../releases/latest) · [Changelog](CHANGELOG.md) · [Build from source](#build-from-source)
 
 ![Main window](docs/screenshots/01-main.png)
+
+## Contents
+
+- [What's new in 2.3](#whats-new-in-23)
+- [Why](#why)
+- [Features](#features)
+- [Quick start](#quick-start)
+- [Built-in unrestricted layer](#built-in-unrestricted-layer-dsh-unrestricted)
+- [Build from source](#build-from-source) · [Tests](#tests)
+- [Project layout](#project-layout) · [Privacy](#privacy) · [License](#license)
+- 2.2 / 2.1 / 2.0 notes are collapsed at the end; full history in [CHANGELOG](CHANGELOG.md)
 
 ## What's new in 2.3
 
@@ -50,7 +51,10 @@ No accounts, no telemetry, no cloud sync. It talks directly to whatever
 - **Legacy config migration** — an old `apiPinnedPrompt` in `config.json` is moved into a rule pack
   (disabled, content kept) and the built-in layer is switched on once, so nothing is retyped.
 
-## What's new in 2.2
+<details>
+<summary>Version history: what's new in 2.2 / 2.1 / 2.0</summary>
+
+### What's new in 2.2
 
 - **Worldbooks** — multiple independent worlds with core lore and five entry types: character, item,
   creature, location and faction; AI can draft world directions, core lore, entry candidates and expansions.
@@ -65,7 +69,7 @@ No accounts, no telemetry, no cloud sync. It talks directly to whatever
 - **Generic NovelAI target** — the preset is now `NovelAI`; typing `NovelAI V5` or `NAI` still matches the
   danbooru-tag guidance.
 
-## What's new in 2.1
+### What's new in 2.1
 
 - **Multi-variant generation** — generate three candidates from one sentence and compare them side by side.
 - **Version timeline** — prompt/character/segment history versions are selectable; prompts get a diff
@@ -78,7 +82,7 @@ No accounts, no telemetry, no cloud sync. It talks directly to whatever
   OS credential encryption, and diagnostics never contain the key.
 - **Desktop details** — single-instance lock, focus the existing window, restore window size/position.
 
-## 2.0 basics
+### 2.0 basics
 
 - **Hand editing** — edit the positive/negative prompt, interpretation, parameters, character text
   or segment tags directly, with a “manually edited” marker and one-click restore.
@@ -90,6 +94,8 @@ No accounts, no telemetry, no cloud sync. It talks directly to whatever
 - **Sturdier API layer** — automatic retry with backoff for 429/5xx/network errors; configurable
   max_tokens, timeout, top_p, streaming and JSON mode; truncation warnings.
 - **Bilingual UI** — switch between Chinese and English from the top bar.
+
+</details>
 
 ---
 
