@@ -1586,6 +1586,9 @@ function renderWorldArchive() {
   }
 
   for (const it of items) {
+    const row = document.createElement('div');
+    row.className = 'world-archive-row';
+
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'world-archive-item';
@@ -1599,8 +1602,101 @@ function renderWorldArchive() {
     b.appendChild(title);
     b.appendChild(time);
     b.addEventListener('click', () => openSavedEntry(it));
-    box.appendChild(b);
+
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.className = 'btn tiny ghost wa-rename';
+    rename.title = '重命名这条存档';
+    rename.setAttribute('aria-label', '重命名');
+    rename.textContent = '✎';
+    rename.addEventListener('click', (e) => {
+      e.stopPropagation();
+      startWorldArchiveRename(row, it);
+    });
+
+    row.appendChild(b);
+    row.appendChild(rename);
+    box.appendChild(row);
   }
+}
+
+// 就地重命名：只改条目名（文件名里的标题段跟着变），不改世界归属
+function startWorldArchiveRename(row, it) {
+  const oldTitle = it.title || it.name.replace(/\.md$/, '');
+  row.innerHTML = '';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'wa-rename-input';
+  input.maxLength = 60;
+  input.value = oldTitle;
+  input.setAttribute('aria-label', '新的存档名称');
+
+  const ok = document.createElement('button');
+  ok.type = 'button';
+  ok.className = 'btn tiny';
+  ok.textContent = '保存';
+
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'btn tiny ghost';
+  cancel.textContent = '取消';
+
+  let busy = false;
+  const restore = () => {
+    row.innerHTML = '';
+    renderWorldArchive();
+  };
+  const commit = async () => {
+    if (busy) return;
+    const next = input.value.trim();
+    if (!next) {
+      toast('名称不能为空', true);
+      input.focus();
+      return;
+    }
+    if (next === oldTitle) {
+      restore();
+      return;
+    }
+    busy = true;
+    ok.disabled = true;
+    ok.textContent = '保存中…';
+    try {
+      const r = await fetch('/api/saved/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: it.name, title: next }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      toast(`已重命名为：${next}`);
+      await loadWorldArchive();
+    } catch (err) {
+      ok.disabled = false;
+      ok.textContent = '保存';
+      busy = false;
+      toast(`重命名失败：${err.message}`, true);
+    }
+  };
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      restore();
+    }
+  });
+  ok.addEventListener('click', commit);
+  cancel.addEventListener('click', restore);
+
+  row.appendChild(input);
+  row.appendChild(ok);
+  row.appendChild(cancel);
+  input.focus();
+  input.select();
 }
 
 function renderWorlds() {

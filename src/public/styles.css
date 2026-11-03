@@ -2322,7 +2322,36 @@ mark {
 .world-archive-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
+}
+
+.world-archive-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.world-archive-row .world-archive-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.wa-rename {
+  flex: none;
+  opacity: .5;
+}
+
+.world-archive-row:hover .wa-rename,
+.wa-rename:focus-visible {
+  opacity: 1;
+}
+
+.wa-rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  font-size: 12px;
+  border-radius: 8px;
 }
 
 .world-archive-item {
@@ -2339,10 +2368,6 @@ mark {
   text-align: left;
   cursor: pointer;
   transition: border-color .15s ease, color .15s ease;
-}
-
-.world-archive-item + .world-archive-item {
-  margin-top: 6px;
 }
 
 .world-archive-item:hover {

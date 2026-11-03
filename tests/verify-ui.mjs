@@ -3127,8 +3127,29 @@ async function main() {
   check('存档是设定集详情里的第三个子页',
     (await evalJs(`!document.querySelector('#worldArchivePanel').hidden`)) === true
       && (await evalJs(`document.querySelectorAll('#worldArchiveList .world-archive-item').length > 0`)) === true);
-  const archiveTitles = await evalJs(`[...document.querySelectorAll('#worldArchiveList .wa-title')].map(n => n.textContent)`);
+  const archiveTitles = await evalJs(`[...document.querySelectorAll('#worldArchiveList .wa-title')].map((n) => n.textContent)`);
   check('存档条目显示角色名', (archiveTitles || []).some((t) => /沈照雪/.test(String(t))), JSON.stringify(archiveTitles));
+
+  // 重命名：就地改条目名，文件名跟着变，列表立即刷新
+  await evalJs(`document.querySelector('#worldArchiveList .wa-rename').click(); true`);
+  await sleep(400);
+  await evalJs(`(() => {
+    const i = document.querySelector('#worldArchiveList .wa-rename-input');
+    if (!i) return false;
+    i.value = '改名测试';
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await evalJs(`[...document.querySelectorAll('#worldArchiveList .btn')].find((b) => b.textContent === '保存').click(); true`);
+  await sleep(1400);
+  const renamedList = await evalJs(`fetch('/api/saved?scope=worlds').then((r) => r.json())`);
+  const renamedItem = (renamedList.items || [])[0];
+  check('存档能就地重命名',
+    !!renamedItem && renamedItem.title === '改名测试' && renamedItem.name.includes('改名测试'),
+    renamedItem ? renamedItem.name : '(没有条目)');
+  const renamedShown = await evalJs(`document.querySelector('#worldArchiveList .wa-title')?.textContent || ''`);
+  check('重命名后列表立即刷新', renamedShown === '改名测试', renamedShown);
+
   await evalJs(`document.querySelector('#worldArchiveList .world-archive-item').click(); true`);
   await sleep(1400);
   check('点存档能载回设定集生成页',

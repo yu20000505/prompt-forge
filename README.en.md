@@ -184,7 +184,7 @@ and expansions; world rules and selected entries flow into generation. **Mutual-
 - Results saved as readable `.md`, with full-text search, highlight, sort, batch delete, rename, reload
 - **Worlds results get their own folder — `saved/worlds/`** — named after the character / creature themselves
   (multiple picks become "A、B"). They stay out of the general library and live in a **「存档」sub-tab inside each
-  world** (the world card shows the count); clicking one loads it straight into that world's generate tab
+  world** (the world card shows the count); clicking one loads it into that world's generate tab, and ✎ renames it in place
 - Deletions go to `saved/.trash` first (7 days)
 - JSON backup includes files, history, board and sanitised settings (**no API key**); the `worlds/` subfolder
   travels with it and import can merge or replace

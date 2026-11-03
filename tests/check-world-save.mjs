@@ -113,7 +113,22 @@ try {
   })).json();
   check('撤销删除回到 saved/worlds/', restore.ok === true && fs.existsSync(path.join(SAVED, 'worlds', restore.file)), JSON.stringify(restore.file));
 
-  // 6) 普通提示词仍然落在 saved/ 根目录
+  // 7) 重命名：标题段改掉，仍然留在 worlds/ 且保留 _设定集_ 标签
+  const ren = await (await fetch(`${BASE}/api/saved/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file: restore.file, title: '裴无咎' }),
+  })).json();
+  check('重命名后文件名跟着变，仍在 worlds/',
+    ren.ok === true && /_设定集_裴无咎/.test(ren.file) && fs.existsSync(path.join(SAVED, 'worlds', ren.file)),
+    ren.file);
+  const list2 = await (await fetch(`${BASE}/api/saved?scope=worlds`)).json();
+  const renamed = (list2.items || []).find((x) => x.name === ren.file);
+  check('重命名后标题与类型都还在',
+    !!renamed && renamed.title === '裴无咎' && renamed.kind === '设定集',
+    renamed ? `${renamed.title} / ${renamed.kind}` : '(没找到)');
+
+  // 8) 普通提示词仍然落在 saved/ 根目录
   const p2 = await (await fetch(`${BASE}/api/save`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
