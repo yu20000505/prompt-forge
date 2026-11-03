@@ -1,4 +1,4 @@
-﻿import { fileURLToPath } from 'node:url';
+import { fileURLToPath } from 'node:url';
 // 通过 CDP 驱动无头 Chrome 验证前端，包括破限词置顶与置顶词拼接行为。开发期工具。
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -3043,6 +3043,31 @@ async function main() {
   await sleep(700);
   check('结果能写入条目参考提示词',
     (await evalJs(`S.currentWorld.entries[0].refPrompt.includes('Positive prompt')`)) === true);
+
+  // 设定集结果要能单独保存：落到 saved/worlds/，保存库里自成一类，且能载回来
+  await evalJs(`document.querySelector('#btnWorldSave').click(); true`);
+  await sleep(1300);
+  const worldSavedList = await evalJs(`fetch('/api/saved').then(r=>r.json())`);
+  const worldSavedItem = (worldSavedList.items || []).find((it) => it.kind === '设定集');
+  check('设定集结果能保存', !!worldSavedItem, worldSavedItem ? worldSavedItem.name : '(没有设定集条目)');
+  check('设定集结果存到单独的目录（文件名带 _设定集_）',
+    !!worldSavedItem && worldSavedItem.name.includes('_设定集_'),
+    worldSavedItem ? worldSavedItem.name : '');
+  await evalJs(`document.querySelector('#btnLibrary').click(); true`);
+  await sleep(600);
+  const libGroupKinds = await evalJs(`[...document.querySelectorAll('#libList .lib-group')].map(g => g.dataset.kind)`);
+  check('保存库里出现「设定集」分组', (libGroupKinds || []).includes('设定集'), JSON.stringify(libGroupKinds));
+  const worldLoaded = await evalJs(`(async () => {
+    const r = await fetch('/api/saved');
+    const j = await r.json();
+    const it = (j.items || []).find((x) => x.kind === '设定集');
+    if (!it) return false;
+    const full = await (await fetch('/api/saved/item?file=' + encodeURIComponent(it.name))).json();
+    return !!(full.meta && full.meta.world && full.meta.positive);
+  })()`);
+  check('设定集存档带得回世界名与正向提示词', worldLoaded === true);
+  await evalJs(`document.querySelector('#btnLibClose').click(); true`);
+  await sleep(300);
   check('所有弹窗都有右上角关闭按钮',
     (await evalJs(`document.querySelectorAll('dialog').length`))
       === (await evalJs(`document.querySelectorAll('dialog > .overlay-x').length`))

@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "prompt-forge",
   "version": "2.5.0",
   "description": "一句话生成 NovelAI 生图提示词（danbooru 标签流 + UC 负向）。可手改、七类标签一键拼装、本地 NAI 整理与体检、历史与保存库全文检索、备份导入；纯本地、零运行时依赖。",
@@ -29,6 +29,7 @@
     "build:exe": "node build/build-exe.mjs",
     "build:desktop": "node build/build-desktop.mjs",
     "build:all": "node build/build-exe.mjs && node build/build-desktop.mjs",
-    "sign": "node build/sign.mjs"
+    "sign": "node build/sign.mjs",
+    "test:saved": "node tests/check-world-save.mjs"
   }
 }

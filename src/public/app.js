@@ -2334,6 +2334,45 @@ function renderWorldGenHistory() {
   }
 }
 
+// 设定集结果的 Markdown 正文：世界名、选中的条目、任务类型与画面描述都留下，
+// 以后从保存库载入时能对回同一个世界。
+function worldGenMarkdown() {
+  const g = S.worldGen;
+  if (!g) return '';
+  const w = S.currentWorld || {};
+  const names = (w.entries || []).filter((e) => worldSelectedEntryIds().includes(e.id)).map((e) => e.name);
+  const lines = [`> 设定集：${w.name || '未命名'}`];
+  if (names.length) lines.push(`> 条目：${names.join(' / ')}`);
+  if (g.sentence) lines.push(`> 画面：${g.sentence}`);
+  const task = $('#worldGenTask')?.value || g.task;
+  if (task && task !== 'free') lines.push(`> 类型：${task}`);
+  if (S.worldMutex) lines.push('', '## 多人互斥 UC', '', S.worldMutex);
+  lines.push('', '## 正向提示词', '', g.positive || '');
+  lines.push('', '## 负向提示词', '', g.negative || '');
+  if (g.translation) lines.push('', '## 画面解读', '', g.translation);
+  return lines.join('\n').trim();
+}
+
+async function saveWorldResult(btn) {
+  if (!S.worldGen) return;
+  const w = S.currentWorld || {};
+  const names = (w.entries || []).filter((e) => worldSelectedEntryIds().includes(e.id)).map((e) => e.name);
+  const sentence = String(S.worldGen.sentence || '').trim();
+  const title = [w.name, sentence.slice(0, 18) || names[0] || '设定集提示词'].filter(Boolean).join(' · ');
+  await saveToLocal('world', title, worldGenMarkdown(), {
+    positive: S.worldGen.positive || '',
+    negative: S.worldGen.negative || '',
+    translation: S.worldGen.translation || '',
+    params: S.worldGen.params || {},
+    world: w.name || '',
+    worldId: w.id || '',
+    entries: names,
+    task: $('#worldGenTask')?.value || S.worldGen.task || '',
+    sentence,
+    mutex: S.worldMutex || '',
+  }, btn);
+}
+
 async function writeWorldRef() {
   if (!S.worldGen) return;
   const id = $('#worldRefEntry').value;
@@ -2933,7 +2972,7 @@ async function saveToLocal(kind, title, content, meta, btn) {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
     btn.textContent = '已保存 ✓';
-    toast(`已保存：saved/${j.file}`);
+    toast(`已保存：saved/${j.folder ? j.folder + '/' : ''}${j.file}`);
     refreshLibraryCount();
     setTimeout(() => { btn.textContent = oldLabel; }, 1800);
   } catch (err) {
@@ -3132,7 +3171,7 @@ function renderLibrary() {
   }
 
   // 收藏单独置顶；其余按三个大分类固定顺序，未知类型排最后
-  const groups = new Map([['收藏', []], ['提示词', []], ['角色设定', []], ['细分提示词', []]]);
+  const groups = new Map([['收藏', []], ['提示词', []], ['角色设定', []], ['细分提示词', []], ['设定集', []]]);
   for (const it of list) {
     if (it.favorite) {
       groups.get('收藏').push(it);
@@ -3578,9 +3617,10 @@ async function confirmBackupImport(btn) {
 // kind 用列表项的判定结果，手写文件没有 meta.kind 时也能正确按类型取内容。
 function savedCopyText(loaded, fallback, kind) {
   const meta = loaded && loaded.meta && typeof loaded.meta === 'object' ? loaded.meta : {};
-  const k = kind || (meta.kind === 'character' ? '角色设定' : meta.kind === 'segment' ? '细分提示词' : '提示词');
+  const k = kind || (meta.kind === 'character' ? '角色设定' : meta.kind === 'segment' ? '细分提示词' : meta.kind === 'world' ? '设定集' : '提示词');
   if (k === '角色设定') return meta.prompt_en || fallback || '';
   if (k === '细分提示词') return meta.tags || fallback || '';
+  if (k === '设定集') return meta.positive || fallback || '';
   return [meta.positive, meta.negative].filter(Boolean).join('\n\n') || fallback || '';
 }
 
@@ -3796,7 +3836,38 @@ async function openSavedEntry(it) {
 
   if (it.kind === '角色设定') loadSavedCharacter(meta, loaded.title);
   else if (it.kind === '细分提示词') loadSavedSegment(meta, loaded.title);
+  else if (it.kind === '设定集') loadSavedWorld(meta, loaded.title);
   else loadSavedPrompt(meta, loaded.title);
+}
+
+// 设定集存下来的结果：切到设定集页、打开对应世界，把结果放回「生成」子页的展示区
+async function loadSavedWorld(meta, fallbackTitle) {
+  const worldName = str(meta.world || '');
+  const gen = {
+    id: `g-${Date.now()}`,
+    entryId: '',
+    task: 'prompt',
+    sentence: str(meta.sentence),
+    positive: str(meta.positive),
+    negative: str(meta.negative),
+    params: meta.params && typeof meta.params === 'object' ? meta.params : {},
+    translation: str(meta.translation),
+    createdAt: Date.now(),
+  };
+  switchView('worlds');
+  const target = (S.worlds || []).find((w) => w.name === worldName);
+  if (target && target.id !== S.currentWorld?.id) await openWorld(target.id);
+  if (!S.currentWorld) {
+    toast('找不到这条结果所属的设定集，已复制正向提示词');
+    copyText(gen.positive);
+    return;
+  }
+  S.worldGen = { ...gen, parsed: { positive: gen.positive, negative: gen.negative, params: gen.params } };
+  S.worldTab = 'generate';
+  $('#worldGenSentence').value = gen.sentence || '';
+  renderWorldDetail();
+  renderWorldGenResult();
+  toast(`已载入：${worldName || fallbackTitle || '设定集结果'}`);
 }
 
 function loadSavedPrompt(meta, fallbackTitle) {
@@ -6751,6 +6822,7 @@ function bind() {
     if (S.worldGenAbort) S.worldGenAbort.abort();
   });
   $('#btnWorldWriteRef').addEventListener('click', writeWorldRef);
+  $('#btnWorldSave').addEventListener('click', (e) => saveWorldResult(e.currentTarget));
   $('#btnWorldCopyPositive').addEventListener('click', (e) => {
     if (S.worldGen) copyText(S.worldGen.positive || '', e.currentTarget);
   });

@@ -182,8 +182,11 @@ and expansions; world rules and selected entries flow into generation. **Mutual-
 
 - Every mode recorded; filter, search, favourite, restore the full result in one click
 - Results saved as readable `.md`, with full-text search, highlight, sort, batch delete, rename, reload
+- **Worlds results get their own folder — `saved/worlds/`** — and their own "Worlds" group in the library;
+  loading one switches back to the world and the exact frame it was generated from
 - Deletions go to `saved/.trash` first (7 days)
-- JSON backup includes files, history, board and sanitised settings (**no API key**); merge or replace on import
+- JSON backup includes files, history, board and sanitised settings (**no API key**); the `worlds/` subfolder
+  travels with it and import can merge or replace
 
 ### 🎨 Feel
 
@@ -383,6 +386,7 @@ build/
 └── build-desktop.mjs Electron packaging
 tests/                regression suite · fake endpoint · static checks · screenshot generator
 docs/screenshots/     README images
+saved/                library (created at runtime): prompt/character/segment at the root, worlds under worlds/
 ```
 
 ---

@@ -507,6 +507,7 @@ window.PF_I18N = {
 
     // 破限词（置顶 system）
     '破限词': 'Jailbreak prompt',
+    '保存到设定集': 'Save to world',
     '作为一条独立的置顶 system 消息（messages[0]）发送，排在任务规则之前，九条任务链路全部生效；正文原创，也可以自己改。':
       'Sent as its own leading system message (messages[0]), ahead of the task rules, on all nine task paths. The text is original and editable.',
     '启用破限词（关闭后每条请求里都不再出现这一条）':

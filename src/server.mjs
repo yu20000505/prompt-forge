@@ -77,6 +77,14 @@ const SAVED_DIR = process.env.PF_SAVED
 // 删除先进回收站，给用户一个反悔的机会；过期或超过上限再真删
 const TRASH_DIR = path.join(SAVED_DIR, '.trash');
 const FAVORITES_PATH = path.join(SAVED_DIR, '.favorites.json');
+// 设定集生成的提示词单独放一个子目录：saved/worlds/
+// 文件名里带 _设定集_ 前缀，删 / 改 / 恢复 / 备份都按这个前缀归位。
+const WORLD_SAVED_DIR = path.join(SAVED_DIR, 'worlds');
+const WORLD_KIND_LABEL = '设定集';
+
+function savedDirOfName(name) {
+  return String(name || '').includes(`_${WORLD_KIND_LABEL}_`) ? WORLD_SAVED_DIR : SAVED_DIR;
+}
 // 历史 / 拼装板也从 localStorage 落盘；测试可用 PF_STATE 指向临时目录
 const STATE_DIR = process.env.PF_STATE ? path.resolve(process.env.PF_STATE) : DATA_DIR;
 const HISTORY_PATH = path.join(STATE_DIR, 'history.json');
@@ -507,7 +515,9 @@ async function handleDiagnostics(req, res) {
   try {
     const cfg = await loadConfig();
     const savedCount = (await fsp.readdir(SAVED_DIR).catch(() => []))
-      .filter((f) => f.endsWith('.md')).length;
+      .filter((f) => f.endsWith('.md')).length
+      + (await fsp.readdir(WORLD_SAVED_DIR).catch(() => []))
+        .filter((f) => f.endsWith('.md')).length;
     const trashCount = (await fsp.readdir(TRASH_DIR).catch(() => []))
       .filter((f) => f.endsWith('.md')).length;
     const storage = await getSafeStorage();
@@ -1404,12 +1414,13 @@ function parseMetaComment(text) {
   }
 }
 
-// 只允许取 saved 目录里的 .md，挡住目录穿越
+// 只允许取 saved（含 worlds 子目录）里的 .md，挡住目录穿越
 function resolveSavedFile(name) {
   const base = path.basename(String(name || ''));
   if (!base || !base.endsWith('.md')) return null;
-  const full = path.join(SAVED_DIR, base);
-  if (path.dirname(path.resolve(full)) !== path.resolve(SAVED_DIR)) return null;
+  const dir = savedDirOfName(base);
+  const full = path.join(dir, base);
+  if (path.dirname(path.resolve(full)) !== path.resolve(dir)) return null;
   return full;
 }
 
@@ -1486,7 +1497,8 @@ async function readSavedEntry(name, opts = {}) {
   const title = String(meta.title || h1 || name.replace(/\.md$/, '')).trim();
   const kind = meta.kind === 'character' ? '角色设定'
     : meta.kind === 'segment' ? '细分提示词'
-      : (body.includes('## 英文提示词') ? '角色设定'
+      : meta.kind === 'world' ? WORLD_KIND_LABEL
+        : (body.includes('## 英文提示词') ? '角色设定'
         : (body.includes('## 标签组合') ? '细分提示词' : '提示词'));
 
   // 没有元数据时，从 Markdown 小节里把内容捡回来，这样手写的文件也能载入
@@ -1561,21 +1573,24 @@ async function handleSave(req, res) {
   }
 
   const kindKey = body.kind === 'character' ? 'character'
-    : body.kind === 'segment' ? 'segment' : 'prompt';
+    : body.kind === 'segment' ? 'segment'
+      : body.kind === 'world' ? 'world' : 'prompt';
   const kindLabel = kindKey === 'character' ? '角色设定'
-    : kindKey === 'segment' ? '细分提示词' : '提示词';
+    : kindKey === 'segment' ? '细分提示词'
+      : kindKey === 'world' ? WORLD_KIND_LABEL : '提示词';
+  const targetDir = kindKey === 'world' ? WORLD_SAVED_DIR : SAVED_DIR;
   const title = String(body.title || '').trim() || '未命名';
   const content = String(body.content || '').trim();
   if (!content) return json(res, 400, { error: '没有可保存的内容' });
 
   try {
-    await fsp.mkdir(SAVED_DIR, { recursive: true });
+    await fsp.mkdir(targetDir, { recursive: true });
 
     const base = `${stampNow()}_${kindLabel}_${safeName(title)}`;
-    let file = path.join(SAVED_DIR, `${base}.md`);
+    let file = path.join(targetDir, `${base}.md`);
     let n = 1;
     // 同一秒保存两条同名内容时自动加序号，不覆盖旧的
-    while (fs.existsSync(file)) file = path.join(SAVED_DIR, `${base}-${n++}.md`);
+    while (fs.existsSync(file)) file = path.join(targetDir, `${base}-${n++}.md`);
 
     const now = new Date();
     const meta = {
@@ -1589,7 +1604,7 @@ async function handleSave(req, res) {
     const text = `${head}${content}\n\n${buildMetaComment(meta)}\n`;
     await fsp.writeFile(file, text, 'utf8');
 
-    return json(res, 200, { ok: true, file: path.basename(file), dir: SAVED_DIR });
+    return json(res, 200, { ok: true, file: path.basename(file), dir: targetDir, folder: kindKey === 'world' ? 'worlds' : '' });
   } catch (err) {
     return json(res, 500, { error: `保存失败：${err?.message || err}` });
   }
@@ -1600,10 +1615,17 @@ async function handleListSaved(req, res) {
     await fsp.mkdir(SAVED_DIR, { recursive: true });
     const url = new URL(req.url, `http://${HOST}`);
     const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
-    const names = (await fsp.readdir(SAVED_DIR))
-      .filter((f) => f.endsWith('.md'))
-      .sort()
-      .reverse();
+    const names = [];
+    for (const dir of [SAVED_DIR, WORLD_SAVED_DIR]) {
+      try {
+        const list = (await fsp.readdir(dir)).filter((f) => f.endsWith('.md'));
+        names.push(...list);
+      } catch {
+        /* 子目录可能还不存在 */
+      }
+    }
+    names.sort();
+    names.reverse();
     const favorites = await loadFavorites();
 
     const items = [];
@@ -1654,18 +1676,27 @@ async function handleFavoriteSaved(req, res) {
 async function handleBackupExport(req, res) {
   try {
     await fsp.mkdir(SAVED_DIR, { recursive: true });
-    const names = (await fsp.readdir(SAVED_DIR)).filter((f) => f.endsWith('.md')).sort();
     const favorites = await loadFavorites();
     const files = [];
-    for (const name of names) {
+    const allNames = [];
+    for (const [dir, prefix] of [[SAVED_DIR, ''], [WORLD_SAVED_DIR, 'worlds/']]) {
+      let list = [];
       try {
-        files.push({ name, content: await fsp.readFile(path.join(SAVED_DIR, name), 'utf8') });
+        list = (await fsp.readdir(dir)).filter((f) => f.endsWith('.md')).sort();
       } catch {
-        /* 单个文件读不到就跳过 */
+        list = [];
+      }
+      for (const name of list) {
+        try {
+          files.push({ name: prefix + name, content: await fsp.readFile(path.join(dir, name), 'utf8') });
+          allNames.push(name);
+        } catch {
+          /* 单个文件读不到就跳过 */
+        }
       }
     }
     const favOut = {};
-    for (const name of names) if (favorites[name]) favOut[name] = true;
+    for (const name of allNames) if (favorites[name]) favOut[name] = true;
     return json(res, 200, {
       app: 'prompt-forge',
       version: 1,
@@ -1691,20 +1722,28 @@ async function handleBackupImport(req, res) {
 
   try {
     await fsp.mkdir(SAVED_DIR, { recursive: true });
+    await fsp.mkdir(WORLD_SAVED_DIR, { recursive: true });
     await fsp.mkdir(TRASH_DIR, { recursive: true });
-    const existing = (await fsp.readdir(SAVED_DIR)).filter((f) => f.endsWith('.md'));
+    const existing = [];
+    for (const dir of [SAVED_DIR, WORLD_SAVED_DIR]) {
+      try {
+        for (const name of (await fsp.readdir(dir)).filter((f) => f.endsWith('.md'))) existing.push({ dir, name });
+      } catch {
+        /* 子目录不存在就跳过 */
+      }
+    }
     let movedToTrash = 0;
 
     if (mode === 'replace') {
       const stamp = stampNow();
-      for (const name of existing) {
+      for (const { dir, name } of existing) {
         let trash = `${stamp}-${name}`;
         let n = 1;
         while (fs.existsSync(path.join(TRASH_DIR, trash))) {
           trash = `${stamp}-${name.replace(/\.md$/, `-${n++}.md`)}`;
         }
         try {
-          await fsp.rename(path.join(SAVED_DIR, name), path.join(TRASH_DIR, trash));
+          await fsp.rename(path.join(dir, name), path.join(TRASH_DIR, trash));
           movedToTrash++;
         } catch {
           /* 单个文件移不动就跳过 */
@@ -1718,30 +1757,34 @@ async function handleBackupImport(req, res) {
     let skipped = 0;
 
     for (const item of body.files) {
-      const rawName = path.basename(String(item?.name || ''));
+      const rel = String(item?.name || '').replace(/\\/g, '/');
+      const isWorld = rel.includes('worlds/');
+      const rawName = path.basename(rel);
       if (!rawName.endsWith('.md')) { skipped++; continue; }
       const content = String(item?.content || '');
       if (!content) { skipped++; continue; }
 
+      const targetDir = isWorld ? WORLD_SAVED_DIR : SAVED_DIR;
+      await fsp.mkdir(targetDir, { recursive: true });
       let targetName = rawName;
-      if (mode === 'merge' && fs.existsSync(path.join(SAVED_DIR, targetName))) {
+      if (mode === 'merge' && fs.existsSync(path.join(targetDir, targetName))) {
         const base = rawName.replace(/\.md$/, '');
         let n = 1;
         targetName = `${base}-imported-${n}.md`;
-        while (fs.existsSync(path.join(SAVED_DIR, targetName))) {
+        while (fs.existsSync(path.join(targetDir, targetName))) {
           targetName = `${base}-imported-${++n}.md`;
         }
-      } else if (fs.existsSync(path.join(SAVED_DIR, targetName))) {
+      } else if (fs.existsSync(path.join(targetDir, targetName))) {
         // 同一个备份包里出现重名，也自动加序号
         const base = rawName.replace(/\.md$/, '');
         let n = 1;
         targetName = `${base}-imported-${n}.md`;
-        while (fs.existsSync(path.join(SAVED_DIR, targetName))) {
+        while (fs.existsSync(path.join(targetDir, targetName))) {
           targetName = `${base}-imported-${++n}.md`;
         }
       }
 
-      await fsp.writeFile(path.join(SAVED_DIR, targetName), content, 'utf8');
+      await fsp.writeFile(path.join(targetDir, targetName), content, 'utf8');
       nameMap[rawName] = targetName;
       imported++;
     }
@@ -2399,14 +2442,16 @@ async function handleRenameSaved(req, res) {
     // 文件名结构是 时间戳_类型_标题.md，重命名时保留前半段
     const stamp = (oldName.match(/^(\d{8}-\d{6})_/) || [])[1] || stampNow();
     const kindLabel = oldName.includes('_角色设定_') ? '角色设定'
-      : oldName.includes('_细分提示词_') ? '细分提示词' : '提示词';
+      : oldName.includes('_细分提示词_') ? '细分提示词'
+        : oldName.includes(`_${WORLD_KIND_LABEL}_`) ? WORLD_KIND_LABEL : '提示词';
+    const dir = savedDirOfName(oldName);
     const base = `${stamp}_${kindLabel}_${safeName(newTitle)}`;
 
-    let target = path.join(SAVED_DIR, `${base}.md`);
+    let target = path.join(dir, `${base}.md`);
     let n = 1;
     // 目标重名就加序号，但不跟自己较劲
     while (fs.existsSync(target) && path.resolve(target) !== path.resolve(full)) {
-      target = path.join(SAVED_DIR, `${base}-${n++}.md`);
+      target = path.join(dir, `${base}-${n++}.md`);
     }
 
     // 正文：换掉 H1，再重新生成元数据注释
@@ -2432,7 +2477,7 @@ async function handleRenameSaved(req, res) {
       /* 收藏信息丢了不影响重命名本身 */
     }
 
-    return json(res, 200, { ok: true, file: path.basename(target), dir: SAVED_DIR });
+    return json(res, 200, { ok: true, file: path.basename(target), dir });
   } catch (err) {
     return json(res, 500, { error: `重命名失败：${err?.message || err}` });
   }
@@ -2467,7 +2512,7 @@ async function handleDeleteSaved(req, res) {
 
     return json(res, 200, {
       ok: true,
-      dir: SAVED_DIR,
+      dir: path.dirname(full),
       trash,
       original,
       retentionDays: TRASH_RETENTION_DAYS,
@@ -2491,18 +2536,19 @@ async function handleRestoreSaved(req, res) {
   if (!fs.existsSync(src)) return json(res, 404, { error: '撤销已过期，文件已被清理' });
 
   try {
-    await fsp.mkdir(SAVED_DIR, { recursive: true });
     const wanted = path.basename(String(body.original || ''));
     const original = wanted.endsWith('.md') ? wanted : path.basename(src);
+    const dir = savedDirOfName(original);
+    await fsp.mkdir(dir, { recursive: true });
 
-    let target = path.join(SAVED_DIR, original);
+    let target = path.join(dir, original);
     let n = 1;
     while (fs.existsSync(target)) {
-      target = path.join(SAVED_DIR, original.replace(/\.md$/, `-${n++}.md`));
+      target = path.join(dir, original.replace(/\.md$/, `-${n++}.md`));
     }
 
     await fsp.rename(src, target);
-    return json(res, 200, { ok: true, file: path.basename(target), dir: SAVED_DIR });
+    return json(res, 200, { ok: true, file: path.basename(target), dir });
   } catch (err) {
     return json(res, 500, { error: `撤销失败：${err?.message || err}` });
   }
