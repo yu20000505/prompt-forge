@@ -3115,18 +3115,25 @@ async function main() {
     staleCheck.after.hasGen === false && staleCheck.after.hidden === true && staleCheck.after.ids === 0,
     JSON.stringify(staleCheck));
 
-  // 设定集页自己的存档面板：按世界分组，点一条能载回生成页
+  // 存档属于「设定集详情 → 存档」子页：卡片上有条数，子页里能看见并按名字显示
   await evalJs(`document.querySelector('#btnWorldBack').click(); true`);
   await sleep(900);
-  const archiveGroups = await evalJs(`[...document.querySelectorAll('#worldArchiveList .world-archive-group .wa-group-name')].map(n => n.textContent)`);
-  check('设定集页里有存档面板，按世界分组',
-    (archiveGroups || []).some((g) => String(g).includes('九霄残卷')), JSON.stringify(archiveGroups));
+  const cardMeta = await evalJs(`document.querySelector('#worldGrid .world-card .world-card-meta span')?.textContent || ''`);
+  check('世界卡片上显示存档条数', /条存档/.test(cardMeta), cardMeta);
+  await evalJs(`document.querySelector('#worldGrid .world-card').click(); true`);
+  await sleep(900);
+  await evalJs(`[...document.querySelectorAll('#worldSubtabs .subtab')].find((b) => b.dataset.worldTab === 'archive').click(); true`);
+  await sleep(700);
+  check('存档是设定集详情里的第三个子页',
+    (await evalJs(`!document.querySelector('#worldArchivePanel').hidden`)) === true
+      && (await evalJs(`document.querySelectorAll('#worldArchiveList .world-archive-item').length > 0`)) === true);
   const archiveTitles = await evalJs(`[...document.querySelectorAll('#worldArchiveList .wa-title')].map(n => n.textContent)`);
   check('存档条目显示角色名', (archiveTitles || []).some((t) => /沈照雪/.test(String(t))), JSON.stringify(archiveTitles));
   await evalJs(`document.querySelector('#worldArchiveList .world-archive-item').click(); true`);
   await sleep(1400);
   check('点存档能载回设定集生成页',
     (await evalJs(`!!S.worldGen && String(S.worldGen.positive).length > 0`)) === true
+      && (await evalJs(`S.worldTab === 'generate'`)) === true
       && (await evalJs(`!document.querySelector('#worldGenResult').hidden`)) === true);
 
   // ---------- 13. 控制台错误 ----------

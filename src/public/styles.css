@@ -2318,43 +2318,11 @@ mark {
   padding: 0 18px 40px;
 }
 
-/* ---------- 设定集：提示词存档（按世界分组） ---------- */
-.world-archive {
-  margin-top: 22px;
-  padding: 14px;
-}
-
+/* ---------- 设定集：存档子页（只列当前世界） ---------- */
 .world-archive-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.world-archive-group {
-  padding: 4px 10px 8px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel-2);
-}
-
-.world-archive-group > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-2);
-  cursor: pointer;
-  list-style-position: inside;
-}
-
-.wa-group-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  gap: 2px;
 }
 
 .world-archive-item {
@@ -2362,17 +2330,23 @@ mark {
   align-items: baseline;
   gap: 10px;
   width: 100%;
-  padding: 6px 2px;
-  border: 0;
-  border-top: 1px dashed var(--line);
-  background: none;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--panel-2);
   color: var(--text);
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+  transition: border-color .15s ease, color .15s ease;
+}
+
+.world-archive-item + .world-archive-item {
+  margin-top: 6px;
 }
 
 .world-archive-item:hover {
+  border-color: rgba(var(--accent-rgb), .45);
   color: var(--accent);
 }
 
@@ -2389,7 +2363,7 @@ mark {
 }
 
 .world-archive-empty {
-  padding: 6px 0;
+  padding: 10px 2px;
 }
 
 .worlds-head,

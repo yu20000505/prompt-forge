@@ -1533,81 +1533,73 @@ async function loadWorlds() {
   }
 }
 
-/* ============ 设定集的提示词存档（只属于设定集页，按世界分组） ============ */
+/* ============ 设定集存档：属于某一个世界，按角色 / 生物名命名 ============ */
 async function loadWorldArchive() {
-  const box = $('#worldArchiveList');
-  if (!box) return;
   try {
     const r = await fetch('/api/saved?scope=worlds');
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
     S.worldArchive = Array.isArray(j.items) ? j.items : [];
-    renderWorldArchive();
   } catch (err) {
-    box.innerHTML = '';
-    const p = document.createElement('p');
-    p.className = 'dim small';
-    p.textContent = `存档读取失败：${err.message}`;
-    box.appendChild(p);
+    S.worldArchive = S.worldArchive || [];
+    const box = $('#worldArchiveList');
+    if (box) {
+      box.innerHTML = '';
+      const p = document.createElement('p');
+      p.className = 'dim small';
+      p.textContent = `存档读取失败：${err.message}`;
+      box.appendChild(p);
+    }
+    return;
   }
+  renderWorldArchive();
+  renderWorlds();
+}
+
+/** 当前世界名匹配的存档（没记世界名的手写文件不计入） */
+function worldArchiveFor(name) {
+  const target = String(name || '').trim();
+  if (!target) return [];
+  return (S.worldArchive || []).filter((it) => String(it.meta?.world || '').trim() === target);
 }
 
 function renderWorldArchive() {
   const box = $('#worldArchiveList');
   if (!box) return;
-  const items = S.worldArchive || [];
+  const world = S.currentWorld?.name || '';
+  const items = worldArchiveFor(world);
+
+  const tab = $('#worldArchiveTabCount');
+  if (tab) tab.textContent = items.length ? String(items.length) : '';
   const count = $('#worldArchiveCount');
   if (count) count.textContent = items.length ? `${items.length} 条` : '';
+
   box.innerHTML = '';
   if (!items.length) {
     const p = document.createElement('p');
     p.className = 'dim small world-archive-empty';
-    p.textContent = '还没有存档。生成结果后点右上角的「💾 保存到设定集」。';
+    p.textContent = world
+      ? '这个世界还没有存档。生成结果后点右上角的「💾 保存到设定集」。'
+      : '先选一个设定集。';
     box.appendChild(p);
     return;
   }
 
-  // 按世界名分组；没记下世界名的（手写文件）落到最后一组
-  const groups = new Map();
   for (const it of items) {
-    const w = String(it.meta?.world || '').trim() || '未归属设定集';
-    if (!groups.has(w)) groups.set(w, []);
-    groups.get(w).push(it);
-  }
-
-  for (const [world, list] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh'))) {
-    const det = document.createElement('details');
-    det.className = 'world-archive-group';
-    det.open = true;
-
-    const sum = document.createElement('summary');
-    const name = document.createElement('span');
-    name.className = 'wa-group-name';
-    name.textContent = world;
-    const num = document.createElement('span');
-    num.className = 'dim small';
-    num.textContent = `${list.length} 条`;
-    sum.appendChild(name);
-    sum.appendChild(num);
-    det.appendChild(sum);
-
-    for (const it of list) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'world-archive-item';
-      b.title = it.name;
-      const title = document.createElement('span');
-      title.className = 'wa-title';
-      title.textContent = it.title || it.name.replace(/\.md$/, '');
-      const time = document.createElement('span');
-      time.className = 'dim small wa-time';
-      time.textContent = fmtTime(it.mtime);
-      b.appendChild(title);
-      b.appendChild(time);
-      b.addEventListener('click', () => openSavedEntry(it));
-      det.appendChild(b);
-    }
-    box.appendChild(det);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'world-archive-item';
+    b.title = it.name;
+    const title = document.createElement('span');
+    title.className = 'wa-title';
+    title.textContent = it.title || it.name.replace(/\.md$/, '');
+    const time = document.createElement('span');
+    time.className = 'dim small wa-time';
+    time.textContent = fmtTime(it.mtime);
+    b.appendChild(title);
+    b.appendChild(time);
+    b.addEventListener('click', () => openSavedEntry(it));
+    box.appendChild(b);
   }
 }
 
@@ -1624,7 +1616,8 @@ function renderWorlds() {
     b.innerHTML = `<h3></h3><p></p><div class="world-card-meta"><span></span><span></span></div>`;
     b.querySelector('h3').textContent = w.name;
     b.querySelector('p').textContent = w.logline || '还没有世界概念';
-    b.querySelector('.world-card-meta span:first-child').textContent = `${w.genre || '未分类'} · ${w.entries || 0} 条设定`;
+    b.querySelector('.world-card-meta span:first-child').textContent =
+      `${w.genre || '未分类'} · ${w.entries || 0} 条设定 · ${worldArchiveFor(w.name).length} 条存档`;
     b.querySelector('.world-card-meta span:last-child').textContent = fmtTime(w.updatedAt);
     b.addEventListener('click', () => openWorld(w.id));
     grid.appendChild(b);
@@ -1679,8 +1672,11 @@ function renderWorldDetail() {
   });
   $('#worldSettings').hidden = S.worldTab !== 'settings';
   $('#worldGenerate').hidden = S.worldTab !== 'generate';
+  $('#worldArchivePanel').hidden = S.worldTab !== 'archive';
+  // 存档页条数与标签角标随时保持最新
+  renderWorldArchive();
   if (S.worldTab === 'settings') renderWorldSettings();
-  else renderWorldGenerate();
+  else if (S.worldTab === 'generate') renderWorldGenerate();
 }
 
 function renderWorldSettings() {
