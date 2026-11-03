@@ -3039,6 +3039,10 @@ async function main() {
   check('设定集结果有直接复制正向按钮',
     (await visible('#btnWorldCopyPositive')) === true
       && (await evalJs(`document.querySelector('#btnWorldCopyPositive').textContent`)) === '复制正向');
+  // 复制/保存按钮要和角色设定一样，挂在结果面板标题的右侧工具条里
+  check('复制按钮在结果标题栏（与角色设定同位置）',
+    (await evalJs(`!!document.querySelector('.world-gen-result .panel-title .result-tools #btnWorldCopyPositive')`)) === true
+      && (await evalJs(`!!document.querySelector('#viewCharacter .panel-title .result-tools #btnCharCopyAll')`)) === true);
   await evalJs(`document.querySelector('#btnWorldWriteRef').click(); true`);
   await sleep(700);
   check('结果能写入条目参考提示词',

@@ -614,7 +614,14 @@
             </section>
 
             <section class="panel world-gen-result">
-              <h3>结果 <span class="dim small" id="worldGenStatus"></span></h3>
+              <div class="panel-title">
+                <h3>结果 <span class="dim small" id="worldGenStatus"></span></h3>
+                <div class="result-tools" id="worldGenTools" hidden>
+                  <button class="btn tiny" type="button" id="btnWorldCopyPositive">复制正向</button>
+                  <button class="btn tiny ghost" type="button" id="btnWorldCopyGen">复制正负</button>
+                  <button class="btn tiny" type="button" id="btnWorldSave">💾 保存到设定集</button>
+                </div>
+              </div>
               <div class="world-gen-empty" id="worldGenEmpty">选择条目、写一句画面，然后生成。</div>
               <div id="worldGenResult" hidden>
                 <div class="world-gen-based" id="worldGenBased"></div>
@@ -634,9 +641,6 @@
                 <div class="world-gen-result-actions">
                   <select id="worldRefEntry"></select>
                   <button class="btn tiny" type="button" id="btnWorldWriteRef">写入条目参考</button>
-                  <button class="btn tiny" type="button" id="btnWorldCopyPositive">复制正向</button>
-                  <button class="btn tiny ghost" type="button" id="btnWorldCopyGen">复制正负</button>
-                  <button class="btn tiny" type="button" id="btnWorldSave">💾 保存到设定集</button>
                 </div>
               </div>
               <div class="world-gen-history" id="worldGenHistory"></div>

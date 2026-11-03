@@ -1566,6 +1566,7 @@ function enterWorld(world) {
   $('#worldGenEntries').innerHTML = '';
   $('#worldGenResult').hidden = true;
   $('#worldGenEmpty').hidden = false;
+  if ($('#worldGenTools')) $('#worldGenTools').hidden = true;
   $('#worldGenErr').hidden = true;
   if ($('#worldGenMutexRow')) $('#worldGenMutexRow').hidden = true;
   $('#worldListView').hidden = true;
@@ -2257,6 +2258,8 @@ function renderWorldGenResult() {
   if (!g) return;
   $('#worldGenEmpty').hidden = true;
   $('#worldGenResult').hidden = false;
+  // 复制/保存这排按钮跟角色设定一样挂在结果标题右侧，有结果才出现
+  if ($('#worldGenTools')) $('#worldGenTools').hidden = false;
   $('#worldGenPositive').textContent = g.positive;
   $('#worldGenNegative').textContent = g.negative;
   $('#worldGenTranslation').textContent = g.translation || '';

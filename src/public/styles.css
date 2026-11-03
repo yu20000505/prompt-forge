@@ -408,6 +408,15 @@ body {
   color: var(--text-2);
 }
 
+/* 设定集结果面板的标题也用同一套排版（它的标题是 h3） */
+.panel-title h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  color: var(--text-2);
+}
+
 .result-tools {
   display: flex;
   gap: 8px;
