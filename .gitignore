@@ -24,6 +24,10 @@ tests/chrome-profile/
 tests/shot-*.png
 build/electron/package-lock.json
 _build/
+# 改造前的整目录快照（含 Key），只在本地留着回滚用
+_backup/
+# 上游项目对照用的克隆（自带 .git，别提交）
+_repo/
 
 # 杂项
 *.log

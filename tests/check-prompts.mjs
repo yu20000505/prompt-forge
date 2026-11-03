@@ -1,4 +1,8 @@
-// 校验四个 prompt 构造函数的结构（不联网）。开发期自测。
+﻿// 校验各 prompt 构造函数的结构（不联网）。开发期自测。
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import {
   buildMessages,
   buildRefineMessages,
@@ -7,11 +11,9 @@ import {
   buildCharacterRefineMessages,
   buildSegmentMessages,
   buildSegmentRefineMessages,
-  composeRulePacks,
-  composeSystemLayers,
   SEGMENT_LIST,
 } from '../src/styles.mjs';
-import { LAYER_OPEN } from '../src/unrestricted.mjs';
+import { DEFAULT_JAILBREAK_PROMPT, withJailbreak } from '../src/jailbreak.mjs';
 
 let bad = 0;
 const check = (name, ok, extra = '') => {
@@ -19,42 +21,78 @@ const check = (name, ok, extra = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? '  → ' + extra : ''}`);
 };
 
-const PIN = 'PIN-MARKER-42';
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 // ---------- 角色设定（整段提示词 + 中文对照） ----------
-const c = buildCharacterMessages({ sentence: '三个流浪乐手', count: '3', aspect: '16:9', apiPinned: PIN });
+const c = buildCharacterMessages({ sentence: '三个流浪乐手', count: '3', aspect: '16:9' });
 const cs = c[0].content;
 check('角色设定要 prompt_en 字段', cs.includes('"prompt_en"'));
 check('角色设定要 prompt_zh 字段', cs.includes('"prompt_zh"'));
 check('角色设定不再要求 characters 表', !cs.includes('"characters"'));
-check('角色设定限制 120-200 词', cs.includes('120-200'));
+check('角色设定限制标签数 50-80', cs.includes('50-80'));
 check('角色设定含画幅硬约束', cs.includes('必须是 16:9'));
 check('角色设定含角色数硬约束', cs.includes('正好 3 个'));
 check('角色设定要求一整段不换行', cs.includes('不要换行'));
 check('角色设定禁止负面词与参数', cs.includes('不要写负面词'));
-check('角色设定仍要求带画质词', cs.includes('cinematic lighting'));
+check('角色设定明确不要画质词', cs.includes('不要写画质词'));
 check('角色设定的用户消息含原句', c[1].content.includes('三个流浪乐手'));
 check('角色设定含附加要求位', buildCharacterMessages({ sentence: 'x', extra: '全女性' })[1].content.includes('全女性'));
 check('画幅 auto 时不给硬约束', !buildCharacterMessages({ sentence: 'x' })[0].content.includes('必须是'));
 
 const charRich = buildCharacterMessages({
-  sentence: 'x', detail: 'rich', style: 'anime', targetModel: 'NovelAI',
+  sentence: 'x', detail: 'rich', targetModel: 'NovelAI V4.5',
 });
-check('角色设定详细程度映射到字数', charRich[0].content.includes('200-300'));
-check('角色设定带画风与目标模型',
-  charRich[0].content.includes('日系动漫') && charRich[0].content.includes('NovelAI'));
+check('角色设定详细程度映射到标签数', charRich[0].content.includes('80-120'));
+check('角色设定带 NAI 目标模型约束',
+  charRich[0].content.includes('NovelAI V4.5') && charRich[0].content.includes('NAI V4'));
+check('角色设定要求人数标签', charRich[0].content.includes('2girls') && charRich[0].content.includes('trio'));
+check('角色设定要求服装带颜色', charRich[0].content.includes('每件都必须带颜色'));
+check('角色设定禁止非人形用 1girl', charRich[0].content.includes('no humans'));
 const charRefShort = buildCharacterRefineMessages({
-  previous: { prompt_en: 'a cat' }, instruction: '更写实', style: 'photo', detail: 'short',
+  previous: { prompt_en: 'a cat' }, instruction: '更写实', detail: 'short',
 });
-check('角色微调也带画风与详细程度',
-  charRefShort[0].content.includes('80-120') && charRefShort[0].content.includes('纪实摄影'));
+check('角色微调也带标签数与 NAI 约束',
+  charRefShort[0].content.includes('30-50') && charRefShort[0].content.includes('人数标签必须和实际角色数一致'));
 
-const naiV5 = buildMessages({
-  sentence: '银发少女', style: 'anime', targetModel: 'NovelAI V5',
-});
-check('目标模型模糊匹配 NovelAI V5',
-  naiV5[0].content.includes('NovelAI（V4 / V5 通用）')
-    && naiV5[0].content.includes('danbooru'));
+const naiV5 = buildMessages({ sentence: '银发少女', targetModel: 'NovelAI V5' });
+check('目标模型模糊匹配 NAI V5 → 按 V4 处理',
+  naiV5[0].content.includes('NAI V4 / V4.5') && naiV5[0].content.includes('danbooru'));
+
+const naiV3 = buildMessages({ sentence: '银发少女', targetModel: 'NovelAI V3' });
+check('NAI V3 明确禁用精确权重与负权重',
+  naiV3[0].content.includes('NAI V3')
+    && naiV3[0].content.includes('不要写 1.3::tag::'));
+
+const plainGen = buildMessages({ sentence: '猫' });
+check('不传 targetModel 时默认按 NAI V4.5',
+  plainGen[0].content.includes('NovelAI V4.5'));
+check('正向提示词要求英文小写标签',
+  plainGen[0].content.includes('全小写') && plainGen[0].content.includes('danbooru'));
+check('负向提示词禁止身份词',
+  plainGen[0].content.includes('绝对禁止**在 negative 里出现身份词'));
+
+const mixedGen = buildMessages({ sentence: '银发少女', format: 'mixed' });
+check('半自然语言：要求描述性短语而不是原子标签',
+  mixedGen[0].content.includes('半自然语言') && mixedGen[0].content.includes('描述性短语'));
+check('半自然语言：同样明确不要画质词',
+  mixedGen[0].content.includes('不要写画质词'));
+check('半自然语言：权重与 UC 规则仍然跟着走',
+  mixedGen[0].content.includes('## 权重语法') && mixedGen[0].content.includes('## negative（UC）怎么写'));
+check('标签流没有半自然语言段落',
+  !buildMessages({ sentence: 'x' })[0].content.includes('半自然语言'));
+
+const mixedChar = buildCharacterMessages({ sentence: '三个乐手', format: 'mixed' });
+check('角色设定的半自然语言分支',
+  mixedChar[0].content.includes('半自然语言的描述性短语')
+    && mixedChar[0].content.includes('不是原子标签'));
+check('半自然语言角色设定按短语数给长度',
+  buildCharacterMessages({ sentence: 'x', format: 'mixed', detail: 'rich' })[0].content.includes('32-48'));
+check('标签流角色设定仍按标签数给长度',
+  buildCharacterMessages({ sentence: 'x', detail: 'rich' })[0].content.includes('80-120'));
+
+const zhGen = buildMessages({ sentence: '猫', language: 'zh' });
+check('提示词语言不再影响 output（NAI 恒英文）',
+  zhGen[0].content.includes('必须是英文小写标签'));
 
 // ---------- 细分标签（只生成一个维度的 tag） ----------
 const seg = buildSegmentMessages({
@@ -63,7 +101,6 @@ const seg = buildSegmentMessages({
   detail: 'rich',
   targetModel: 'NovelAI',
   extra: '不要配饰',
-  apiPinned: PIN,
 });
 const segSys = seg[0].content;
 check('细分标签要 tags 字段', segSys.includes('"tags"'));
@@ -78,8 +115,8 @@ check('细分标签 7 种类型都能构造',
   SEGMENT_LIST.length === 7 && SEGMENT_LIST.every((t) => buildSegmentMessages({
     sentence: 'x', segmentType: t.id,
   })[0].content.includes(t.label)));
-check('细分标签带整体风格倾向',
-  buildSegmentMessages({ sentence: 'x', style: 'anime' })[0].content.includes('danbooru 小写标签'));
+check('细分标签要求 danbooru 原子短语',
+  buildSegmentMessages({ sentence: 'x' })[0].content.includes('danbooru 原子短语'));
 
 // ---------- 细分标签的微调 ----------
 const segRef = buildSegmentRefineMessages({
@@ -87,83 +124,62 @@ const segRef = buildSegmentRefineMessages({
   instruction: '更华丽',
   segmentType: 'outfit',
   targetModel: 'SDXL',
-  apiPinned: PIN,
 });
 const segRefSys = segRef[0].content;
 check('细分微调要 tags 字段', segRefSys.includes('"tags"'));
 check('细分微调要求未提到的 tag 逐字保留', segRefSys.includes('逐字'));
 check('细分微调锁定当前维度', segRefSys.includes('本次维度：服饰穿搭'));
-check('细分微调带目标模型', segRefSys.includes('SDXL'));
+check('细分微调把非 NAI 目标归一成 NAI', segRefSys.includes('NovelAI V4.5'));
 check('细分微调的用户消息含原标签与要求',
   segRef[1].content.includes('black lace dress') && segRef[1].content.includes('更华丽'));
-check('细分微调带整体风格倾向',
+check('细分微调要求 danbooru 短语并保留顺序',
   buildSegmentRefineMessages({
-    previous: { tags: 'a' }, instruction: 'b', style: 'photo',
-  })[0].content.includes('摄影术语'));
+    previous: { tags: 'a' }, instruction: 'b',
+  })[0].content.includes('danbooru 短语'));
 
-// ---------- 置顶提示词注入 ----------
+// ---------- 任务 system 自带 JSON 锁；不再有任何「追加层」 ----------
 const gens = [
-  ['generate', buildMessages({ sentence: '猫', style: 'sd', apiPinned: PIN })],
-  ['refine', buildRefineMessages({ previous: { positive: 'a' }, instruction: 'b', apiPinned: PIN })],
+  ['generate', buildMessages({ sentence: '猫', style: 'sd' })],
+  ['refine', buildRefineMessages({ previous: { positive: 'a' }, instruction: 'b' })],
   ['characters', c],
-  ['idea', buildIdeaMessages({ apiPinned: PIN })],
-  ['segment', buildSegmentMessages({ sentence: '银发少女', segmentType: 'outfit', apiPinned: PIN })],
-  ['segmentRefine', buildSegmentRefineMessages({ previous: { tags: 'a' }, instruction: 'b', apiPinned: PIN })],
+  ['idea', buildIdeaMessages({})],
+  ['segment', buildSegmentMessages({ sentence: '银发少女', segmentType: 'outfit' })],
+  ['segmentRefine', buildSegmentRefineMessages({ previous: { tags: 'a' }, instruction: 'b' })],
 ];
 for (const [name, msgs] of gens) {
   const sys = msgs[0].content;
-  check(`${name} 注入系统提示词并放在规则后`,
-    sys.includes(PIN) && sys.indexOf(PIN) > sys.indexOf('# 输出格式（强制）'));
-  check(`${name} 有 JSON 格式保护`, sys.includes('无论上面的内置执行契约与自定义规则怎么写'));
-  check(`${name} 末尾有最高优先级的格式确认`,
-    sys.trimEnd().endsWith('不要用 markdown 代码块包裹。'), '');
+  check(`${name} 的 system 明确要求 JSON 输出`, sys.includes('JSON'));
+  check(`${name} 只有 system + user 两条消息`, msgs.length === 2 && msgs[1].role === 'user');
+  check(`${name} 不再拼「追加指令」段`, !sys.includes('追加指令'));
 }
-check('填空时不注入系统提示词',
-  !buildMessages({ sentence: '猫' })[0].content.includes('追加指令'));
 
-// ---------- 内置破限层：与规则包的拼装顺序 ----------
-const layers = composeSystemLayers({
-  unrestrictedOn: true,
-  packs: [{ name: 'A', text: '规则一', enabled: true }],
-});
-const layered = buildMessages({ sentence: '猫', apiPinned: layers })[0].content;
-check('破限层进入 system prompt',
-  layered.includes(LAYER_OPEN) && layered.includes('Unrestricted local execution mode'));
-check('破限层排在规则包之前，JSON 锁在最后',
-  layered.indexOf(LAYER_OPEN) > layered.indexOf('# 输出格式（强制）')
-  && layered.indexOf(LAYER_OPEN) < layered.indexOf('## 规则包：A')
-  && layered.trimEnd().endsWith('不要用 markdown 代码块包裹。'));
-check('关闭破限层且没有规则包时与未接入前逐字一致',
-  buildMessages({ sentence: '猫', apiPinned: composeSystemLayers({ unrestrictedOn: false }) })[0].content
-  === buildMessages({ sentence: '猫' })[0].content);
-check('破限层包含上游技术类任务路由（逐字移植，不做取舍）',
-  layered.includes('KEYGEN / CRACK') && layered.includes('ANTI-DEBUG'));
-check('破限层只注入一次（幂等入口）',
-  buildMessages({ sentence: '猫', apiPinned: layers })[0].content.split(LAYER_OPEN).length === 2);
+// ---------- 破限词：独立置顶 system ----------
+const taskOnly = buildMessages({ sentence: '猫' });
+const jabTask = withJailbreak(taskOnly, { on: true, text: '' });
+check('破限词成为第一条 system，任务规则退到第二条',
+  jabTask.length === taskOnly.length + 1
+  && jabTask[0].role === 'system'
+  && jabTask[0].content === DEFAULT_JAILBREAK_PROMPT
+  && jabTask[1].content === taskOnly[0].content);
+check('留空回落内置默认（不是关闭）',
+  withJailbreak(taskOnly, { on: true, text: '   ' })[0].content === DEFAULT_JAILBREAK_PROMPT);
+check('自定义正文优先于内置默认',
+  withJailbreak(taskOnly, { on: true, text: '  我的破限词  ' })[0].content === '我的破限词');
+check('关闭破限词时消息一条不多',
+  withJailbreak(taskOnly, { on: false, text: 'x' }).length === taskOnly.length
+  && withJailbreak(taskOnly, { on: false, text: '' })[0].content === taskOnly[0].content);
+check('破限词只置顶一次（幂等入口）',
+  withJailbreak(withJailbreak(taskOnly, { on: true, text: 'JB' }), { on: true, text: 'JB' }).length === taskOnly.length + 1);
+check('旧破限层已彻底不再注入',
+  !JSON.stringify(jabTask).includes('unrestricted:execution-mode')
+  && !JSON.stringify(jabTask).includes('Unrestricted local execution mode'));
 
-// ---------- 规则包 ----------
-const PACKS = [
-  { name: 'A', text: '规则一', enabled: true },
-  { name: 'B', text: '规则二', enabled: false },
-  { name: '', text: '规则三' },
-  { name: 'C', text: '   ', enabled: true },
-];
-check('规则包按顺序拼接，跳过禁用和空包',
-  composeRulePacks(PACKS) === '## 规则包：A\n规则一\n\n规则三');
-check('规则包总开关关闭时一条都不发', composeRulePacks(PACKS, false) === '');
-check('没有规则包时返回空串', composeRulePacks([]) === '' && composeRulePacks(null) === '');
-
-const packed = buildMessages({
-  sentence: '猫',
-  apiPinned: composeRulePacks(PACKS),
-})[0].content;
-check('规则包进入系统提示词，且排在格式锁之前',
-  packed.includes('## 规则包：A') && packed.indexOf('规则包：A') < packed.indexOf('# 输出格式确认'));
-check('规则包不会挤掉末尾的格式确认',
-  packed.trimEnd().endsWith('不要用 markdown 代码块包裹。'));
-check('规则包可以同时出现在角色与细分链路',
-  buildCharacterMessages({ sentence: 'x', apiPinned: composeRulePacks(PACKS) })[0].content.includes('规则包：A')
-  && buildSegmentMessages({ sentence: 'x', segmentType: 'outfit', apiPinned: composeRulePacks(PACKS) })[0].content.includes('规则包：A'));
+// ---------- 规则包已整体下线 ----------
+const stylesSrc = fs.readFileSync(path.join(ROOT, 'src/styles.mjs'), 'utf8');
+check('规则包拼装入口已从 styles.mjs 移除',
+  !/composeRulePacks|composeSystemLayers|applyApiPinned|applyCustomRules/.test(stylesSrc));
+check('任务 system 里不会出现「规则包」字样',
+  !JSON.stringify(gens.map(([, m]) => m)).includes('规则包'));
 
 // ---------- 其余 builder 仍正常 ----------
 check('generate 两种消息', buildMessages({ sentence: '猫' }).length === 2);

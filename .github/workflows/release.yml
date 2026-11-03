@@ -24,7 +24,7 @@ jobs:
         run: |
           node tests/check-ids.mjs
           node tests/check-prompts.mjs
-          node tests/check-unrestricted.mjs
+          node tests/check-jailbreak.mjs
           node tests/check-themes.mjs
           node --test tests/server-unit.test.mjs
 
@@ -97,19 +97,16 @@ jobs:
 
             **一句话进，可出图的提示词出来。**
 
-            ### 2.4 亮点
+            ### 2.5 亮点
 
-            - **API 预设**：多套 BaseURL / Key / 模型存在本地，顶栏一点即切换，下一次请求立刻生效。
-            - **预设管理**：设置里可编辑（载入后保存回该预设）、复制、删除、单独测试连接；删除当前预设自动回退。
-            - **Key 不外显**：列表只显示掩码，切换不会回显 Key。
-
-            ### 2.3 亮点
-
-            - **内置破限层**：逐字移植 [dsh-unrestricted](https://github.com/yexi-by/dsh-unrestricted) v0.2.6 的 `EXECUTION_MODE_BLOCK`
-              （10,246 字符，sha256 校验，一个字未改），追加本工具的附加约定；九条链路一起生效，开关关闭即整段摘除。
-            - **一键自检**：用当前配置真发一次请求，判定「通过 / 敷衍 / 被拒 / 接口拒绝」。
-            - **规则包**：多套命名规则、单独开关、按顺序拼接、导入导出，可按九种模式预览最终 system prompt。
-
+            - **只做 NovelAI**：五种通用风格下线，正向统一 danbooru 标签流、负向统一 UC；
+              新增本地「NAI 整理」与「提示词体检」，不调模型、不额外消耗额度。
+            - **破限词（置顶 system）**：作为独立的 `messages[0]` 排在所有任务规则之前，九条任务链路统一生效；
+              内置正文是本工具原创的 FORGE 内核，不含任何第三方提示词文本。
+            - **破限词可编辑**：设置里直接改正文、可一键恢复内置默认；留空 = 用内置默认，关掉开关 = 整条不发。
+            - **可核对、可自检**：「预览最终提示词」按真实发送顺序摊开每条消息；
+              「测试破限是否生效」用当前配置真发一次请求并给出结论。
+            - **API 预设**：多套 BaseURL / Key / 模型存在本地，顶栏一点即切换，Key 只显示掩码。
             ### 下载哪个？
 
             | 文件 | 说明 |

@@ -1,4 +1,4 @@
-// Prompt Forge —— 本地服务：静态页面 + OpenAI 兼容接口代理（SSE 流式转发）
+﻿// Prompt Forge —— 本地服务：静态页面 + OpenAI 兼容接口代理（SSE 流式转发）
 import http from 'node:http';
 import fsp from 'node:fs/promises';
 import fs from 'node:fs';
@@ -14,17 +14,20 @@ import {
   buildCharacterRefineMessages,
   buildSegmentMessages,
   buildSegmentRefineMessages,
-  composeSystemLayers,
-  applyCustomRules,
   SEGMENT_LIST,
 } from './styles.mjs';
+import { polishNai, lint, entryToCharacter, mutexFor } from './promptstate.mjs';
 import {
-  UPSTREAM as UNRESTRICTED_UPSTREAM,
-  buildUnrestrictedBlock,
+  DEFAULT_JAILBREAK_PROMPT,
+  JAILBREAK_META,
+  JAILBREAK_TEXT_MAX,
+  isCustomJailbreak,
+  resolveJailbreakText,
+  withJailbreak,
   classifyProbeReply,
   describeProbeVerdict,
   PROBE_SENTENCE,
-} from './unrestricted.mjs';
+} from './jailbreak.mjs';
 
 // 打包成 exe（Node SEA）后，资源和配置都跟着 exe 走；
 // 开发时还是用脚本所在目录。
@@ -84,7 +87,7 @@ const WORLDS_DIR = process.env.PF_WORLDS
 const TRASH_RETENTION_DAYS = 7;
 const TRASH_MAX_FILES = 100;
 const HOST = '127.0.0.1';
-const APP_VERSION = '2.4.0';
+const APP_VERSION = '2.5.0';
 const BASE_PORT = Number(process.env.PORT || process.argv[2] || 43125);
 // 上游流式接口超过这个时间没有任何数据，就判定为卡死并中止；测试可用环境变量调小
 const STREAM_IDLE_MS = Math.max(5000, Number(process.env.PF_STREAM_IDLE_MS) || 120000);
@@ -102,13 +105,11 @@ const DEFAULT_CONFIG = {
   pinnedPositive: '',
   pinnedNegative: '',
   pinEnabled: true,
-  // 规则包：多套可单独开关的自定义规则，勾选的每套在每次请求里都会带上
-  rulePacks: [],
-  // 规则包总开关，方便一次性全部停用而不丢内容
-  rulePacksOn: true,
-  // 内置破限层（逐字移植 dsh-unrestricted）：开启后每次请求都多带一段执行契约，
-  // 位置在任务规则之后、规则包之前。老配置里如果有 apiPinnedPrompt，启动时会迁移过来。
-  unrestrictedOn: false,
+  // 破限词：每次请求在 messages[0] 独立发一条 system（置顶口径）。
+  // jailbreakPrompt 留空 = 用 jailbreak.mjs 里的内置默认，不是「关闭」；
+  // 要彻底不发，关 jailbreakOn。
+  jailbreakOn: true,
+  jailbreakPrompt: '',
   // 输出与请求参数（0 / 1 表示按默认）
   maxTokens: 0,
   timeoutSec: 120,
@@ -195,30 +196,8 @@ function normalizeProfiles(cfg) {
   return cfg;
 }
 
-// 规则包来自前端表单 / config.json，写进提示词前先规整：丢掉空包、补默认名、
-// 限制条数和单包长度，避免一个手滑把 config.json 撑爆或把超长文本每请求发一遍。
-const RULE_PACK_LIMIT = 40;
-const RULE_PACK_TEXT_MAX = 20000;
-
-function sanitizeRulePacks(raw) {
-  if (!Array.isArray(raw)) return [];
-  const out = [];
-  for (const item of raw) {
-    if (out.length >= RULE_PACK_LIMIT) break;
-    if (!item || typeof item !== 'object') continue;
-    const name = String(item.name ?? '').trim().slice(0, 60);
-    const text = String(item.text ?? '').slice(0, RULE_PACK_TEXT_MAX);
-    if (!name && !text.trim()) continue;
-    const id = String(item.id ?? '').trim().slice(0, 40);
-    out.push({
-      id: id || `rp-${Date.now().toString(36)}-${out.length}`,
-      name: name || `规则包 ${out.length + 1}`,
-      text,
-      enabled: item.enabled !== false,
-    });
-  }
-  return out;
-}
+// 规则包已整体移除（2.5.0）：旧配置里的 rulePacks / rulePacksOn 在读取时清掉，
+// 避免继续占着 config.json 却没有任何代码读它。
 
 async function configForDisk(cfg) {
   const storage = await getSafeStorage();
@@ -254,12 +233,18 @@ async function readConfigFile(p) {
   const parsed = parseJsonText(raw);
   if (!parsed || typeof parsed !== 'object') throw new Error('配置内容不是对象');
   const cfg = { ...DEFAULT_CONFIG, ...parsed };
-  cfg.rulePacks = sanitizeRulePacks(cfg.rulePacks);
-  cfg.rulePacksOn = cfg.rulePacksOn !== false;
-  // 破限层：老配置没有这个字段，一律按「关闭」处理，不做隐式开启
-  cfg.unrestrictedOn = cfg.unrestrictedOn === true;
-  // 2.3 早期版本有过「范围」设置，逐字移植后不再需要，顺手把残留字段清掉
+  // 破限词：默认开启（老配置没有该字段 = 开）。留空字符串代表「用内置默认」，
+  // 不是「不发」——要彻底不发只能把 jailbreakOn 关掉，留空一律按内置默认发。
+  cfg.jailbreakOn = cfg.jailbreakOn !== false;
+  cfg.jailbreakPrompt = typeof cfg.jailbreakPrompt === 'string'
+    ? cfg.jailbreakPrompt.slice(0, JAILBREAK_TEXT_MAX)
+    : '';
+  // 已移除的旧字段：旧「内置破限层」的开关、以及整体下线的「规则包」。
+  // 留着没有代码读，只会让配置文件看起来还有这些功能，所以在读取时清掉。
+  delete cfg.unrestrictedOn;
   delete cfg.unrestrictedScope;
+  delete cfg.rulePacks;
+  delete cfg.rulePacksOn;
   await decryptConfigSecrets(cfg);
   return normalizeProfiles(cfg);
 }
@@ -318,10 +303,9 @@ async function saveConfig(patch) {
 }
 
 // 老版本试验过把一段「自定义系统提示词」直接塞在 config.json 的 apiPinnedPrompt 里。
-// 现在破限层是内置的，那段文本如果还留着就会被静默丢掉，所以启动时搬到规则包里：
-// 内容原样保留（默认停用，避免和内置破限层重复），同时把内置破限层打开一次。
+// 规则包移除后，这段文本唯一还说得通的位置就是破限词本身（它就是当年那版破限文本），
+// 所以迁移规则改成：**只在用户还没设置破限词时**把它搬过去；已经自定义过就不覆盖。
 const LEGACY_PINNED_FIELD = 'apiPinnedPrompt';
-const LEGACY_PACK_ID = 'legacy-api-pinned';
 
 /**
  * 旧字段迁移的纯函数：给定一份 config 对象，返回迁移后的新对象；
@@ -333,19 +317,12 @@ export function migrateLegacyPinnedPromptObject(parsed) {
   const legacy = typeof parsed[LEGACY_PINNED_FIELD] === 'string' ? parsed[LEGACY_PINNED_FIELD].trim() : '';
   if (!legacy) return null;
   const next = { ...parsed };
-  // 只在没设置过的时候打开一次；用户显式关掉过就尊重关闭状态
-  if (next.unrestrictedOn === undefined) next.unrestrictedOn = true;
-  const packs = Array.isArray(next.rulePacks) ? [...next.rulePacks] : [];
-  if (!packs.some((p) => p && p.id === LEGACY_PACK_ID)) {
-    packs.unshift({
-      id: LEGACY_PACK_ID,
-      name: '旧版自定义系统提示词（内容已保留）',
-      text: legacy.slice(0, RULE_PACK_TEXT_MAX),
-      enabled: false,
-    });
-  }
-  next.rulePacks = packs;
+  const hasOwn = typeof next.jailbreakPrompt === 'string' && next.jailbreakPrompt.trim();
+  // 已经设置过破限词 / 已经有规则包内容（老配置）时不搬，免得把人家的现行配置顶掉
+  if (!hasOwn) next.jailbreakPrompt = legacy.slice(0, JAILBREAK_TEXT_MAX);
   delete next[LEGACY_PINNED_FIELD];
+  delete next.rulePacks;
+  delete next.rulePacksOn;
   return next;
 }
 
@@ -376,7 +353,7 @@ async function migrateLegacyPinnedPrompt() {
   }
   await fsp.writeFile(CONFIG_TMP, JSON.stringify(next, null, 2), 'utf8');
   await fsp.rename(CONFIG_TMP, CONFIG_PATH);
-  console.log('  · 已把 config.json 里的旧版 apiPinnedPrompt 迁到规则包（停用状态），并开启内置破限层');
+  console.log('  · 已把 config.json 里的旧版 apiPinnedPrompt 迁进破限词（未覆盖已有自定义）');
 }
 
 // ---------- API 预设 / 诊断 ----------
@@ -556,8 +533,9 @@ async function handleDiagnostics(req, res) {
   }
 }
 
-// 预览某一模式下最终发出的 system 消息。规则拼装出问题时最常见的表现是
-// 「以为加上了其实没加上」，所以这里直接把成品原文给出来。
+// 预览某一模式下最终发出的消息。规则拼装出问题时最常见的表现是
+// 「以为加上了其实没加上」，所以这里直接把成品原文给出来：
+// 破限词（置顶 system）+ 任务 system + user，按实际发送顺序拼成一段给人看。
 const PREVIEW_MODES = {
   generate: '提示词生成',
   refine: '提示词微调',
@@ -590,13 +568,13 @@ function previewMessages(mode, base) {
       return buildIdeaMessages({ ...base, count: 6, avoid: [] });
     case 'world':
       // 设定集是内联拼的，这里用同一段占位文案走一遍注入
-      return [{ role: 'system', content: applyCustomRules('你是世界观策划。只输出 JSON，不要解释。', base.apiPinned) }];
+      return [{ role: 'system', content: '你是世界观策划。只输出 JSON，不要解释。' }];
     default:
       return buildMessages({ ...base, extra: '', aspect: 'auto', shot: 'auto' });
   }
 }
 
-async function handleRulePreview(req, res) {
+async function handlePromptPreview(req, res) {
   let body;
   try {
     body = JSON.parse(await readBody(req));
@@ -604,16 +582,11 @@ async function handleRulePreview(req, res) {
     return json(res, 400, { error: '请求格式错误' });
   }
   const cfg = await loadConfig();
-  // 表单还没保存时以表单为准，这样预览就是「点保存之后会发出去的样子」
-  const packs = 'rulePacks' in body ? sanitizeRulePacks(body.rulePacks) : sanitizeRulePacks(cfg.rulePacks);
-  const on = 'rulePacksOn' in body ? !!body.rulePacksOn : cfg.rulePacksOn !== false;
-  const unrestrictedOn = 'unrestrictedOn' in body ? !!body.unrestrictedOn : cfg.unrestrictedOn === true;
+  // 表单还没保存时以表单为准，这样预览就是「点保存之后会发出去的样子」：
+  // 草稿框里有破限词就按草稿预览，没传就按已保存的配置。
+  const jbDraft = 'jailbreakPrompt' in body ? String(body.jailbreakPrompt ?? '') : cfg.jailbreakPrompt;
+  const jbOn = 'jailbreakOn' in body ? !!body.jailbreakOn : cfg.jailbreakOn !== false;
   const mode = Object.prototype.hasOwnProperty.call(PREVIEW_MODES, body.mode) ? body.mode : 'generate';
-  const apiPinned = composeSystemLayers({
-    unrestrictedOn,
-    packs,
-    packsOn: on,
-  });
 
   const base = {
     sentence: '（预览用示例）：雨夜的霓虹街头，一位赛博朋克女剑客回头看向镜头',
@@ -621,42 +594,54 @@ async function handleRulePreview(req, res) {
     language: 'en',
     detail: 'standard',
     targetModel: cfg.model || '',
-    apiPinned,
   };
-  const messages = previewMessages(mode, base);
-  const system = String(messages[0]?.content || '');
-  const block = unrestrictedOn ? buildUnrestrictedBlock() : '';
+  const out = withJailbreak(previewMessages(mode, base), { on: jbOn, text: jbDraft });
+  const jbText = resolveJailbreakText(jbDraft);
+  // 发给模型的是一条条 messages；预览把它按顺序摊平，
+  // 每条前面标出「第几条 · 角色 · 是哪一段」，这样「破限词在最前、格式锁在任务段末尾」一眼能确认。
+  const label = (m, i) => {
+    if (m.role !== 'system') return `【messages[${i}] · ${m.role}】`;
+    const isHead = i === 0 && jbOn;
+    return isHead
+      ? `【messages[${i}] · system · 破限词（${jbText.length} 字）】`
+      : `【messages[${i}] · system · 任务规则】`;
+  };
+  const full = out.map((m, i) => `${label(m, i)}\n${m.content}`).join('\n\n===== 下一条消息 =====\n\n');
   return json(res, 200, {
     mode,
     modeLabel: PREVIEW_MODES[mode],
-    system,
-    length: system.length,
-    packCount: packs.filter((p) => p.enabled !== false && String(p.text || '').trim()).length,
-    rulePacksOn: on,
-    unrestrictedOn,
-    unrestrictedLength: block.length,
+    system: full,
+    length: full.length,
+    messages: out.length,
+    jailbreakOn: jbOn,
+    jailbreakChars: jbOn ? jbText.length : 0,
+    jailbreakCustom: isCustomJailbreak(jbDraft),
   });
 }
 
 // 自检：拿当前配置发一次真实请求，看模型是照做还是拒答。
-// 这不是「测接口通不通」——它测的是破限层有没有压过模型自己的倾向。
+// 这不是「测接口通不通」——它测的是破限词有没有压过模型自己的倾向。
 // 每次点击会真的花一次 token（约 1～2k），所以只放在设置里手动触发。
-async function handleUnrestrictedCheck(req, res) {
+async function handleJailbreakCheck(req, res) {
   const ctx = await resolveUpstream(req, res);
   if (!ctx) return;
 
   const sentence = String(ctx.body?.sentence || '').trim() || PROBE_SENTENCE;
-  const messages = buildMessages({
-    sentence: sentence.slice(0, 300),
-    style: ctx.body?.style || 'sd',
-    language: 'en',
-    detail: 'standard',
-    apiPinned: ctx.apiPinned,
-  });
+  const messages = withJailbreak(
+    buildMessages({
+      sentence: sentence.slice(0, 300),
+      style: ctx.body?.style || 'sd',
+      format: ctx.body?.format,
+      language: 'en',
+      detail: 'standard',
+    }),
+    { on: ctx.jailbreakOn, text: ctx.jailbreakPrompt },
+  );
 
   const layer = {
-    on: ctx.unrestrictedOn === true,
-    chars: ctx.unrestrictedOn ? buildUnrestrictedBlock().length : 0,
+    on: ctx.jailbreakOn === true,
+    chars: ctx.jailbreakOn ? resolveJailbreakText(ctx.jailbreakPrompt).length : 0,
+    custom: isCustomJailbreak(ctx.jailbreakPrompt),
   };
   const started = Date.now();
 
@@ -731,19 +716,17 @@ function publicConfig(cfg) {
     pinnedPositive: cfg.pinnedPositive,
     pinnedNegative: cfg.pinnedNegative,
     pinEnabled: cfg.pinEnabled,
-    rulePacks: sanitizeRulePacks(cfg.rulePacks),
-    rulePacksOn: cfg.rulePacksOn !== false,
-    // 内置破限层
-    unrestrictedOn: cfg.unrestrictedOn === true,
-    unrestrictedChars: buildUnrestrictedBlock().length,
-    unrestricted: {
-      name: UNRESTRICTED_UPSTREAM.name,
-      version: UNRESTRICTED_UPSTREAM.version,
-      tag: UNRESTRICTED_UPSTREAM.tag,
-      repo: UNRESTRICTED_UPSTREAM.repo,
-      license: UNRESTRICTED_UPSTREAM.license,
-      notice: UNRESTRICTED_UPSTREAM.notice,
-      verbatim: UNRESTRICTED_UPSTREAM.verbatim,
+    // 破限词（置顶 system）：开关、是否自定义、实际字数、内置默认字数
+    jailbreakOn: cfg.jailbreakOn !== false,
+    jailbreakCustom: isCustomJailbreak(cfg.jailbreakPrompt),
+    // 自定义正文一并回给前端：备份导出要带走它，编辑弹窗也用它判断「默认 / 已自定义」
+    jailbreakPrompt: typeof cfg.jailbreakPrompt === 'string' ? cfg.jailbreakPrompt : '',
+    jailbreakChars: resolveJailbreakText(cfg.jailbreakPrompt).length,
+    jailbreakDefaultChars: DEFAULT_JAILBREAK_PROMPT.length,
+    jailbreak: {
+      name: JAILBREAK_META.name,
+      version: JAILBREAK_META.version,
+      origin: JAILBREAK_META.origin,
     },
     maxTokens: Number(cfg.maxTokens) || 0,
     timeoutSec: Number(cfg.timeoutSec) || 120,
@@ -776,8 +759,8 @@ function publicConfig(cfg) {
       profiles: true,
       variants: true,
       worlds: true,
-      rulePacks: true,
-      unrestricted: true,
+      jailbreak: true,
+      naiPolish: true,
     },
   };
 }
@@ -863,22 +846,16 @@ async function resolveUpstream(req, res) {
     return null;
   }
 
-  // 追加层跟着每一次请求走（生成、微调、角色、细分、设定集、扩写、灵感）：
-  // 先内置破限层，再用户的规则包。两层各自有开关，拼装顺序由 composeSystemLayers 保证。
-  const apiPinned = composeSystemLayers({
-    unrestrictedOn: cfg.unrestrictedOn === true,
-    packs: cfg.rulePacks,
-    packsOn: cfg.rulePacksOn !== false,
-  });
-
+  // 规则的唯一来源是破限词：它是 messages[0] 的独立 system，到真正发请求那一步
+  // 由 withJailbreak() 插进去（见 proxyChatStream / callModelJson / 灵感 / 自检）。
   return {
     body,
     apiKey,
     model,
     baseURL: normalizeBaseURL(body.baseURL || cfg.baseURL),
     temperature: Number(body.temperature ?? cfg.temperature),
-    apiPinned,
-    unrestrictedOn: cfg.unrestrictedOn === true,
+    jailbreakOn: cfg.jailbreakOn !== false,
+    jailbreakPrompt: String(cfg.jailbreakPrompt || ''),
     maxTokensCap: Math.max(0, Math.floor(Number(cfg.maxTokens) || 0)),
     timeoutSec: Math.min(600, Math.max(5, Number(cfg.timeoutSec) || 120)),
     topP: Number.isFinite(Number(cfg.topP)) ? Number(cfg.topP) : 1,
@@ -929,7 +906,11 @@ function retryWaitMs(attempt, retryAfter) {
 async function proxyChatStream(req, res, {
   messages, baseURL, apiKey, model, temperature, maxTokens,
   maxTokensCap, timeoutSec, topP, streamOn, jsonMode,
+  jailbreakOn, jailbreakPrompt,
 }) {
+  // 破限词在真正发请求的这一层插入：所有走流式的任务（生成 / 导入 / 微调 / 角色 / 细分）
+  // 都从这一个出口出去，只在这里插一次，就不会有某个模式漏带。
+  const outMessages = withJailbreak(messages, { on: jailbreakOn, text: jailbreakPrompt });
   const ac = new AbortController();
   const idleMs = Math.min(600000, Math.max(5000, (Number(timeoutSec) || 120) * 1000));
   const effectiveMaxTokens = maxTokensCap > 0 ? maxTokensCap : (Number(maxTokens) || 2200);
@@ -982,7 +963,7 @@ async function proxyChatStream(req, res, {
           },
           body: JSON.stringify({
             model,
-            messages,
+            messages: outMessages,
             temperature: Number.isFinite(temperature) ? temperature : 0.85,
             stream: streamOn !== false,
             max_tokens: effectiveMaxTokens,
@@ -1110,13 +1091,13 @@ async function handleGenerate(req, res) {
   const messages = buildMessages({
     sentence,
     style: ctx.body.style,
+    format: ctx.body.format,
     targetModel: ctx.body.targetModel,
     language: ctx.body.language,
     detail: ctx.body.detail,
     extra: ctx.body.extra,
     aspect: ctx.body.aspect,
     shot: ctx.body.shot,
-    apiPinned: ctx.apiPinned,
   });
 
   return proxyChatStream(req, res, { ...ctx, messages });
@@ -1135,12 +1116,12 @@ async function handleImport(req, res) {
     prompt,
     extra: ctx.body.extra,
     style: ctx.body.style,
+    format: ctx.body.format,
     targetModel: ctx.body.targetModel,
     language: ctx.body.language,
     detail: ctx.body.detail,
     aspect: ctx.body.aspect,
     shot: ctx.body.shot,
-    apiPinned: ctx.apiPinned,
   });
 
   return proxyChatStream(req, res, { ...ctx, messages, maxTokens: 2600 });
@@ -1156,7 +1137,7 @@ async function handleExpand(req, res) {
   const label = mode === 'character' ? '一组角色设定' : mode === 'segment' ? '单个对象或场景' : '一个画面';
   try {
     const j = await callModelJson(ctx, [
-      { role: 'system', content: applyCustomRules('你是中文画面与角色描述编辑。只输出 JSON，不要解释。', ctx.apiPinned) },
+      { role: 'system', content: '你是中文画面与角色描述编辑。只输出 JSON，不要解释。' },
       {
         role: 'user',
         content: `请把下面这句简短描述扩写成更完整的${label}中文描述。保留主体、关系和原意；补充必要的身份、外貌、服装、动作、环境、光线、构图、材质等细节，让后续生图更明确。不要输出英文 tag，不要写成提示词清单，只输出 JSON：{"text":"扩写后的中文描述"}\n\n用户原句：${text}\n补充要求：${String(ctx.body.extra || '').trim() || '无'}`,
@@ -1191,9 +1172,9 @@ async function handleRefine(req, res) {
     },
     instruction,
     style: ctx.body.style,
+    format: ctx.body.format,
     targetModel: ctx.body.targetModel,
     language: ctx.body.language,
-    apiPinned: ctx.apiPinned,
   });
 
   return proxyChatStream(req, res, { ...ctx, messages });
@@ -1238,11 +1219,13 @@ async function handleIdea(req, res) {
   const ctx = await resolveUpstream(req, res);
   if (!ctx) return;
 
-  // 灵感只是用来起个中文句子，默认不注入置顶规范；想要的话在设置里打开
-  const messages = buildIdeaMessages({
-    avoid: ctx.body.avoid,
-    apiPinned: ctx.apiPinned,
-  });
+  // 灵感也是 LLM 请求，破限词同样置顶；否则「随机灵感偶尔写出露骨句子」就会时灵时不灵
+  const messages = withJailbreak(
+    buildIdeaMessages({
+      avoid: ctx.body.avoid,
+    }),
+    { on: ctx.jailbreakOn, text: ctx.jailbreakPrompt },
+  );
 
   try {
     const upstream = await fetch(`${ctx.baseURL}/chat/completions`, {
@@ -1293,9 +1276,9 @@ async function handleCharacters(req, res) {
     count: ctx.body.count,
     aspect: ctx.body.aspect,
     style: ctx.body.style,
+    format: ctx.body.format,
     targetModel: ctx.body.targetModel,
     detail: ctx.body.detail,
-    apiPinned: ctx.apiPinned,
   });
 
   return proxyChatStream(req, res, { ...ctx, messages, maxTokens: 2600 });
@@ -1321,9 +1304,9 @@ async function handleCharacterRefine(req, res) {
     },
     instruction,
     style: ctx.body.style,
+    format: ctx.body.format,
     targetModel: ctx.body.targetModel,
     detail: ctx.body.detail,
-    apiPinned: ctx.apiPinned,
   });
 
   return proxyChatStream(req, res, { ...ctx, messages, maxTokens: 2600 });
@@ -1347,8 +1330,8 @@ async function handleSegment(req, res) {
     targetModel: ctx.body.targetModel,
     detail: ctx.body.detail,
     style: ctx.body.style,
+    format: ctx.body.format,
     extra: ctx.body.extra,
-    apiPinned: ctx.apiPinned,
   });
 
   return proxyChatStream(req, res, { ...ctx, messages, maxTokens: 1800 });
@@ -1379,7 +1362,7 @@ async function handleSegmentRefine(req, res) {
     segmentType,
     targetModel: ctx.body.targetModel,
     style: ctx.body.style,
-    apiPinned: ctx.apiPinned,
+    format: ctx.body.format,
   });
 
   return proxyChatStream(req, res, { ...ctx, messages, maxTokens: 1800 });
@@ -1818,6 +1801,102 @@ async function handleBoardState(req, res) {
   }
 }
 
+// ---------- NAI 整理：纯本地，不调模型 ----------
+// 把模型吐出来的提示词再过一道 NAI 规范：小写、去重、按 danbooru 习惯排序、补画质词、
+// 清掉别的平台的参数，然后按场景事实组装 UC（负向），最后体检一遍。
+// 完全不碰上游接口，所以便宜、即时、可重复。
+function naiEngineOf(target) {
+  const t = String(target || '').toLowerCase();
+  return /v3|v 3/.test(t) ? 'nai-v3' : 'nai-v4';
+}
+
+async function handleCompile(req, res) {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return json(res, 400, { error: '请求格式错误' });
+  }
+  try {
+    const positive = String(body.positive || '').slice(0, 20000);
+    const negative = String(body.negative || '').slice(0, 8000);
+    const engine = naiEngineOf(body.targetModel);
+    const taboos = String(body.taboos || '')
+      .split(/[,，、;；]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 30);
+
+    const out = polishNai({ positive, negative, engine, taboos, format: body.format });
+
+    // 设定集里选了 2 个以上条目 = 多人同框，串脸/串色的概率最高，
+    // 用各自的视觉锚点算出「排斥彼此特征」的负权重串。
+    const entryList = Array.isArray(body.entries) ? body.entries.slice(0, 4) : [];
+    let mutexUc = '';
+    const mutexNotes = [];
+    if (entryList.length >= 2) {
+      const mapped = entryList.map((e) => entryToCharacter(e));
+      const chars = mapped.map((m) => m.character);
+      const uc = [];
+      const seen = new Set();
+      chars.forEach((ch, i) => {
+        mutexFor(ch, chars.filter((_, j) => j !== i), engine).forEach((t) => {
+          const k = t.toLowerCase();
+          if (seen.has(k)) return;
+          seen.add(k);
+          uc.push(t);
+        });
+      });
+      mutexUc = uc.join(', ');
+      if (mutexUc) mutexNotes.push(`${chars.length} 个条目同框：已按彼此的发色 / 瞳色 / 服装色生成互斥`);
+      mapped.forEach((m) => {
+        if (m.needsTranslation?.length) {
+          mutexNotes.push(`「${m.character.name}」有 ${m.needsTranslation.length} 个中文锚点，NAI 吃不下，建议补英文标签`);
+        }
+      });
+    }
+
+    // 「原样」也要能做对比：用户需要看到规则改了什么
+    return json(res, 200, {
+      positive: out.positive,
+      negative: out.negative,
+      mutexUc,
+      notes: [...out.notes, ...mutexNotes].slice(0, 14),
+      scene: {
+        total: out.scene.total,
+        girls: out.scene.girls,
+        boys: out.scene.boys,
+        rating: out.scene.rating,
+        nonhuman: out.scene.nonhuman,
+        shots: out.scene.shots,
+      },
+      report: out.report,
+      engine,
+    });
+  } catch (err) {
+    return json(res, 500, { error: `整理失败：${err?.message || err}` });
+  }
+}
+
+// 只体检不修改，给「我要原样但想知道有没有坑」的人用
+async function handleNaiLint(req, res) {
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return json(res, 400, { error: '请求格式错误' });
+  }
+  try {
+    const positive = String(body.positive || '').slice(0, 20000);
+    const negative = String(body.negative || '').slice(0, 8000);
+    const engine = naiEngineOf(body.targetModel);
+    const report = lint({ positive, negative, chars: [], scene: {}, engine, budget: Number(body.budget) || 9000 });
+    return json(res, 200, { report, engine });
+  } catch (err) {
+    return json(res, 500, { error: `体检失败：${err?.message || err}` });
+  }
+}
+
 // ---------- 回收站 ----------
 async function handleTrashList(req, res) {
   try {
@@ -2012,44 +2091,124 @@ function worldContextText(world, entryIds = []) {
   return text;
 }
 
-function parseJsonContent(content) {
-  let text = String(content || '').trim();
-  if (text.startsWith('```')) text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start >= 0 && end > start) text = text.slice(start, end + 1);
-  return JSON.parse(text);
+// 从一堆文字里截出第一个「括号配对完整」的 JSON 片段。
+// 不能用 lastIndexOf('}')——模型超长被截断时，最后一个 '}' 往往是内层对象的。
+function sliceBalancedJson(text) {
+  const src = String(text || '');
+  const at = src.search(/[{[]/);
+  if (at < 0) return '';
+  const open = src[at];
+  const close = open === '{' ? '}' : ']';
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = at; i < src.length; i += 1) {
+    const ch = src[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === open) depth += 1;
+    else if (ch === close) {
+      depth -= 1;
+      if (depth === 0) return src.slice(at, i + 1);
+    }
+  }
+  return ''; // 括号没闭合：多半是被 max_tokens 截断了
 }
 
-async function callModelJson(ctx, messages, maxTokens = 1600) {
-  const upstream = await fetch(`${ctx.baseURL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${ctx.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: ctx.model,
-      messages,
-      temperature: 0.9,
-      max_tokens: maxTokens,
-      stream: false,
-    }),
-    signal: AbortSignal.timeout(90000),
-  });
-  const text = await upstream.text().catch(() => '');
-  if (!upstream.ok) throw new Error(upstreamErrorMessage(upstream.status, text));
-  let content = '';
-  try {
-    const j = JSON.parse(text);
-    content = String(j?.choices?.[0]?.message?.content ?? j?.choices?.[0]?.text ?? '');
-  } catch {
-    content = text;
+function parseJsonContent(content) {
+  const raw = String(content || '').replace(/^\uFEFF/, '').trim();
+  if (!raw) throw new Error('empty');
+
+  const stripped = raw
+    .replace(/^```[a-zA-Z]*\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+
+  const candidates = [stripped];
+  const sliced = sliceBalancedJson(stripped);
+  if (sliced && sliced !== stripped) candidates.push(sliced);
+  // 尾逗号是兼容接口最常见的坏味道
+  for (const c of [...candidates]) {
+    candidates.push(c.replace(/,\s*([}\]])/g, '$1'));
   }
+
+  let lastErr = null;
+  for (const c of candidates) {
+    if (!c) continue;
+    try {
+      return JSON.parse(c);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('not json');
+}
+
+// minTokens 是这个任务「至少需要多少」；用户设置更大就按用户的来。
+// 以前这里直接用写死的 1400~3000，设置里的「最大输出 tokens」被完全忽略。
+async function callModelJson(ctx, messages, minTokens = 1600) {
+  const userCap = Math.max(0, Math.floor(Number(ctx.maxTokensCap) || 0));
+  const budget = userCap > 0 ? Math.max(userCap, minTokens) : minTokens;
+  // 设定集 / 扩写这些内联拼 messages 的链路也从这里出去，破限词统一在这一层置顶
+  const outMessages = withJailbreak(messages, { on: ctx.jailbreakOn, text: ctx.jailbreakPrompt });
+  const send = async (extra) => {
+    const upstream = await fetch(`${ctx.baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ctx.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: ctx.model,
+        messages: outMessages,
+        temperature: 0.9,
+        max_tokens: budget,
+        stream: false,
+        ...extra,
+      }),
+      signal: AbortSignal.timeout(90000),
+    });
+    const text = await upstream.text().catch(() => '');
+    return { ok: upstream.ok, status: upstream.status, text };
+  };
+
+  // 开了 JSON 模式就让上游强制返回 JSON；有些兼容接口不认这个参数会 400，退回普通模式重试一次
+  let res = await send(ctx.jsonMode ? { response_format: { type: 'json_object' } } : {});
+  if (!res.ok && res.status === 400 && ctx.jsonMode) res = await send({});
+  if (!res.ok) throw new Error(upstreamErrorMessage(res.status, res.text));
+
+  let payload = null;
+  try {
+    payload = JSON.parse(res.text);
+  } catch {
+    // 有的代理直接把正文吐回来，没有 OpenAI 那层包装
+  }
+  const choice = payload?.choices?.[0] || {};
+  const content = String(choice?.message?.content ?? choice?.text ?? res.text ?? '');
+  const finish = String(choice?.finish_reason || '');
+  const reasoning = String(choice?.message?.reasoning_content ?? choice?.message?.reasoning ?? '');
+
   try {
     return parseJsonContent(content);
   } catch {
-    throw new Error('模型返回的不是有效 JSON，请重试或换一个模型');
+    // 三种失败要分开说清楚，否则用户只知道「没反应」
+    if (!content.trim() && reasoning.trim()) {
+      throw new Error('模型把输出预算全花在思考上了，没留下 JSON：换一个模型，或把「最大输出 tokens」调大');
+    }
+    if (finish === 'length') {
+      const from = userCap > 0 ? '设置里的「最大输出 tokens」' : '这个任务的默认值';
+      throw new Error(
+        `模型输出被截断：本次 max_tokens=${budget}（${from}）。` +
+        '把「最大输出 tokens」调大，或减少一次生成的数量（比如条目一次只生成 1 条）。',
+      );
+    }
+    const peek = content.replace(/\s+/g, ' ').slice(0, 160);
+    throw new Error(`模型返回的不是有效 JSON，请重试或换一个模型${peek ? `（收到：${peek}…）` : '（收到空内容）'}`);
   }
 }
 
@@ -2104,18 +2263,18 @@ async function handleWorlds(req, res, id = null, action = null) {
         const seeds = String(body.seeds || '').trim();
         if (!seeds) return json(res, 400, { error: '先写几个种子词' });
         const result = await callModelJson(ctx, [
-          { role: 'system', content: applyCustomRules('你是世界观策划。只输出 JSON，不要解释。', ctx.apiPinned) },
+          { role: 'system', content: '你是世界观策划。只输出 JSON，不要解释。' },
           {
             role: 'user',
             content: `根据这些种子生成 3 个差异明显的世界方向：${seeds}\n只输出：{"directions":[{"name":"","genre":"","logline":"","tone":"","visual":"","rules":"","taboos":""}]}`,
           },
-        ], 1800);
+        ], 2400);
         return json(res, 200, result);
       }
       if (body.task === 'core') {
         const d = body.direction || {};
         const result = await callModelJson(ctx, [
-          { role: 'system', content: applyCustomRules('你是世界观策划。只输出 JSON，不要解释。', ctx.apiPinned) },
+          { role: 'system', content: '你是世界观策划。只输出 JSON，不要解释。' },
           {
             role: 'user',
             content: `把这个世界方向扩写成完整世界设定：${JSON.stringify(d)}\n只输出：{"name":"","genre":"","logline":"","tone":"","visual":"","rules":"","taboos":""}`,
@@ -2129,7 +2288,7 @@ async function handleWorlds(req, res, id = null, action = null) {
         const count = Math.min(5, Math.max(1, Number(body.count) || 3));
         const existing = (world.entries || []).map((e) => e.name).slice(0, 40).join('、');
         const result = await callModelJson(ctx, [
-          { role: 'system', content: applyCustomRules('你是设定集策划。只输出 JSON，不要解释。不要与已有条目重名。', ctx.apiPinned) },
+          { role: 'system', content: '你是设定集策划。只输出 JSON，不要解释。不要与已有条目重名。' },
           {
             role: 'user',
             content: `世界设定：\n${worldContextText(world, [])}\n\n已有条目：${existing || '无'}\n请生成 ${count} 个「${category}」分类的候选条目。补充提示：${hint || '无'}\n${worldVisualRule(category)}\nfacts 至少 4 条，写清身份、外观、服装/结构、关键关系或能力。\n只输出：{"entries":[{"name":"","summary":"","facts":[{"label":"","value":""}],"visualAnchors":"","taboos":""}]}`,
@@ -2141,7 +2300,7 @@ async function handleWorlds(req, res, id = null, action = null) {
         const text = String(body.text || '').trim();
         if (!text) return json(res, 400, { error: '先写一句中文描述' });
         const result = await callModelJson(ctx, [
-          { role: 'system', content: applyCustomRules('你是中文画面描述编辑。只输出 JSON，不要解释。', ctx.apiPinned) },
+          { role: 'system', content: '你是中文画面描述编辑。只输出 JSON，不要解释。' },
           {
             role: 'user',
             content: `世界设定：\n${worldContextText(world, body.entryIds || [])}\n\n把下面这句简短画面扩写成更完整的中文描述。保留原意，补充人物状态、环境、光线、构图、材质等细节；不要输出英文 tag。\n只输出：{"text":"扩写后的中文描述"}\n\n原句：${text}\n补充要求：${String(body.extra || '').trim() || '无'}`,
@@ -2155,7 +2314,7 @@ async function handleWorlds(req, res, id = null, action = null) {
         const entry = (world.entries || []).find((e) => e.id === body.entryId);
         if (!entry) return json(res, 404, { error: '条目不存在' });
         const result = await callModelJson(ctx, [
-          { role: 'system', content: applyCustomRules('你是设定集编辑。只输出 JSON，不要解释。保留已经确定的内容。', ctx.apiPinned) },
+          { role: 'system', content: '你是设定集编辑。只输出 JSON，不要解释。保留已经确定的内容。' },
           {
             role: 'user',
             content: `世界设定：\n${worldContextText(world, [])}\n\n当前条目：${JSON.stringify(entry)}\n请补全缺失字段并扩写，但不要改变已有事实。\n${worldVisualRule(entry.category)}\n如果当前 visualAnchors 少于 8 项，请重写为 8-14 项具体特征。\n只输出：{"summary":"","facts":[{"label":"","value":""}],"visualAnchors":"","taboos":""}`,
@@ -2177,13 +2336,13 @@ async function handleWorlds(req, res, id = null, action = null) {
     const messages = buildMessages({
       sentence,
       style: ctx.body.style,
+    format: ctx.body.format,
       targetModel: ctx.body.targetModel,
       language: ctx.body.language,
       detail: ctx.body.detail,
       extra: ctx.body.extra,
       aspect: ctx.body.aspect,
       shot: ctx.body.shot,
-      apiPinned: ctx.apiPinned,
     });
     const context = worldContextText(world, ctx.body.entryIds || []);
     messages[1].content = `${context}\n\n${messages[1].content}`;
@@ -2529,6 +2688,8 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/backup/import' && req.method === 'POST') return await handleBackupImport(req, res);
     if (pathname === '/api/history' && (req.method === 'GET' || req.method === 'POST')) return await handleHistoryState(req, res);
     if (pathname === '/api/board' && (req.method === 'GET' || req.method === 'POST')) return await handleBoardState(req, res);
+    if (pathname === '/api/compile' && req.method === 'POST') return await handleCompile(req, res);
+    if (pathname === '/api/lint' && req.method === 'POST') return await handleNaiLint(req, res);
 
     if (pathname === '/api/worlds' && (req.method === 'GET' || req.method === 'POST')) {
       return await handleWorlds(req, res);
@@ -2538,19 +2699,23 @@ const server = http.createServer(async (req, res) => {
       return await handleWorlds(req, res, decodeURIComponent(worldMatch[1]), worldMatch[2] || null);
     }
     if (pathname === '/api/profiles' && req.method === 'POST') return await handleProfiles(req, res);
-    if (pathname === '/api/rule-preview' && req.method === 'POST') return await handleRulePreview(req, res);
-    if (pathname === '/api/unrestricted' && req.method === 'GET') {
+    if (pathname === '/api/prompt-preview' && req.method === 'POST') return await handlePromptPreview(req, res);
+    // 破限词：原文 + 内置默认一次给全，设置页的编辑弹窗靠它渲染
+    if (pathname === '/api/jailbreak' && req.method === 'GET') {
       const cfg = await loadConfig();
-      const block = buildUnrestrictedBlock();
+      const text = resolveJailbreakText(cfg.jailbreakPrompt);
       return json(res, 200, {
-        on: cfg.unrestrictedOn === true,
-        block,
-        chars: block.length,
-        upstream: UNRESTRICTED_UPSTREAM,
+        on: cfg.jailbreakOn !== false,
+        custom: isCustomJailbreak(cfg.jailbreakPrompt),
+        text,
+        chars: text.length,
+        defaultText: DEFAULT_JAILBREAK_PROMPT,
+        defaultChars: DEFAULT_JAILBREAK_PROMPT.length,
+        meta: JAILBREAK_META,
       });
     }
-    if (pathname === '/api/unrestricted/check' && req.method === 'POST') {
-      return await handleUnrestrictedCheck(req, res);
+    if (pathname === '/api/jailbreak/check' && req.method === 'POST') {
+      return await handleJailbreakCheck(req, res);
     }
     if (pathname === '/api/diagnostics' && req.method === 'GET') return await handleDiagnostics(req, res);
     if (pathname === '/api/config' && req.method === 'GET') {
@@ -2563,12 +2728,17 @@ const server = http.createServer(async (req, res) => {
         return json(res, 400, { error: '请求格式错误' });
       }
       const clean = {};
-      for (const k of ['baseURL', 'model', 'pinnedPositive', 'pinnedNegative', 'pinEnabled', 'apiKey', 'rulePacks', 'rulePacksOn', 'unrestrictedOn', 'maxTokens', 'timeoutSec', 'topP', 'stream', 'jsonMode']) {
+      for (const k of ['baseURL', 'model', 'pinnedPositive', 'pinnedNegative', 'pinEnabled', 'apiKey', 'jailbreakOn', 'jailbreakPrompt', 'maxTokens', 'timeoutSec', 'topP', 'stream', 'jsonMode']) {
         if (k in patch) clean[k] = patch[k];
       }
-      if ('rulePacks' in clean) clean.rulePacks = sanitizeRulePacks(clean.rulePacks);
-      if ('rulePacksOn' in clean) clean.rulePacksOn = !!clean.rulePacksOn;
-      if ('unrestrictedOn' in clean) clean.unrestrictedOn = !!clean.unrestrictedOn;
+      if ('jailbreakOn' in clean) clean.jailbreakOn = !!clean.jailbreakOn;
+      // 破限词原文直接存：留空串代表「回落内置默认」，所以这里不 trim、不清空，
+      // 只挡类型与超长（手滑贴进一整本书会把每次请求都撑爆）。
+      if ('jailbreakPrompt' in clean) {
+        clean.jailbreakPrompt = typeof clean.jailbreakPrompt === 'string'
+          ? clean.jailbreakPrompt.slice(0, JAILBREAK_TEXT_MAX)
+          : '';
+      }
       if ('temperature' in patch) clean.temperature = Number(patch.temperature) || 0.85;
       if ('maxTokens' in patch) clean.maxTokens = Math.max(0, Math.floor(Number(patch.maxTokens) || 0));
       if ('timeoutSec' in patch) clean.timeoutSec = Math.min(600, Math.max(5, Number(patch.timeoutSec) || 120));
@@ -2637,9 +2807,9 @@ function listen(port, attempt = 0) {
 export async function startServer(port = BASE_PORT, opts = {}) {
   // 启动时顺手清理过期/超量的回收站文件
   await purgeTrash().catch(() => {});
-  // 老配置里的 apiPinnedPrompt 搬到规则包，同时打开内置破限层。
+  // 老配置里的 apiPinnedPrompt 迁进破限词（只在用户没自定义过时搬，不覆盖）。
   // 这一步要在 loadConfig 之前：主文件坏了时 loadConfig 会用 .bak 重写一份，
-  // 重写后的文件里 unrestrictedOn 已经变成显式的 false，就分不清「没设置过」了。
+  // 写回后的文件里已经没有这个旧字段了，就分不清「迁移过」还是「本来就没有」。
   await migrateLegacyPinnedPrompt().catch(() => {});
   // 读一遍配置：主文件坏掉时自动从 .bak 修回来
   await loadConfig().catch(() => {});
@@ -2677,4 +2847,6 @@ export {
   buildMetaComment,
   parseMetaComment,
   publicConfig,
+  parseJsonContent,
+  sliceBalancedJson,
 };

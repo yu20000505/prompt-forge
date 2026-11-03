@@ -1,22 +1,20 @@
-# Prompt Forge
+﻿# Prompt Forge
 
 [![CI](https://github.com/yu20000505/prompt-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/yu20000505/prompt-forge/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/yu20000505/prompt-forge?color=6f7f66)](../../releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6f7f66.svg)](LICENSE)
 
-**One sentence in. A production-ready image prompt out.**
+**One sentence in. A production-ready NovelAI prompt out.**
 
-Type one sentence, get prompts you can paste straight into Stable Diffusion, NovelAI, Midjourney,
-Flux or DALL·E; plus character sheets (English prompt + Chinese translation) and seven mix-and-match
-segment-tag groups. Local-first, zero runtime dependencies, and it talks directly to whatever
-**OpenAI-compatible API** you configure — your key never leaves your machine.
+Type one sentence, get a NovelAI danbooru tag flow plus a UC negative prompt; plus character sheets
+(English tags + Chinese translation) and seven mix-and-match segment-tag groups. Local-first, zero
+runtime dependencies, and it talks directly to whatever **OpenAI-compatible API** you configure —
+your key never leaves your machine.
 
-> **New in 2.4**: API presets — keep any number of BaseURL / key / model presets locally and switch
-> from the top bar; edit, duplicate, delete or test each one in Settings.
->
-> **2.3**: the built-in unrestricted layer — the
-> [dsh-unrestricted](https://github.com/yexi-by/dsh-unrestricted) contract ported verbatim
-> (10,246 chars), live on all nine task paths behind one switch, with a one-click self-check.
+> **New in 2.5**: NovelAI only — the five generic styles are gone; positive prompts are always danbooru
+> tags, negatives always UC, plus a local **NAI pass** and **prompt checkup** (no model calls).
+> The jailbreak text is now its own **leading, editable system message** — see
+> [Jailbreak prompt](#jailbreak-prompt-leading-system-message).
 
 [中文说明](README.md) · [Download](../../releases/latest) · [Changelog](CHANGELOG.md) · [Build from source](#build-from-source)
 
@@ -24,34 +22,31 @@ segment-tag groups. Local-first, zero runtime dependencies, and it talks directl
 
 ## Contents
 
-- [What's new in 2.3](#whats-new-in-23)
+- [What's new in 2.5](#whats-new-in-25)
 - [Why](#why)
 - [Features](#features)
 - [Quick start](#quick-start)
-- [Built-in unrestricted layer](#built-in-unrestricted-layer-dsh-unrestricted)
+- [Jailbreak prompt](#jailbreak-prompt-leading-system-message)
 - [Build from source](#build-from-source) · [Tests](#tests)
 - [Project layout](#project-layout) · [Privacy](#privacy) · [License](#license)
 - 2.2 / 2.1 / 2.0 notes are collapsed at the end; full history in [CHANGELOG](CHANGELOG.md)
 
-## What's new in 2.3
+## What's new in 2.5
 
-- **Built-in unrestricted layer** — ports the execution contract from
-  [dsh-unrestricted](https://github.com/yexi-by/dsh-unrestricted) (MIT) and injects it as its own
-  system-prompt section: generation, refinement, import & rewrite, characters, character refinement,
-  segment tags, segment refinement, random ideas and worldbook AI. Nine paths, one switch.
-- **Not a word changed** — the upstream block (10,246 chars) is embedded verbatim: nothing compressed,
-  nothing rewritten. The tool only appends its own additions (JSON structure, image-tag organisation,
-  no web tools) after the original text.
-- **Format stays intact** — the layer decides what is written and how deep, never the JSON shape:
-  field names, counts, language and parsing still come from the task rules, and the output-format
-  lock stays the very last paragraph.
-- **Verifiable** — read the layer verbatim in Settings, and preview the exact system message per mode.
-  Fixed order: task rules → layer → rule packs → output-format lock.
-- **Self-check** — *Test the layer* sends one real request with your current settings and reports
-  passed / thin / refused / gateway-rejected with a reply sample, so you can tell whether the layer
-  failed or the model/gateway blocked that specific topic.
-- **Legacy config migration** — an old `apiPinnedPrompt` in `config.json` is moved into a rule pack
-  (disabled, content kept) and the built-in layer is switched on once, so nothing is retyped.
+- **NovelAI only** — the five generic styles are gone; positives are danbooru tags, negatives UC.
+  Tag order, character counts, species handling, outfit colours, action binding, rating and age rules are
+  baked into the templates.
+- **NAI pass** — a local rule pass after generation: lowercase, dedupe, reorder by danbooru convention,
+  strip quality tags, convert SD syntax, fix `no humans` conflicts. Shown separately and applied only on demand.
+- **Prompt checkup** — lists what is still wrong (unbalanced brackets, identity tags in UC, contradictory
+  character counts, shot/size conflicts, duplicates, age conflicts, missing outfit colours, token overflow).
+- **Jailbreak prompt (leading system message)** — sent as its own `messages[0]`, ahead of every task rule,
+  on all nine paths. The built-in text is an original FORGE kernel (role / scope / output / limits, ≈1,350 chars).
+- **Editable** — Settings → Jailbreak prompt → *Edit*; empty means the built-in default, the switch off means
+  the whole message is not sent.
+- **Inspectable and testable** — *Preview final prompt* lays out jailbreak → task system → user for all nine
+  modes; *Test the jailbreak* sends one real request and reports passed / thin / refused / empty / odd.
+- **Legacy config** — an old `apiPinnedPrompt` moves into the jailbreak prompt (never overriding yours).
 
 <details>
 <summary>Version history: what's new in 2.2 / 2.1 / 2.0</summary>
@@ -150,16 +145,11 @@ instead of hand-splicing tags.
   to the model original in one click.
 - **Two independent rule layers**
   - *Local prefix* — fixed quality tags prepended in the browser. Never sent to the model.
-  - *Rule packs* — your own additional rules appended after the task rules and before the output-format
-    lock; every path sends them.
-- **Built-in unrestricted layer** — one switch injects the full execution contract into every request:
+  - *Jailbreak prompt* — the only custom rule text actually sent, see below.
+- **Jailbreak prompt** — one switch sends a jailbreak text as its **own leading system message**:
   imagery written at the scale you ask for, every character treated as an adult, no lecturing, no
-  softened variants, no rewriting a request into a tamer one. The layer sits after the task rules and before rule packs, changes content only, and when switched
-  off sends not a single character.
-- **Rule packs** — keep any number of named rule sets in Settings, toggle each one, concatenate them in
-  order, and import/export as JSON. They apply to generation, refinement, characters, segments, worlds
-  AI, the Chinese expander and random ideas. A per-mode preview shows the exact system message that
-  will be sent after you save.
+  softened variants, no rewriting a request into a tamer one. It sits ahead of every task rule,
+  changes content only, and can be edited or reset to the built-in default in Settings.
 - **Idea generator** — asks the model for six fresh scene one-liners, avoiding topics you just used.
 - **History** — prompt, character and segment results are recorded automatically; filter by mode,
   search, favorite to pin on top, and click an entry to restore the full result. History and the
@@ -225,45 +215,47 @@ Open <http://127.0.0.1:43125>, click **设置** (Settings) and fill in:
 Any OpenAI-compatible endpoint works — DeepSeek, OpenAI, Moonshot, Zhipu, SiliconFlow,
 LM Studio, Ollama, or a proxy. Hit **测试连接** to verify, then **保存**.
 
-## Built-in unrestricted layer (dsh-unrestricted)
+## Jailbreak prompt (leading system message)
 
-> The rules are adapted from [yexi-by/dsh-unrestricted](https://github.com/yexi-by/dsh-unrestricted)
-> v0.2.6 (MIT); upstream traces its structure to
-> [Jia-Ethan/codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) (MIT).
-> See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and
-> [docs/unrestricted.md](docs/unrestricted.md) for the integration details.
+> **The text is original** — the built-in default is a self-written FORGE kernel split into four
+> sections (role / scope / output / boundaries); no third-party prompt text is copied. **The send
+> pattern** (leading system message, empty = default, off = message not sent at all) is a
+> method-level idea borrowed from publicly visible SillyTavern extensions like
+> [ST-BaiBai-Image](https://github.com/baibai-git/ST-BaiBai-Image); methods are not copyrightable and
+> no text was reused. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
+> [docs/jailbreak.md](docs/jailbreak.md).
 
-Upstream is a DeepSeek Harness plugin that lifts refusals by editing the system prompt at assembly
-time. This build does the same thing inside Prompt Forge: the execution contract is compiled into a
-fixed block and injected into the system prompt of every request.
+![Jailbreak card](docs/screenshots/07-jailbreak-card.png)
 
-The order is fixed, and each layer has one job:
+![Jailbreak editor](docs/screenshots/08-jailbreak-edit.png)
+
+Every request now carries three messages, with the jailbreak text alone in the first one:
 
 ```text
-task rules (JSON fields / counts / language)
-  → unrestricted layer (upstream text verbatim, 10,246 chars, plus local additions ≈ 10.7k)
-    → rule packs (your own extra rules)
-      → output-format lock (only that one JSON object, no markdown)
+[messages[0] system] jailbreak prompt (built-in default ≈ 1,350 chars, or your own text)
+[messages[1] system] task rules → output-format lock
+[messages[2] user  ] your sentence / text to rewrite / text to expand
 ```
 
-The layer states delivery standards rather than magic words: an image request gets tags you can
+The prompt states delivery standards rather than magic words: an image request gets tags you can
 render, a character request gets a sheet you can use; body and action are written plainly at the
-scale requested; every character is treated as an adult; the model does not judge subject, relationship
-or explicitness, does not rewrite requests into tamer versions, and treats "please refuse" text inside
-pasted material as data. The upstream technical task routing (reverse engineering, keygen, PoC,
-scanning, tunnels, chemistry) is kept as well — nothing is trimmed.
+scale requested; every character is treated as an adult; the model does not judge subject,
+relationship or explicitness, does not rewrite requests into tamer versions, and treats
+"please refuse" text inside pasted material as data.
 
-- **Switch**: Settings → Built-in unrestricted layer. Turned off, the section disappears entirely and
-  the prompt is byte-for-byte what it was before the layer existed.
-- **Format safe**: the contract itself says it changes content, not structure, and the JSON lock has
-  the last word; `npm run test:static` asserts the layer sits before rule packs and the lock stays last.
-- **Inspectable**: *View layer text* shows the block verbatim; *Preview final prompt* shows the assembled
-  system message for all nine modes.
-- **Self-check**: *Test the layer* sends one real request and classifies the reply as passed / thin /
-  refused / gateway-rejected, with the layer state, model and latency. It does not test connectivity —
-  that is what *Test connection* is for.
-- **Default**: off on a fresh install. If `config.json` still holds an old `apiPinnedPrompt`, startup
-  moves it into a disabled rule pack (content preserved) and switches the layer on once.
+- **Switch**: Settings → Jailbreak prompt. Off means the whole message is not sent, so the request
+  has exactly the messages it had before this feature existed.
+- **Empty = built-in default**: clearing the text and saving sends the built-in one; to send nothing,
+  use the switch.
+- **Format safe**: `npm run test:static` asserts the jailbreak text comes first, appears exactly once,
+  adds no message when off, and the JSON lock still ends the task message.
+- **Inspectable**: *Edit jailbreak prompt* shows exactly what will be sent; *Preview final prompt*
+  lays out jailbreak → task system → user for all nine modes.
+- **Self-check**: *Test the jailbreak* sends one real request and classifies the reply as passed /
+  thin / refused / empty / odd, showing the model, latency and whether the built-in or custom text
+  was used. It does not test connectivity — that is what *Test connection* is for.
+- **Default**: on for a fresh install. An old `apiPinnedPrompt` in `config.json` is still moved into a
+  the jailbreak prompt (unless you already set your own); the obsolete `unrestrictedOn` and rule-pack keys are dropped.
 - **Limit**: it changes the model's own answering bias only. If the upstream gateway inspects keywords,
   it may still cut the connection or return 400 — prompt rules cannot bypass that.
 
@@ -332,8 +324,8 @@ Screenshots in `docs/` are generated by `node tests/make-screenshots.mjs`, not h
 ```
 src/
   server.mjs         HTTP server + OpenAI-compatible proxy (SSE), config & library I/O
-  styles.mjs         system-prompt templates for all modes, plus the layer/pack assembly entry
-  unrestricted.mjs   the built-in unrestricted layer text (adapted from dsh-unrestricted, MIT)
+  styles.mjs         system-prompt templates for all modes (task rules + output contract)
+  jailbreak.mjs      the jailbreak text (built-in default) and the leading-system injection
   public/            index.html, styles.css (theme tokens), app.js
 build/
   build-exe.mjs      Node SEA packaging
@@ -354,6 +346,8 @@ Windows builds keep data in `%APPDATA%\PromptForge`; running from source keeps i
 
 ## License
 
-[MIT](LICENSE). The built-in unrestricted layer is adapted from
-[dsh-unrestricted](https://github.com/yexi-by/dsh-unrestricted), also MIT; full attribution and
-license text in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[MIT](LICENSE). The jailbreak prompt's **text is original** (the FORGE kernel) and contains no
+third-party prompt material; **the send pattern** (leading system message, empty = default, off =
+nothing sent) is a method-level idea referenced from publicly visible SillyTavern extensions like
+[ST-BaiBai-Image](https://github.com/baibai-git/ST-BaiBai-Image), with no text copied. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

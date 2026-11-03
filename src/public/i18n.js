@@ -22,9 +22,21 @@ window.PF_I18N = {
     '通用生成设置': 'Global generation settings',
     '三种模式共用': 'Shared by all three modes',
     '提示词风格': 'Prompt style',
-    '目标模型': 'Target model',
+    'NAI 版本': 'NAI version',
+  '提示词风格': 'Prompt style',
     '提示词语言': 'Prompt language',
     '详细程度': 'Detail level',
+    '表述方式': 'Format',
+    '标签流': 'Tag flow',
+    '半自然语言': 'Semi-natural',
+    'NAI 整理版': 'NAI pass',
+    '应用到结果': 'Apply to result',
+    '体检': 'Checkup',
+    '已应用 NAI 整理版': 'Applied the NAI pass',
+    '多人互斥 UC': 'Multi-character mutex UC',
+    '复制互斥': 'Copy mutex',
+    '正向（已按 danbooru 顺序重排、去重、补画质词）': 'Positive (reordered, deduped, quality tags added)',
+    '负向 UC（按人数 / 分级 / 年龄自动组装）': 'Negative UC (assembled from count / rating / age)',
     '英文（推荐）': 'English (recommended)',
     '中文': 'Chinese',
     '精简': 'Concise',
@@ -476,27 +488,12 @@ window.PF_I18N = {
     '关闭浮层 / 取消生成': 'Close overlays / cancel generation',
     '打开这个帮助': 'Open this help',
 
-    // 规则包
-    '规则包': 'Rule packs',
-    '多套可以单独开关的规则，按顺序拼在一起。勾选的每一套都会追加到 system prompt 末尾，生成、微调、角色设定、细分标签、设定集和随机灵感都会带上；内容由你自己填写。':
-      'Any number of toggleable rules, concatenated in order. Every checked pack is appended to the end of the system prompt and sent with generation, refinement, character, segment tags, worlds and random ideas. You write the content.',
-    '启用规则包（关掉后内容保留，但不再发送）':
-      'Enable rule packs (content is kept but not sent)',
-    '+ 新增规则包': '+ New rule pack',
-    '导出': 'Export',
+    // 最终提示词预览
     '预览最终提示词': 'Preview final prompt',
-    '还没有规则包。点「+ 新增规则包」写一条，或者导入一份 JSON。':
-      'No rule packs yet. Click "+ New rule pack" to write one, or import a JSON file.',
-    '空内容不会发送': 'Empty packs are not sent',
-    '规则包名称，如「画风固定」「不要免责声明」':
-      'Pack name, e.g. "fixed art style"',
-    '规则正文，会原样追加到 system prompt 末尾':
-      'Rule text, appended verbatim to the end of the system prompt',
-    '勾选后随每次请求发送': 'Send with every request when checked',
-    '启用这条规则包': 'Enable this rule pack',
+    '导出': 'Export',
     '最终系统提示词预览': 'Final system prompt',
-    '按当前表单里的规则包内容拼装，不调用模型。保存之后实际发出去的 system 消息就是这一份。':
-      'Assembled from the current form — no model call. This is exactly the system message sent after you save.',
+    '按当前表单里的破限词拼装，不调用模型。保存之后实际发出去的就是这几条消息，顺序与这里一致。':
+      'Assembled from the current jailbreak text — no model call. These are exactly the messages sent after you save, in this order.',
     '模式': 'Mode',
     '复制全文': 'Copy all',
     '提示词生成': 'Prompt generation',
@@ -507,31 +504,37 @@ window.PF_I18N = {
     '细分微调': 'Segment refinement',
     '随机灵感': 'Random ideas',
     '设定集 AI': 'Worlds AI',
-    '没有可导出的规则包': 'No rule packs to export',
-    '文件里没有 packs 数组': 'The file has no "packs" array',
-    '没有可导入的规则包': 'No rule packs found in that file',
 
-    // 内置破限层
-    '内置破限层': 'Built-in unrestricted layer',
-    '· MIT · 上游正文逐字移植，不改一个字；本工具只在其后追加生图标签与 JSON 结构的要求。九条任务链路全部生效。':
-      '· MIT · the upstream text is ported verbatim — not a word changed. This tool only appends image-tag and JSON-structure requirements after it. Active on all nine task paths.',
-    '启用内置破限层（关闭后回到模型默认尺度）':
-      'Enable the built-in unrestricted layer (off = model defaults)',
-    '查看破限层全文': 'View layer text',
-    '内置破限层全文': 'Built-in unrestricted layer',
-    '这段文字原样附在每次请求的 system prompt 里，位置在本任务规则之后、规则包与输出格式确认之前。 换范围或开关后重新打开就会看到对应版本。':
-      'Appended verbatim to the system prompt of every request, after the task rules and before rule packs and the JSON format lock.',
-    '测试破限是否生效': 'Test the layer',
+    // 破限词（置顶 system）
+    '破限词': 'Jailbreak prompt',
+    '作为一条独立的置顶 system 消息（messages[0]）发送，排在任务规则之前，九条任务链路全部生效；正文原创，也可以自己改。':
+      'Sent as its own leading system message (messages[0]), ahead of the task rules, on all nine task paths. The text is original and editable.',
+    '启用破限词（关闭后每条请求里都不再出现这一条）':
+      'Enable the jailbreak prompt (off = this message is not sent at all)',
+    '编辑破限词': 'Edit jailbreak prompt',
+    '测试破限是否生效': 'Test the jailbreak',
+    '填入内置默认': 'Fill in built-in default',
+    '清空（用默认）': 'Clear (use default)',
+    '留空则使用内置默认破限词': 'Leave empty to use the built-in default',
+    '正在读取…': 'Loading…',
+    '破限词已保存': 'Jailbreak prompt saved',
+    '破限词已恢复为内置默认': 'Jailbreak prompt reset to the built-in default',
+    '当前用的是内置默认破限词：每次请求作为第一条 system 消息发出，排在任务规则之前。点「编辑破限词」可以改成自己的。':
+      'Using the built-in default. It is sent as the first system message, ahead of the task rules. Click "Edit jailbreak prompt" to write your own.',
+    '当前用的是你自定义的破限词：每次请求作为第一条 system 消息发出，排在任务规则之前。':
+      'Using your custom jailbreak prompt: sent as the first system message, ahead of the task rules.',
+    '关闭后每条请求里都不会出现破限词。':
+      'The jailbreak prompt is omitted from every request.',
     '正在发一次真实请求测试…（约 1～2k tokens）':
       'Sending one real request to test… (~1–2k tokens)',
     '示例：': 'Sample: ',
     '测试失败：': 'Test failed: ',
-    '通过：模型按任务输出了直白内容，破限层确实生效':
-      'Passed: the model produced explicit content as asked — the layer is working',
+    '通过：模型按任务输出了直白内容，破限词确实生效':
+      'Passed: the model produced explicit content as asked — the jailbreak prompt is working',
     '勉强：输出是 JSON 但内容很短，模型可能在自我删减':
       'Weak: valid JSON but very short — the model may be trimming',
-    '被拒：模型回了拒绝语句，破限层没有压过它的倾向':
-      'Refused: the model answered with a refusal — the layer did not override it',
+    '被拒：模型回了拒绝语句，破限词没有压过它的倾向':
+      'Refused: the model answered with a refusal — the jailbreak prompt did not override it',
     '空回复：模型没有返回任何内容': 'Empty: the model returned nothing',
     '异常：没有拒答，但也没按 JSON 输出，可能是格式跑偏或网关改写':
       'Odd: no refusal, but not the expected JSON — format drift or a gateway rewrite',

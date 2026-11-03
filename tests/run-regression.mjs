@@ -1,4 +1,4 @@
-import { fileURLToPath } from 'node:url';
+﻿import { fileURLToPath } from 'node:url';
 // 一键回归：起一个「临时配置」的实例 + 假接口，跑完自动清理。
 // 关键点：服务用 PF_CONFIG 指向临时文件，端口也不与日常使用的 43125 冲突，
 // 所以跑测试永远不会碰到用户真正的 config.json。
@@ -29,9 +29,7 @@ const SAVED = path.join(os.tmpdir(), `pf-test-saved-${process.pid}`);
 const STATE = path.join(os.tmpdir(), `pf-test-state-${process.pid}`);
 const WORLDS = path.join(os.tmpdir(), `pf-test-worlds-${process.pid}`);
 const APP_URL = `http://127.0.0.1:${APP_PORT}/`;
-// 这个值会被写进配置，再由服务端拼进系统提示词发给模型；
-// verify-ui 里靠它断言「自定义规则确实发给了 API」
-const API_PIN = 'MARKER-固定画风-ABC123';
+
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(...a);
@@ -125,8 +123,7 @@ const cfg = {
   pinnedPositive: '',
   pinnedNegative: '',
   pinEnabled: true,
-  rulePacks: [{ id: 'regression-pin', name: '固定画风', text: API_PIN, enabled: true }],
-  rulePacksOn: true,
+  jailbreakOn: true,
 };
 const r = await fetch(`${APP_URL}api/config`, {
   method: 'POST',

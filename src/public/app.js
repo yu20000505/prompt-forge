@@ -63,22 +63,22 @@ function tr(text) {
       out = `· ${m[1]} packs active, +${m[2]} chars per request`;
     } else if (key === '· 已停用，不会发送') {
       out = '· Disabled, not sent';
-    } else if (key === '· 没有勾选任何有内容的规则包') {
-      out = '· No enabled pack has content';
-    } else if ((m = key.match(/^(.+?) · 全文 (\d+) 字 · 破限层(开|关)(?:（(\d+) 字）)? · 生效规则包 (\d+) 套(（总开关已关闭）)?$/))) {
-      const layerOn = m[3] === '开';
-      const detail = layerOn && m[4] ? ` (${m[4]} chars)` : '';
-      out = `${tr(m[1])} · ${m[2]} chars total · layer ${layerOn ? 'on' : 'off'}${detail} · ${m[5]} active packs${m[6] ? ' (master switch off)' : ''}`;
+    } else if ((m = key.match(/^(.+?) · 全文 (\d+) 字 · (\d+) 条消息 · 破限词(开|关)(?:（(\d+) 字(?: · 自定义)?）)?$/))) {
+      const layerOn = m[4] === '开';
+      const detail = layerOn && m[5] ? ` (${m[5]} chars)` : '';
+      out = `${tr(m[1])} · ${m[2]} chars · ${m[3]} messages · jailbreak ${layerOn ? 'on' : 'off'}${detail} · ${m[6]} active packs${m[7] ? ' (master switch off)' : ''}`;
     } else if ((m = key.match(/^· (\d+) 套$/))) {
       out = `· ${m[1]} presets`;
     } else if ((m = key.match(/^· 已开启(?: · 约 (\d+) 字)?$/))) {
       out = `· On${m[1] ? ` · ~${m[1]} chars` : ''}`;
     } else if (key === '· 已关闭，不会发送') {
       out = '· Off, not sent';
-    } else if (key === '每次请求都会在任务规则之后带上完整的破限层（上游正文逐字移植 + 本工具附加约定），随后才是规则包，最后是输出格式确认。改完点「保存」即生效，不用重启。') {
-      out = 'The full layer (verbatim upstream text + this tool\'s additions) is sent after the task rules, before rule packs and the JSON format lock. Save to apply — no restart needed.';
-    } else if (key === '关闭后 system prompt 里不会出现破限层；规则包仍按自己的总开关发送。') {
-      out = 'The layer is omitted from the system prompt entirely; rule packs still follow their own switch.';
+    } else if (key === '当前用的是内置默认破限词：每次请求作为第一条 system 消息发出，排在任务规则之前。点「编辑破限词」可以改成自己的。') {
+      out = 'Using the built-in default. It is sent as the first system message, ahead of the task rules. Click "Edit jailbreak prompt" to write your own.';
+    } else if (key === '当前用的是你自定义的破限词：每次请求作为第一条 system 消息发出，排在任务规则之前。') {
+      out = 'Using your custom jailbreak prompt: sent as the first system message, ahead of the task rules.';
+    } else if (key === '关闭后每条请求里都不会出现破限词。') {
+      out = 'The jailbreak prompt is omitted from every request; rule packs still follow their own switch.';
     } else if ((m = key.match(/^(.+?) ([\w.-]+) · (上游正文逐字移植) · 全文 (\d+) 字 · (当前已开启|当前未开启.*)$/))) {
       out = `${m[1]} ${m[2]} · upstream text verbatim · ${m[4]} chars · `
         + (m[5] === '当前已开启' ? 'currently on' : 'currently off — enable it and save to send');
@@ -113,10 +113,6 @@ function tr(text) {
       out = ' (the server may be an old process — restart it)';
     } else if ((m = key.match(/^预览失败：(.*)$/))) {
       out = `Preview failed: ${tr(m[1])}`;
-    } else if ((m = key.match(/^已导出 (\d+) 套规则包$/))) {
-      out = `Exported ${m[1]} rule packs`;
-    } else if ((m = key.match(/^已导入 (\d+) 套规则包，记得点「保存」$/))) {
-      out = `Imported ${m[1]} rule packs — remember to save`;
     } else if (key === '正在拼装…') {
       out = 'Assembling…';
     }
@@ -218,13 +214,9 @@ function toggleLanguage() {
 }
 
 
-const STYLES = [
-  { id: 'sd', label: 'SD / SDXL / Flux', desc: '结构化英文短语', descEn: 'Structured English phrases' },
-  { id: 'anime', label: 'NovelAI 动漫', desc: 'Danbooru 标签流', descEn: 'Danbooru tag flow' },
-  { id: 'mj', label: 'Midjourney', desc: '自然语言 + 参数', descEn: 'Natural language + parameters' },
-  { id: 'photo', label: '写实摄影', desc: '镜头 / 光线 / 胶片', descEn: 'Lens / light / film' },
-  { id: 'natural', label: '自然语言', desc: 'Flux / DALL·E', descEn: 'Flux / DALL·E' },
-];
+// 本软件只服务 NovelAI，「提示词风格」这个概念已经下线。
+// 历史、草稿、保存文件里可能还留着 style 字段，读的时候一律忽略。
+const NAI_STYLE = 'nai';
 
 // 细分标签类型，和 src/styles.mjs 里的 SEGMENT_LIST 保持一致
 const SEG_TYPES = [
@@ -274,7 +266,7 @@ const IDEAS = [
 
 const S = {
   lang: 'zh',
-  style: 'sd',
+  style: NAI_STYLE,
   busy: false,
   config: null,
   current: null,       // { sentence, style, targetModel, language, detail, extra, result, raw }
@@ -297,6 +289,13 @@ const S = {
   charEdited: false,
   charHistoryAt: null,
   charVIndex: 0,
+  nai: null,           // /api/compile 的整理结果
+  worldMutex: '',      // 设定集多人互斥 UC
+  worldDraftId: null,  // 「AI 起草世界」的草稿世界，重复点击时复用
+  worldCoreBusy: false,
+  worldCoreAbort: null,
+  detail: 'standard',  // 三个视图共用同一份详细程度
+  format: 'tags',      // 表述方式：tags = 纯标签流 / mixed = 半自然语言
   segType: 'outfit',
   segBusy: false,
   segAbort: null,
@@ -360,99 +359,92 @@ const PROMPT_TEMPLATES = [
     id: 'portrait', name: '人物肖像', nameEn: 'Portrait',
     desc: '半身人像 / 情绪与皮肤质感',
     sentence: '雨后的旧公寓里，一位银发少女靠在窗边看向镜头，神情安静',
-    style: 'sd', detail: 'standard', aspect: '2:3', shot: 'medium shot',
+    detail: 'standard', aspect: '2:3', shot: 'medium shot',
     extra: '柔和的侧窗光，浅景深，真实的皮肤纹理',
   },
   {
     id: 'cinematic', name: '电影场景', nameEn: 'Cinematic scene',
     desc: '宽银幕 / 叙事感光影',
     sentence: '深夜的加油站，一名货车司机靠在车头抽烟，远处公路被车灯照亮',
-    style: 'photo', detail: 'rich', aspect: '16:9', shot: 'wide shot',
+    detail: 'rich', aspect: '16:9', shot: 'wide shot',
     extra: '电影感色彩，体积光，35mm 变形宽银幕',
   },
   {
     id: 'mecha', name: '机甲科幻', nameEn: 'Mecha sci-fi',
     desc: '巨大机械 / 工业细节',
     sentence: '废弃的发射井里，一台伤痕累累的重型机甲半跪着，驾驶舱还亮着微光',
-    style: 'sd', detail: 'rich', aspect: '16:9', shot: 'from below',
+    detail: 'rich', aspect: '16:9', shot: 'from below',
     extra: '冷色调工业光，金属磨损与油污，雾气',
   },
   {
     id: 'guofeng', name: '国风古韵', nameEn: 'Chinese classical',
     desc: '山水 / 留白 / 工笔',
     sentence: '薄雾笼罩的江南水乡，一位执伞女子走在石桥上，远处白墙黛瓦若隐若现',
-    style: 'sd', detail: 'rich', aspect: '3:4', shot: 'wide shot',
+    detail: 'rich', aspect: '3:4', shot: 'wide shot',
     extra: '水墨留白，低饱和青灰色，柔和晨雾',
   },
   {
     id: 'product', name: '产品静物', nameEn: 'Product still life',
     desc: '商业摄影 / 材质与反光',
     sentence: '黑色磨砂玻璃香水瓶放在湿润的黑色石板上，水面倒映着暖色轮廓光',
-    style: 'photo', detail: 'standard', aspect: '1:1', shot: 'close-up',
+    detail: 'standard', aspect: '1:1', shot: 'close-up',
     extra: '商业静物光，边缘轮廓光，微距细节',
   },
   {
     id: 'wildlife', name: '自然动物', nameEn: 'Wildlife',
     desc: '野生动物 / 长焦',
     sentence: '清晨的雪原上，一只赤狐停下脚步回头张望，呼吸在冷空气里凝成白雾',
-    style: 'photo', detail: 'standard', aspect: '3:4', shot: 'close-up',
+    detail: 'standard', aspect: '3:4', shot: 'close-up',
     extra: '长焦压缩感，自然晨光，浅景深',
   },
   {
     id: 'cyberpunk', name: '赛博朋克', nameEn: 'Cyberpunk',
     desc: '霓虹 / 雨夜 / 高密度城市',
     sentence: '雨夜的赛博朋克夜市，霓虹灯牌和全息广告映在积水里，行人撑着透明伞',
-    style: 'sd', detail: 'rich', aspect: '16:9', shot: 'wide shot',
+    detail: 'rich', aspect: '16:9', shot: 'wide shot',
     extra: '青色与品红霓虹，湿润反光，体积雾',
   },
   {
     id: 'fantasy', name: '奇幻风景', nameEn: 'Fantasy landscape',
     desc: '世界感 / 大气透视',
     sentence: '漂浮在云海上的古老神殿，瀑布从断裂的台阶落入云层，飞鸟绕柱盘旋',
-    style: 'sd', detail: 'rich', aspect: '16:9', shot: 'wide shot',
+    detail: 'rich', aspect: '16:9', shot: 'wide shot',
     extra: '史诗感，大气透视，金色夕阳',
   },
   {
     id: 'food', name: '美食特写', nameEn: 'Food close-up',
     desc: '暖色 / 食欲 / 质感',
     sentence: '刚出锅的牛肉面放在旧木桌上，热气升起，汤面浮着葱花和辣椒油',
-    style: 'photo', detail: 'standard', aspect: '4:3', shot: 'close-up',
+    detail: 'standard', aspect: '4:3', shot: 'close-up',
     extra: '暖色侧逆光，蒸汽，浅景深',
   },
   {
     id: 'interior', name: '建筑室内', nameEn: 'Architecture interior',
     desc: '空间 / 材质 / 自然光',
     sentence: '午后阳光穿过落地窗，照亮一间极简混凝土客厅，长桌上放着陶器和干枝',
-    style: 'photo', detail: 'standard', aspect: '16:9', shot: 'wide shot',
+    detail: 'standard', aspect: '16:9', shot: 'wide shot',
     extra: '自然光，建筑摄影，真实材质',
   },
 ];
 
+// NAI 的 UC 预设：三档，都只放「画坏了」的词，不放身份词
 const NEG_PRESETS = [
-  { id: 'general', name: '通用', nameEn: 'General', text: 'lowres, worst quality, low quality, blurry, jpeg artifacts, watermark, signature, text' },
-  { id: 'anime', name: '动漫', nameEn: 'Anime', text: 'lowres, bad anatomy, bad hands, extra digits, fewer digits, worst quality, watermark, username' },
-  { id: 'photo', name: '写实', nameEn: 'Photo', text: 'cartoon, illustration, anime, 3d render, cgi, plastic skin, waxy skin, extra fingers, deformed hands, watermark' },
+  { id: 'light', name: '轻量 UC', nameEn: 'Light UC', text: 'lowres, bad anatomy, bad hands, text, error, cropped, signature, watermark, username, blurry' },
+  { id: 'standard', name: '标准 UC', nameEn: 'Standard UC', text: 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, username, blurry, bad feet' },
+  { id: 'strict', name: '严格 UC', nameEn: 'Strict UC', text: 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, jpeg artifacts, signature, watermark, username, blurry, bad feet, bad face, deformed, ugly, mutation, extra limbs' },
 ];
 
 const TEMPLATE_KEY = 'pf-templates-v1';
 
-// 主页「目标模型」的可选值：只是提示，随便填
-const TARGET_PRESETS = [  'SDXL',
-  'Stable Diffusion 1.5',
-  'Flux.1',
-  'NovelAI',
-  'Midjourney v6.1',
-  'DALL·E 3',
-  '即梦 / Seedream',
-  '通用',
-];
+// 本软件只对接 NovelAI V4.5 一套语法，不再让用户选版本。
+// 老的历史/草稿里可能还存着 targetModel，读进来一律忽略。
+const DEFAULT_TARGET = 'NovelAI V4.5';
 
 /* ============ 启动 ============ */
 document.addEventListener('DOMContentLoaded', () => {
   initLanguage();
   loadCustomTemplates();
   renderNegPresets();
-  renderStyleOptions();
   renderRefineChips();
   renderCharRefineChips();
   renderSegTypeChips();
@@ -469,23 +461,29 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshLibraryCount();
 });
 
-function renderStyleOptions() {
-  const sel = $('#styleSelect');
-  if (!sel) return;
-  if (!STYLES.some((x) => x.id === S.style)) S.style = 'sd';
-  sel.innerHTML = '';
-  for (const st of STYLES) {
-    const o = document.createElement('option');
-    o.value = st.id;
-    o.textContent = S.lang === 'en'
-      ? `${st.label} — ${st.descEn}`
-      : `${st.label} — ${st.desc}`;
-    sel.appendChild(o);
+// 详细程度现在是三个视图共用的唯一参数：三个下拉框只是同一份状态的三个人口。
+// 走 applyDetail 保证「在角色页改成丰富，切回工坊也是丰富」，不用各存一份。
+const DETAIL_IDS = ['#detail', '#charDetail', '#segDetail'];
+
+function applyDetail(value) {
+  const v = ['short', 'standard', 'rich'].includes(value) ? value : 'standard';
+  S.detail = v;
+  for (const id of DETAIL_IDS) {
+    const el = $(id);
+    if (el) el.value = v;
   }
-  sel.value = S.style;
-  sel.addEventListener('change', () => {
-    S.style = sel.value;
-  });
+}
+
+// 表述方式同理：工坊一个、角色设定一个，共享 S.format
+const FORMAT_IDS = ['#format', '#charFormat'];
+
+function applyFormat(value) {
+  const v = value === 'mixed' ? 'mixed' : 'tags';
+  S.format = v;
+  for (const id of FORMAT_IDS) {
+    const el = $(id);
+    if (el) el.value = v;
+  }
 }
 
 function loadCustomTemplates() {
@@ -515,11 +513,7 @@ function applyPromptTemplate(t) {
   if (!t) return;
   $('#sentence').value = t.sentence || '';
   $('#extra').value = t.extra || '';
-  if (['short', 'standard', 'rich'].includes(t.detail)) $('#detail').value = t.detail;
-  if (STYLES.some((x) => x.id === t.style)) {
-    S.style = t.style;
-    $('#styleSelect').value = t.style;
-  }
+  if (['short', 'standard', 'rich'].includes(t.detail)) applyDetail(t.detail);
   $('#promptAspect').value = t.aspect || 'auto';
   $('#promptShot').value = t.shot || 'auto';
   refreshCounter();
@@ -600,7 +594,8 @@ function saveCurrentTemplate() {
     sentence,
     extra: $('#extra').value.trim(),
     style: S.style,
-    detail: $('#detail').value,
+    format: S.format,
+    detail: S.detail,
     aspect: $('#promptAspect').value,
     shot: $('#promptShot').value,
     custom: true,
@@ -810,10 +805,8 @@ function applyConfig(cfg, opts = {}) {
   if (!opts.skipPinInputs) {
     $('#pinPositive').value = cfg.pinnedPositive || '';
     $('#pinNegative').value = cfg.pinnedNegative || '';
-    // 规则包同理：保存回包和档案切换都不重绘，免得冲掉正在编辑的内容
-    $('#cfgRulePacksOn').checked = cfg.rulePacksOn !== false;
-    renderRulePacks(cfg.rulePacks || []);
-    syncUnrestrictedForm(cfg);
+    // 破限词的编辑态也同理：保存回包和档案切换都不重绘正文，免得冲掉正在编辑的内容
+    syncJailbreakForm(cfg);
   }
   $('#pinEnabled').checked = cfg.pinEnabled !== false;
   $('#pinbox').classList.toggle('off', !$('#pinEnabled').checked);
@@ -826,7 +819,7 @@ function applyConfig(cfg, opts = {}) {
   S.serverStale = !(features.segment && features.import && features.state
     && features.favorite && features.savedSearch && features.backup
     && features.trash && features.profiles && features.variants && features.worlds
-    && features.rulePacks && features.unrestricted);
+    && features.jailbreak);
 
   if (S.serverStale) {
     if (!S.staleNotified) {
@@ -922,9 +915,10 @@ function collectDraftSnapshot() {
     sentence: $('#sentence')?.value || '',
     extra: $('#extra')?.value || '',
     style: S.style,
-    targetModel: $('#targetModel')?.value || '',
-    language: $('#language')?.value || 'en',
-    detail: $('#detail')?.value || 'standard',
+    format: S.format,
+    targetModel: DEFAULT_TARGET,
+    language: 'en',
+    detail: S.detail,
     aspect: $('#promptAspect')?.value || 'auto',
     shot: $('#promptShot')?.value || 'auto',
   };
@@ -974,6 +968,7 @@ function collectDraftSnapshot() {
       historyAt: S.segMeta?.historyAt || null,
       targetModel: S.segMeta?.targetModel || '',
       style: S.segMeta?.style || S.style,
+      format: S.format,
     };
   }
   if (S.segBatch?.results && Object.keys(S.segBatch.results).length) {
@@ -1024,13 +1019,8 @@ function loadDrafts() {
     refreshCounter();
   }
   if (p.extra) $('#extra').value = p.extra;
-  if (STYLES.some((x) => x.id === p.style)) {
-    S.style = p.style;
-    $('#styleSelect').value = p.style;
-  }
-  if (p.targetModel) $('#targetModel').value = p.targetModel;
-  if (['en', 'zh'].includes(p.language)) $('#language').value = p.language;
-  if (['short', 'standard', 'rich'].includes(p.detail)) $('#detail').value = p.detail;
+  if (['short', 'standard', 'rich'].includes(p.detail)) applyDetail(p.detail);
+  if (p.format) applyFormat(p.format);
   if (p.aspect) $('#promptAspect').value = p.aspect;
   if (p.shot) $('#promptShot').value = p.shot;
   if (p.result) {
@@ -1039,8 +1029,9 @@ function loadDrafts() {
       S.current = {
         sentence: p.result.sentence || p.sentence || '',
         style: S.style,
+        format: S.format,
         targetModel: p.targetModel || '',
-        language: p.result.language || $('#language').value,
+        language: p.result.language || 'en',
         detail: p.detail || 'standard',
         parsed: stack.current,
         raw: '',
@@ -1113,6 +1104,7 @@ function loadDrafts() {
         type: S.segType,
         targetModel: s.result.targetModel || '',
         style: s.result.style || S.style,
+        format: S.format,
         at: Date.now(),
         historyAt: s.result.historyAt || null,
       };
@@ -1150,9 +1142,10 @@ function variantPayload() {
   return {
     sentence: $('#sentence').value.trim(),
     style: S.style,
-    targetModel: $('#targetModel').value.trim(),
-    language: $('#language').value,
-    detail: $('#detail').value,
+    format: S.format,
+    targetModel: DEFAULT_TARGET,
+    language: 'en',
+    detail: S.detail,
     extra: $('#extra').value.trim(),
     aspect: $('#promptAspect').value,
     shot: $('#promptShot').value,
@@ -1339,11 +1332,10 @@ function selectVariant(i) {
   if (!r?.parsed) return;
   const payload = S.variantPayload || variantPayload();
   const parsed = cloneData(r.parsed);
-  S.style = payload.style;
-  $('#styleSelect').value = payload.style;
   S.current = {
     sentence: payload.sentence,
     style: payload.style,
+    format: S.format,
     targetModel: payload.targetModel,
     language: payload.language,
     detail: payload.detail,
@@ -1478,7 +1470,8 @@ async function runExpand() {
           mode: t.mode,
           extra: $(t.extra)?.value?.trim() || '',
           style: S.style,
-          targetModel: $('#targetModel').value.trim(),
+          format: S.format,
+          targetModel: DEFAULT_TARGET,
         }),
       });
       j = await r.json().catch(() => ({}));
@@ -1559,21 +1552,31 @@ function renderWorlds() {
   }
 }
 
+// 进入世界的唯一入口：把生成页的状态一起清干净，
+// 否则切到另一个世界后会看到上一个世界的旧结果（以前就是 openWorld 之外没人清）
+function enterWorld(world) {
+  S.currentWorld = world;
+  S.worldTab = 'settings';
+  S.worldCat = 'all';
+  S.worldGen = null;
+  S.worldGenEntryIds = [];
+  S.worldMutex = '';
+  S.worldAiDirections = [];
+  $('#worldGenSentence').value = '';
+  $('#worldGenEntries').innerHTML = '';
+  $('#worldGenResult').hidden = true;
+  $('#worldGenEmpty').hidden = false;
+  $('#worldGenErr').hidden = true;
+  if ($('#worldGenMutexRow')) $('#worldGenMutexRow').hidden = true;
+  $('#worldListView').hidden = true;
+  $('#worldDetailView').hidden = false;
+  renderWorldDetail();
+}
+
 async function openWorld(id) {
   try {
     const j = await worldApi(`/${encodeURIComponent(id)}`);
-    S.currentWorld = j.world;
-    S.worldTab = 'settings';
-    S.worldCat = 'all';
-    S.worldGen = null;
-    S.worldGenEntryIds = [];
-    $('#worldGenSentence').value = '';
-    $('#worldGenEntries').innerHTML = '';
-    $('#worldGenResult').hidden = true;
-    $('#worldGenEmpty').hidden = false;
-    $('#worldListView').hidden = true;
-    $('#worldDetailView').hidden = false;
-    renderWorldDetail();
+    enterWorld(j.world);
   } catch (err) {
     toast(`打开设定集失败：${err.message}`, true);
   }
@@ -1680,12 +1683,10 @@ async function saveWorldEdit() {
       S.currentWorld = j.world;
     } else {
       j = await worldApi('', { method: 'POST', body: JSON.stringify(payload) });
-      S.currentWorld = j.world;
+      S.worldDraftId = null;
     }
     $('#worldEditDialog').close();
-    $('#worldListView').hidden = true;
-    $('#worldDetailView').hidden = false;
-    renderWorldDetail();
+    enterWorld(j.world);
     loadWorlds();
     toast('设定集已保存');
   } catch (err) {
@@ -1737,11 +1738,24 @@ async function importWorldFile(file) {
 // ----- AI 世界 -----
 async function ensureWorldDraft() {
   if (S.currentWorld?.id) return S.currentWorld;
+  // 复用上一次的草稿：以前每点一次「生成方向」都会新建一个空世界
+  if (S.worldDraftId) {
+    try {
+      const j = await worldApi(`/${encodeURIComponent(S.worldDraftId)}`);
+      if (j.world) {
+        S.currentWorld = j.world;
+        return j.world;
+      }
+    } catch {
+      S.worldDraftId = null;
+    }
+  }
   const j = await worldApi('', {
     method: 'POST',
     body: JSON.stringify({ name: 'AI 世界草稿', genre: '', logline: '正在生成…' }),
   });
   S.currentWorld = j.world;
+  S.worldDraftId = j.world.id;
   return j.world;
 }
 
@@ -1757,13 +1771,63 @@ async function runWorldAiSeed() {
       method: 'POST',
       body: JSON.stringify({ task: 'seed', seeds }),
     });
-    S.worldAiDirections = j.directions || [];
+    S.worldAiDirections = Array.isArray(j.directions) ? j.directions : [];
     renderWorldAiDirections();
+    if (!S.worldAiDirections.length) {
+      showWorldAiError('模型没有返回任何世界方向，再点一次「生成方向」试试。');
+    }
   } catch (err) {
+    showWorldAiError(err.message || String(err));
     toast(`AI 生成失败：${err.message}`, true);
   } finally {
     btn.disabled = false;
     btn.textContent = '生成方向';
+  }
+}
+
+// 错误直接留在弹窗里：toast 三秒就没了，用户会以为「点了没反应」
+// 通用：把失败原因写进任意结果容器（toast 只留三秒，容易错过）
+function showBoxError(sel, message) {
+  const box = $(sel);
+  if (!box) return;
+  box.innerHTML = '';
+  const p = document.createElement('p');
+  p.className = 'world-ai-error';
+  p.textContent = message;
+  box.appendChild(p);
+}
+
+function showWorldAiError(message) {
+  const box = $('#worldAiResults');
+  if (!box) return;
+  box.innerHTML = '';
+  const p = document.createElement('p');
+  p.className = 'world-ai-error';
+  p.textContent = `生成失败：${message}`;
+  box.appendChild(p);
+}
+
+// 生成世界核心要 20-30 秒：按钮必须有加载态，否则看起来像没反应
+function setDirectionsBusy(busy, activeCard, statusText) {
+  document.querySelectorAll('#worldAiResults .world-ai-card').forEach((card) => {
+    const btn = card.querySelector('button');
+    if (!btn) return;
+    btn.disabled = busy;
+    if (!busy) btn.textContent = '用这个方向';
+  });
+  const box = $('#worldAiResults');
+  const old = box.querySelector('.world-ai-status');
+  if (old) old.remove();
+  if (!busy) return;
+  if (activeCard) {
+    const btn = activeCard.querySelector('button');
+    if (btn) { btn.disabled = true; btn.textContent = '生成世界核心中…'; }
+  }
+  if (statusText) {
+    const p = document.createElement('p');
+    p.className = 'world-ai-status';
+    p.textContent = statusText;
+    box.appendChild(p);
   }
 }
 
@@ -1776,21 +1840,38 @@ function renderWorldAiDirections() {
     card.innerHTML = `<b></b><p></p><button class="btn tiny primary" type="button">用这个方向</button>`;
     card.querySelector('b').textContent = d.name || `方向 ${i + 1}`;
     card.querySelector('p').textContent = [d.genre, d.logline, d.tone].filter(Boolean).join(' · ');
-    card.querySelector('button').addEventListener('click', () => chooseWorldDirection(d));
+    card.querySelector('button').addEventListener('click', () => chooseWorldDirection(d, card));
     box.appendChild(card);
   });
 }
 
-async function chooseWorldDirection(direction) {
+async function chooseWorldDirection(direction, card) {
+  if (S.worldCoreBusy) return;  // 连点只算一次
+  S.worldCoreBusy = true;
+  const ac = new AbortController();
+  S.worldCoreAbort = ac;
+
+  const started = Date.now();
+  let timer = null;
+  const tick = () => {
+    const sec = Math.round((Date.now() - started) / 1000);
+    const p = document.querySelector('#worldAiResults .world-ai-status');
+    if (p) p.textContent = `正在把「${direction.name || '这个方向'}」扩写成世界核心…已用 ${sec} 秒（通常 20-30 秒）`;
+  };
+  setDirectionsBusy(true, card, `正在把「${direction.name || '这个方向'}」扩写成世界核心…`);
+  timer = setInterval(tick, 1000);
+
   try {
     const w = await ensureWorldDraft();
     const j = await worldApi(`/${encodeURIComponent(w.id)}/ai`, {
       method: 'POST',
       body: JSON.stringify({ task: 'core', direction }),
+      signal: ac.signal,
     });
     const core = j || {};
     const updated = await worldApi(`/${encodeURIComponent(w.id)}`, {
       method: 'PUT',
+      signal: ac.signal,
       body: JSON.stringify({
         name: core.name || direction.name || w.name,
         genre: core.genre || direction.genre || '',
@@ -1801,16 +1882,21 @@ async function chooseWorldDirection(direction) {
         taboos: core.taboos || direction.taboos || '',
       }),
     });
-    S.currentWorld = updated.world;
+    if (ac.signal.aborted) return;   // 用户中途关掉了弹窗，就别再动界面
+    S.worldDraftId = null;           // 已经是正式世界了，下次起草重新建草稿
     $('#worldAiDialog').close();
-    S.worldTab = 'settings';
-    $('#worldListView').hidden = true;
-    $('#worldDetailView').hidden = false;
-    renderWorldDetail();
+    enterWorld(updated.world);
     loadWorlds();
     toast('AI 世界已创建');
   } catch (err) {
-    toast(`生成世界核心失败：${err.message}`, true);
+    if (ac.signal.aborted || err.name === 'AbortError') return;
+    showWorldAiError(`扩写世界核心失败：${err.message}`);
+    toast('生成世界核心失败，详情见弹窗', true);
+  } finally {
+    if (timer) clearInterval(timer);
+    S.worldCoreBusy = false;
+    S.worldCoreAbort = null;
+    setDirectionsBusy(false);
   }
 }
 
@@ -1944,10 +2030,12 @@ async function runEntryAi() {
         count: Number($('#entryAiCount').value),
       }),
     });
-    S.entryAiCandidates = j.entries || [];
+    S.entryAiCandidates = Array.isArray(j.entries) ? j.entries : [];
     renderEntryAiCandidates();
+    if (!S.entryAiCandidates.length) showBoxError('#entryAiResults', '模型没有返回任何候选条目，再点一次「生成」试试。');
   } catch (err) {
-    toast(`AI 生成失败：${err.message}`, true);
+    showBoxError('#entryAiResults', `生成候选条目失败：${err.message}`);
+    toast('AI 生成失败，详情见弹窗', true);
   } finally {
     btn.disabled = false;
     btn.textContent = '生成';
@@ -1977,6 +2065,9 @@ async function adoptEntryAi(index, card) {
     category: $('#entryAiCategory').value,
     status: 'suggested',
   }];
+  const btn = card.querySelector('button');
+  btn.disabled = true;  // 请求期间锁住，避免同一条被采纳两次
+  btn.textContent = '采纳中…';
   try {
     const j = await worldApi(`/${encodeURIComponent(w.id)}`, {
       method: 'PUT',
@@ -1984,10 +2075,12 @@ async function adoptEntryAi(index, card) {
     });
     S.currentWorld = j.world;
     renderWorldSettings();
-    card.querySelector('button').disabled = true;
-    card.querySelector('button').textContent = '已采纳';
+    btn.textContent = '已采纳';
     toast('已加入设定集');
   } catch (err) {
+    btn.disabled = false;
+    btn.textContent = '采纳';
+    showBoxError('#entryAiResults', `采纳失败：${err.message}`);
     toast(`采纳失败：${err.message}`, true);
   }
 }
@@ -1999,16 +2092,7 @@ function worldSelectedEntryIds() {
 
 function renderWorldGenerate() {
   const w = S.currentWorld;
-  const sel = $('#worldGenStyle');
-  if (!sel.options.length) {
-    for (const s of STYLES) {
-      const o = document.createElement('option');
-      o.value = s.id;
-      o.textContent = S.lang === 'en' ? (s.nameEn || s.name) : s.name;
-      sel.appendChild(o);
-    }
-    sel.value = S.style || 'sd';
-  }
+  // 风格固定为 NAI，#worldGenStyle 在页面里是个 hidden input，不再建下拉
   $('#worldGenEntries').innerHTML = '';
   for (const e of w.entries || []) {
     const b = document.createElement('button');
@@ -2037,13 +2121,20 @@ function refreshWorldGenBased() {
   const ids = worldSelectedEntryIds();
   const names = (w?.entries || []).filter((e) => ids.includes(e.id)).map((e) => e.name);
   $('#worldGenBased').textContent = `基于：${w?.name || ''}${names.length ? ' / ' + names.join(' / ') : ''}`;
+  // 条目集合没变就别重建下拉：以前每点一个 chip 都会把用户选好的「写入条目」重置掉
   const sel = $('#worldRefEntry');
-  sel.innerHTML = '';
-  for (const e of w?.entries || []) {
-    const o = document.createElement('option');
-    o.value = e.id;
-    o.textContent = e.name;
-    sel.appendChild(o);
+  const prev = sel.value;
+  const sig = (w?.entries || []).map((e) => e.id).join('|');
+  if (sel.dataset.sig !== sig) {
+    sel.innerHTML = '';
+    for (const e of w?.entries || []) {
+      const o = document.createElement('option');
+      o.value = e.id;
+      o.textContent = e.name;
+      sel.appendChild(o);
+    }
+    sel.dataset.sig = sig;
+    if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
   }
 }
 
@@ -2100,6 +2191,7 @@ async function generateWorldPrompt() {
         entryIds,
         task: $('#worldGenTask').value,
         style: $('#worldGenStyle').value,
+        format: S.format,
         aspect: $('#worldGenAspect').value,
         shot: $('#worldGenShot').value,
       }),
@@ -2171,6 +2263,53 @@ function renderWorldGenResult() {
   $('#worldGenStatus').textContent = '';
   const names = (S.currentWorld.entries || []).filter((e) => worldSelectedEntryIds().includes(e.id)).map((e) => e.name);
   $('#worldGenBased').textContent = `基于：${S.currentWorld.name}${names.length ? ' / ' + names.join(' / ') : ''}`;
+  refreshWorldMutex();
+}
+
+// 两个以上条目同框时，自动生成「排斥彼此特征」的负权重串。
+// 只在本地算，不调模型；条目一个都没选或只选一个就藏起来。
+async function refreshWorldMutex() {
+  const row = $('#worldGenMutexRow');
+  if (!row) return;
+  const ids = worldSelectedEntryIds();
+  const entries = (S.currentWorld?.entries || []).filter((e) => ids.includes(e.id));
+  S.worldMutex = '';
+  if (entries.length < 2) {
+    row.hidden = true;
+    return;
+  }
+  try {
+    const res = await fetch('/api/compile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        positive: S.worldGen?.positive || '1girl, solo',
+        negative: S.worldGen?.negative || '',
+        targetModel: DEFAULT_TARGET,
+        entries: entries.map((e) => ({
+          name: e.name,
+          summary: e.summary,
+          visualAnchors: e.visualAnchors,
+          taboos: e.taboos,
+        })),
+      }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    S.worldMutex = data.mutexUc || '';
+    if (!S.worldMutex) {
+      row.hidden = true;
+      return;
+    }
+    $('#worldGenMutex').textContent = S.worldMutex;
+    const cnt = $('#worldGenMutexCount');
+    cnt.textContent = `${entries.length} 人`;
+    cnt.hidden = false;
+    row.hidden = false;
+  } catch {
+    row.hidden = true;
+  }
+  return undefined;
 }
 
 function renderWorldGenHistory() {
@@ -2189,6 +2328,7 @@ function renderWorldGenHistory() {
     row.addEventListener('click', () => {
       S.worldGen = { ...g, parsed: { positive: g.positive, negative: g.negative, params: g.params } };
       renderWorldGenResult();
+      refreshWorldMutex();  // 历史结果换了，互斥串也要跟着换
     });
     box.appendChild(row);
   }
@@ -2262,9 +2402,10 @@ async function generate(opts = {}) {
         ? {
           prompt: importPrompt,
           style: S.style,
-          targetModel: $('#targetModel').value.trim(),
-          language: $('#language').value,
-          detail: $('#detail').value,
+          format: S.format,
+          targetModel: DEFAULT_TARGET,
+          language: 'en',
+          detail: S.detail,
           extra: importExtra,
           aspect: $('#promptAspect').value,
           shot: $('#promptShot').value,
@@ -2272,9 +2413,10 @@ async function generate(opts = {}) {
         : {
           sentence,
           style: S.style,
-          targetModel: $('#targetModel').value.trim(),
-          language: $('#language').value,
-          detail: $('#detail').value,
+          format: S.format,
+          targetModel: DEFAULT_TARGET,
+          language: 'en',
+          detail: S.detail,
           extra: $('#extra').value.trim(),
           aspect: $('#promptAspect').value,
           shot: $('#promptShot').value,
@@ -2330,9 +2472,10 @@ async function generate(opts = {}) {
     S.current = {
       sentence,
       style: S.style,
-      targetModel: $('#targetModel').value.trim(),
-      language: $('#language').value,
-      detail: $('#detail').value,
+      format: S.format,
+      targetModel: DEFAULT_TARGET,
+      language: 'en',
+      detail: S.detail,
       parsed,
       raw: acc,
       at: Date.now(),
@@ -2351,7 +2494,7 @@ async function generate(opts = {}) {
       renderRaw(acc);
       showErr('模型返回的不是标准 JSON，已按原文展示。可以点「重新生成」再试一次。');
     } else {
-      renderResult(parsed, { sentence, raw: acc, language: $('#language').value });
+      renderResult(parsed, { sentence, raw: acc, language: 'en' });
     }
 
     if (parsed && parsed.positive) {
@@ -2442,8 +2585,9 @@ function pinOn() {
 }
 
 // 只有标签流风格才做去重；自然语言风格直接拼，避免把句子切坏
-function isTagStyle(style) {
-  return style === 'sd' || style === 'anime';
+// NAI 只有标签流这一种形态，置顶词永远按标签方式去重拼接
+function isTagStyle(/* style */) {
+  return true;
 }
 
 // 判断正文实际是中文还是英文。结果徽章要反映「生成时」的语言，
@@ -2512,8 +2656,6 @@ function renderResult(parsed, meta = {}) {
   badges.innerHTML = '';
   if (parsed.params.aspect_ratio) badges.appendChild(badge(parsed.params.aspect_ratio, true));
   if (parsed.params.suggested_model) badges.appendChild(badge(parsed.params.suggested_model, false));
-  const st = STYLES.find((x) => x.id === S.style);
-  if (st) badges.appendChild(badge(st.label, false));
   const lang = meta.language || S.current?.language || textLanguage(parsed.positive);
   badges.appendChild(badge(lang === 'zh' ? '中文' : '英文', false));
   if (S.current?.edited) badges.appendChild(badge('已手改', true));
@@ -2539,13 +2681,109 @@ function renderResult(parsed, meta = {}) {
   }
 
   S.rendered = { positive: p.positive, negative: p.negative, extra };
+  refreshNaiPolish();
   $('#refineBar').hidden = false;
   updateRefineUi();
   updatePromptEditUi();
   scheduleDraftSave();
 }
 
+/* ============ NAI 整理：纯本地规则，不调模型 ============ */
+
+// 模型吐出来的是「像 NAI 的标签」，但顺序、大小写、重复、UC 组成经常不对。
+// 这一步把它过成真正的 NAI 规范：小写、去重、按 danbooru 习惯重排、补画质词、清掉别家参数，
+// 再按人数 / 分级 / 年龄 / 物种自动组装 UC。全程不联网，所以每次生成后都能顺手跑一遍。
+function hideNaiCards() {
+  const c1 = $('#cardNai');
+  const c2 = $('#cardIssues');
+  if (c1) c1.hidden = true;
+  if (c2) c2.hidden = true;
+}
+
+async function refreshNaiPolish() {
+  const r = S.rendered;
+  if (!r || (!r.positive && !r.negative)) return hideNaiCards();
+  const target = DEFAULT_TARGET;
+  try {
+    const res = await fetch('/api/compile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ positive: r.positive, negative: r.negative, targetModel: target, format: S.format }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    S.nai = data;
+    renderNaiPolish(data);
+  } catch {
+    // 旧服务端没有 /api/compile：静默隐藏，不打扰正常用
+    S.nai = null;
+    hideNaiCards();
+  }
+  return undefined;
+}
+
+function renderNaiPolish(d) {
+  if (!d || !d.positive) return hideNaiCards();
+
+  $('#naiPositive').textContent = d.positive || '（无）';
+  $('#naiNegative').textContent = d.negative || '（无）';
+
+  const notes = $('#naiNotes');
+  notes.innerHTML = '';
+  for (const n of d.notes || []) {
+    const s = document.createElement('span');
+    s.className = 'nai-note';
+    s.textContent = n;
+    notes.appendChild(s);
+  }
+  notes.hidden = !(d.notes || []).length;
+  $('#cardNai').hidden = false;
+
+  const badgeEl = $('#naiSceneBadge');
+  if (d.scene) {
+    const bits = [`${d.scene.total || 1} 人`, `${d.scene.rating} 级`];
+    if (d.scene.nonhuman) bits.push('非人形');
+    badgeEl.textContent = bits.join(' · ');
+    badgeEl.hidden = false;
+  } else {
+    badgeEl.hidden = true;
+  }
+
+  // 体检
+  const issues = (d.report?.issues) || [];
+  const list = $('#issueList');
+  list.innerHTML = '';
+  for (const it of issues) {
+    const li = document.createElement('li');
+    li.className = `issue issue-${it.level}`;
+    li.textContent = it.msg;
+    list.appendChild(li);
+  }
+  const cnt = $('#issueCount');
+  const errors = issues.filter((i) => i.level === 'error').length;
+  const warns = issues.filter((i) => i.level === 'warn').length;
+  cnt.textContent = issues.length ? `${errors} 错 / ${warns} 警` : '通过';
+  cnt.hidden = false;
+  cnt.classList.toggle('warn', errors > 0);
+  $('#cardIssues').hidden = !issues.length;
+  return undefined;
+}
+
+function applyNaiPolish() {
+  if (!S.nai || !S.rendered) return;
+  S.rendered = { ...S.rendered, positive: S.nai.positive, negative: S.nai.negative };
+  $('#outPositive').textContent = S.rendered.positive || '（无）';
+  $('#outNegative').textContent = S.rendered.negative || '（无）';
+  if (S.current) S.current.edited = true;
+  updatePromptEditUi();
+  scheduleDraftSave();
+  toast('已应用 NAI 整理版');
+}
+
 function renderRaw(raw) {
+  // 解析失败时没有可信的正负向，整理卡片必须清掉，否则会显示上一轮的结果
+  S.nai = null;
+  hideNaiCards();
   $('#empty').hidden = true;
   $('#cards').hidden = false;
   $('#refineBar').hidden = true;
@@ -2656,9 +2894,6 @@ function promptMarkdown() {
 
   if (cur?.imported && cur.importPrompt) lines.push(`> 原始提示词：${cur.importPrompt}`);
   else if (cur?.sentence) lines.push(`> 原始描述：${cur.sentence}`);
-  const st = STYLES.find((x) => x.id === (cur?.style || S.style));
-  if (st) lines.push(`> 风格：${st.label}`);
-  if (cur?.targetModel) lines.push(`> 目标模型：${cur.targetModel}`);
 
   lines.push('', '## 正向提示词', '', r.positive || '');
   lines.push('', '## 负向提示词', '', r.negative || '');
@@ -3189,9 +3424,9 @@ async function buildBackupPackage() {
       pinnedPositive: cfg.pinnedPositive || '',
       pinnedNegative: cfg.pinnedNegative || '',
       pinEnabled: cfg.pinEnabled !== false,
-      rulePacks: Array.isArray(cfg.rulePacks) ? cloneData(cfg.rulePacks) : [],
-      rulePacksOn: cfg.rulePacksOn !== false,
-      unrestrictedOn: cfg.unrestrictedOn === true,
+      jailbreakOn: cfg.jailbreakOn !== false,
+      // 破限词原文一并带走：换机器时自定义正文不丢
+      jailbreakPrompt: typeof cfg.jailbreakPrompt === 'string' ? cfg.jailbreakPrompt : '',
     },
   };
 }
@@ -3305,8 +3540,8 @@ async function applyBackupPackage(pkg, mode, opts = {}) {
 
   if (opts.applySettings && pkg.settings && typeof pkg.settings === 'object') {
     const allowed = ['baseURL', 'model', 'temperature', 'maxTokens', 'timeoutSec', 'topP', 'stream', 'jsonMode',
-      'pinnedPositive', 'pinnedNegative', 'pinEnabled', 'rulePacks', 'rulePacksOn',
-      'unrestrictedOn'];
+      'pinnedPositive', 'pinnedNegative', 'pinEnabled',
+      'jailbreakOn', 'jailbreakPrompt'];
     const patch = {};
     for (const k of allowed) if (k in pkg.settings) patch[k] = pkg.settings[k];
     await saveConfigPatch(patch);
@@ -3595,6 +3830,7 @@ function loadSavedPrompt(meta, fallbackTitle) {
   S.current = {
     sentence: str(meta.sentence),
     style: meta.style || 'sd',
+    format: S.format,
     targetModel: str(meta.targetModel),
     language: textLanguage(parsed.positive),
     parsed,
@@ -3606,9 +3842,6 @@ function loadSavedPrompt(meta, fallbackTitle) {
     edited: false,
     pinsBaked: true,   // 保存时置顶词已经拼进去了，别再拼一次
   };
-  S.style = STYLES.some((x) => x.id === meta.style) ? meta.style : 'sd';
-  $('#styleSelect').value = S.style;
-  if (meta.targetModel) $('#targetModel').value = meta.targetModel;
   if (meta.sentence) {
     $('#sentence').value = meta.sentence;
     refreshCounter();
@@ -3673,9 +3906,6 @@ function loadSavedSegment(meta, fallbackTitle) {
   S.segType = type;
   document.querySelectorAll('#segTypeChips .chip').forEach((c) => c.classList.toggle('active', c.dataset.id === type));
 
-  const savedStyle = STYLES.some((x) => x.id === meta.style) ? meta.style : S.style;
-  S.style = savedStyle;
-  $('#styleSelect').value = savedStyle;
   S.segData = d;
   S.segSentence = str(meta.sentence);
   S.segStack = [d];
@@ -3684,7 +3914,8 @@ function loadSavedSegment(meta, fallbackTitle) {
     sentence: S.segSentence,
     type,
     targetModel: str(meta.targetModel),
-    style: savedStyle,
+    style: NAI_STYLE,
+    format: S.format,
     at: Date.now(),
     historyAt: null,
   };
@@ -3695,9 +3926,6 @@ function loadSavedSegment(meta, fallbackTitle) {
   if (S.segSentence) {
     $('#segSentence').value = S.segSentence;
     refreshCounter();
-  }
-  if (meta.targetModel) {
-    $('#targetModel').value = meta.targetModel;
   }
 
   switchView('segment');
@@ -3800,6 +4028,7 @@ function pushHistory(item) {
     kind: 'prompt',
     sentence: item.sentence,
     style: item.style,
+    format: S.format,
     positive: item.parsed.positive,
     negative: item.parsed.negative,
     title: item.parsed.title,
@@ -3833,8 +4062,9 @@ function pushCharacterHistory() {
     prompt_en: d.en,
     prompt_zh: d.zh || '',
     aspect_ratio: d.aspect || '',
-    targetModel: $('#targetModel').value.trim(),
+    targetModel: DEFAULT_TARGET,
     style: S.style,
+    format: S.format,
     favorite: false,
     at,
   });
@@ -4019,11 +4249,6 @@ function restoreHistoryEntry(h) {
     }
     const aspects = ['auto', '1:1', '3:4', '2:3', '16:9', '9:16'];
     $('#charAspect').value = aspects.includes(h.aspect_ratio) ? h.aspect_ratio : 'auto';
-    if (h.targetModel) $('#targetModel').value = h.targetModel;
-    if (STYLES.some((x) => x.id === h.style)) {
-      S.style = h.style;
-      $('#styleSelect').value = h.style;
-    }
     switchView('character');
     renderCharacters(d);
     $('#btnCharSave').disabled = false;
@@ -4045,10 +4270,7 @@ function restoreHistoryEntry(h) {
     const type = SEG_TYPES.some((t) => t.id === h.segmentType) ? h.segmentType : 'outfit';
     S.segType = type;
     document.querySelectorAll('#segTypeChips .chip').forEach((c) => c.classList.toggle('active', c.dataset.id === type));
-    const savedStyle = STYLES.some((x) => x.id === h.style) ? h.style : S.style;
-    S.style = savedStyle;
-    $('#styleSelect').value = savedStyle;
-    S.segData = d;
+      S.segData = d;
     S.segSentence = h.sentence || '';
     S.segStack = [d];
     S.segVIndex = 0;
@@ -4056,7 +4278,8 @@ function restoreHistoryEntry(h) {
       sentence: S.segSentence,
       type,
       targetModel: h.targetModel || '',
-      style: savedStyle,
+      style: NAI_STYLE,
+      format: S.format,
       at: h.at,
       historyAt: h.at,
     };
@@ -4067,8 +4290,7 @@ function restoreHistoryEntry(h) {
       $('#segSentence').value = S.segSentence;
       refreshCounter();
     }
-    if (h.targetModel) $('#targetModel').value = h.targetModel;
-    switchView('segment');
+      switchView('segment');
     renderSegment(d);
     closeDrawer();
     return;
@@ -4099,6 +4321,7 @@ function restoreHistoryEntry(h) {
   S.current = {
     sentence: h.sentence,
     style: h.style || 'sd',
+    format: S.format,
     targetModel: h.targetModel || '',
     language: lang,
     parsed: currentParsed,
@@ -4112,8 +4335,6 @@ function restoreHistoryEntry(h) {
     importPrompt: h.importPrompt || '',
     importExtra: h.importExtra || '',
   };
-  S.style = STYLES.some((x) => x.id === h.style) ? h.style : 'sd';
-  $('#styleSelect').value = S.style;
   switchView('prompt');
   $('#empty').hidden = true;
   renderResult(currentParsed, { sentence: h.sentence, language: lang });
@@ -4405,8 +4626,9 @@ async function refineCharacter(instructionArg) {
         instruction,
         previous: { prompt_en: cur.en, prompt_zh: cur.zh, aspect: cur.aspect },
         style: S.style,
-        targetModel: $('#targetModel').value.trim(),
-        detail: $('#detail').value,
+        format: S.format,
+        targetModel: DEFAULT_TARGET,
+        detail: S.detail,
       }),
       signal: S.charAbort.signal,
     });
@@ -4525,8 +4747,9 @@ async function generateCharacters() {
         count: $('#charCount').value,
         aspect: $('#charAspect').value,
         style: S.style,
-        targetModel: $('#targetModel').value.trim(),
-        detail: $('#detail').value,
+        format: S.format,
+        targetModel: DEFAULT_TARGET,
+        detail: S.detail,
       }),
       signal: S.charAbort.signal,
     });
@@ -4691,9 +4914,10 @@ async function generateSegment() {
       body: JSON.stringify({
         sentence,
         segmentType: S.segType,
-        targetModel: $('#targetModel').value.trim(),
-        detail: $('#detail').value,
+        targetModel: DEFAULT_TARGET,
+        detail: S.detail,
         style: S.style,
+        format: S.format,
         extra: $('#segExtra').value.trim(),
       }),
       signal: S.segAbort.signal,
@@ -4753,8 +4977,9 @@ async function generateSegment() {
     S.segMeta = {
       sentence,
       type: S.segType,
-      targetModel: $('#targetModel').value.trim(),
+      targetModel: DEFAULT_TARGET,
       style: S.style,
+      format: S.format,
       at: Date.now(),
       historyAt: null,
     };
@@ -4801,7 +5026,7 @@ function renderSegment(d) {
   $('#segStream').hidden = true;
   wrap.hidden = false;
 
-  const meta = S.segMeta || { type: S.segType, targetModel: $('#targetModel').value.trim(), style: S.style };
+  const meta = S.segMeta || { type: S.segType, targetModel: DEFAULT_TARGET, style: S.style };
   const type = SEG_TYPES.some((t) => t.id === meta.type) ? meta.type : 'outfit';
 
   const head = document.createElement('div');
@@ -4815,7 +5040,6 @@ function renderSegment(d) {
   badges.className = 'badges';
   badges.appendChild(badge(segTypeLabel(type), true));
   badges.appendChild(badge(`${countTags(d.tags)} 个标签`, false));
-  if (meta.targetModel && meta.targetModel !== '通用') badges.appendChild(badge(meta.targetModel, false));
   if (S.segEdited) badges.appendChild(badge('已手改', true));
   head.appendChild(badges);
   wrap.appendChild(head);
@@ -4854,9 +5078,6 @@ function segmentMarkdown() {
   const lines = [];
   if (meta.sentence) lines.push(`> 原始描述：${meta.sentence}`);
   lines.push(`> 细分类型：${segTypeLabel(meta.type)}`);
-  const style = STYLES.find((x) => x.id === meta.style);
-  if (style) lines.push(`> 提示词风格：${style.label}`);
-  if (meta.targetModel && meta.targetModel !== '通用') lines.push(`> 目标模型：${meta.targetModel}`);
 
   lines.push('', '## 标签组合', '', d.tags || '');
   if (d.translation) lines.push('', '## 中文对照', '', d.translation);
@@ -4873,6 +5094,7 @@ function pushSegmentHistory() {
     segmentType: meta.type || S.segType,
     targetModel: meta.targetModel || '',
     style: meta.style || S.style,
+    format: S.format,
     title: d.title || '细分标签',
     tags: d.tags || '',
     translation: d.translation || '',
@@ -4977,8 +5199,9 @@ async function refineSegment(instructionArg) {
         instruction,
         previous: { tags: cur.tags, translation: cur.translation },
         segmentType: S.segMeta?.type || S.segType,
-        targetModel: S.segMeta?.targetModel || $('#targetModel').value.trim(),
+        targetModel: S.segMeta?.targetModel || DEFAULT_TARGET,
         style: S.segMeta?.style || S.style,
+        format: S.format,
       }),
       signal: S.segAbort.signal,
     });
@@ -5074,9 +5297,10 @@ async function requestSegmentOnce(type, sentence, extra, onDelta) {
     body: JSON.stringify({
       sentence,
       segmentType: type,
-      targetModel: $('#targetModel').value.trim(),
-      detail: $('#detail').value,
+      targetModel: DEFAULT_TARGET,
+      detail: S.detail,
       style: S.style,
+      format: S.format,
       extra,
     }),
     signal: S.segAbort.signal,
@@ -5561,7 +5785,7 @@ function boardMarkdown(tags) {
   lines.push(`> 组成：${list.map((x) => segTypeLabel(x.type)).join(' / ')}`);
   const first = list[0];
   if (first?.sentence) lines.push(`> 原始描述：${first.sentence}`);
-  const target = $('#targetModel').value.trim();
+  const target = DEFAULT_TARGET;
   if (target && target !== '通用') lines.push(`> 目标模型：${target}`);
 
   lines.push('', '## 正向提示词', '', tags);
@@ -5684,7 +5908,8 @@ async function saveBoardToLibrary(btn) {
   await saveToLocal('prompt', title, boardMarkdown(tags), {
     sentence: first.sentence || '',
     style: S.style,
-    targetModel: $('#targetModel').value.trim(),
+    format: S.format,
+    targetModel: DEFAULT_TARGET,
     positive: tags,
     negative: '',
     translation: '',
@@ -6108,19 +6333,6 @@ function promptCopyText() {
       keywords: p.keywords || [],
     }, null, 2);
   }
-  if (mode === 'mj') {
-    const params = p.params || {};
-    const extra = String(params.extra || '').trim();
-    let text = r.positive || '';
-    if (params.aspect_ratio && !/--ar\b/.test(extra) && !/--ar\b/.test(text)) {
-      text += ` --ar ${params.aspect_ratio}`;
-    }
-    if (extra) text += ` ${extra}`;
-    if (r.negative && !/--no\b/.test(extra) && !/--no\b/.test(text)) {
-      text += ` --no ${r.negative}`;
-    }
-    return text.trim();
-  }
   return `Positive prompt: ${r.positive || ''}\n\nNegative prompt: ${r.negative || ''}`;
 }
 
@@ -6178,8 +6390,9 @@ async function refine(instructionArg) {
           params: cur.parsed.params,
         },
         style: cur.style || S.style,
-        targetModel: cur.targetModel || $('#targetModel').value.trim(),
-        language: cur.language || $('#language').value,
+        format: S.format,
+        targetModel: cur.targetModel || DEFAULT_TARGET,
+        language: cur.language || 'en',
       }),
       signal: S.abort.signal,
     });
@@ -6383,7 +6596,7 @@ function bind() {
   window.addEventListener('pagehide', flushStateBeacons);
 
   // 三个模式的输入变化都进本机草稿
-  ['#sentence', '#extra', '#styleSelect', '#targetModel', '#language', '#detail', '#promptAspect', '#promptShot',
+  ['#sentence', '#extra', '#promptAspect', '#promptShot',
     '#charSentence', '#charExtra', '#charCount', '#charAspect',
     '#segSentence', '#segExtra'].forEach((sel) => {
     const el = $(sel);
@@ -6391,6 +6604,28 @@ function bind() {
     el.addEventListener('input', () => scheduleDraftSave(true));
     el.addEventListener('change', () => scheduleDraftSave(true));
   });
+
+  // 三个「详细程度」入口写同一份状态
+  for (const id of DETAIL_IDS) {
+    const el = $(id);
+    if (!el) continue;
+    el.addEventListener('change', (e) => {
+      applyDetail(e.target.value);
+      scheduleDraftSave(true);
+    });
+  }
+  applyDetail(S.detail);
+
+  // 表述方式：工坊与角色设定两个入口
+  for (const id of FORMAT_IDS) {
+    const el = $(id);
+    if (!el) continue;
+    el.addEventListener('change', (e) => {
+      applyFormat(e.target.value);
+      scheduleDraftSave(true);
+    });
+  }
+  applyFormat(S.format);
   $('#segTypeChips').addEventListener('click', () => scheduleDraftSave(true));
   $('#sentence').addEventListener('input', refreshCounter);
   $('#sentence').addEventListener('keydown', (e) => {
@@ -6465,7 +6700,10 @@ function bind() {
     $('#worldAiResults').innerHTML = '';
     $('#worldAiDialog').showModal();
   });
-  $('#btnWorldAiClose').addEventListener('click', () => $('#worldAiDialog').close());
+  $('#btnWorldAiClose').addEventListener('click', () => {
+    if (S.worldCoreAbort) S.worldCoreAbort.abort();  // 关窗就取消，别在后台偷偷改数据
+    $('#worldAiDialog').close();
+  });
   $('#btnWorldAiSeed').addEventListener('click', runWorldAiSeed);
   $('#btnWorldEditCancel').addEventListener('click', () => $('#worldEditDialog').close());
   $('#btnWorldEditSave').addEventListener('click', saveWorldEdit);
@@ -6518,6 +6756,9 @@ function bind() {
   });
   $('#btnWorldCopyGen').addEventListener('click', (e) => {
     if (S.worldGen) copyText(`Positive prompt: ${S.worldGen.positive}\n\nNegative prompt: ${S.worldGen.negative}`, e.currentTarget);
+  });
+  $('#btnWorldCopyMutex').addEventListener('click', (e) => {
+    copyText(S.worldMutex || '', e.currentTarget);
   });
   $('#worldGenTask').addEventListener('change', () => {
     const cat = $('#worldGenTask').value;
@@ -6620,6 +6861,7 @@ function bind() {
       segmentType: meta.type || S.segType,
       targetModel: meta.targetModel || '',
       style: meta.style || S.style,
+      format: S.format,
       tags: d.tags || '',
       translation: d.translation || '',
       keywords: d.keywords || [],
@@ -6675,9 +6917,16 @@ function bind() {
     if (!btn) return;
     const kind = btn.dataset.copy;
     const r = S.rendered || {};
-    const text = kind === 'positive' ? r.positive : kind === 'negative' ? r.negative : r.extra;
+    const nai = S.nai || {};
+    const text = kind === 'positive' ? r.positive
+      : kind === 'negative' ? r.negative
+        : kind === 'nai-positive' ? nai.positive
+          : kind === 'nai-negative' ? nai.negative
+            : r.extra;
     copyText(text, btn);
   });
+
+  $('#btnNaiApply')?.addEventListener('click', () => applyNaiPolish());
 
   $('#btnCopyAll').addEventListener('click', (e) => {
     copyText(promptCopyText(), e.currentTarget);
@@ -6696,6 +6945,7 @@ function bind() {
     saveToLocal('prompt', p.title || cur?.sentence || '提示词', promptMarkdown(), {
       sentence: cur?.sentence || '',
       style: cur?.style || S.style,
+      format: S.format,
       targetModel: cur?.targetModel || '',
       positive: r.positive || '',
       negative: r.negative || '',
@@ -6938,21 +7188,24 @@ function bind() {
   $('#cfgTopP').addEventListener('input', () => {
     $('#topPVal').textContent = Number($('#cfgTopP').value).toFixed(2);
   });
-  $('#btnRulePackAdd').addEventListener('click', () => addRulePack());
-  $('#btnRulePackExport').addEventListener('click', exportRulePacks);
-  $('#btnRulePackImport').addEventListener('click', () => $('#rulePackFile').click());
-  $('#rulePackFile').addEventListener('change', async (e) => {
-    const file = e.target.files && e.target.files[0];
-    e.target.value = ''; // 允许连续导入同一个文件
-    if (file) await importRulePacksFile(file);
+  $('#cfgJailbreakOn').addEventListener('change', () => renderJailbreakSummary());
+  $('#btnJailbreakEdit').addEventListener('click', openJailbreakDialog);
+  $('#btnJailbreakCheck').addEventListener('click', checkJailbreak);
+  $('#btnJailbreakSave').addEventListener('click', saveJailbreak);
+  $('#btnJailbreakCancel').addEventListener('click', () => {
+    S.jailbreakDraft = undefined;
+    $('#jailbreakDialog').close();
   });
-  $('#cfgRulePacksOn').addEventListener('change', updateRulePackSummary);
-  $('#cfgUnrestrictedOn').addEventListener('change', () => renderUnrestrictedSummary());
-  $('#btnUnrestrictedView').addEventListener('click', openUnrestrictedDialog);
-  $('#btnUnrestrictedCheck').addEventListener('click', checkUnrestricted);
-  $('#btnUnrestrictedClose').addEventListener('click', () => $('#unrestrictedDialog').close());
-  $('#btnUnrestrictedCopy').addEventListener('click', () => copyText($('#unrestrictedText').value, $('#btnUnrestrictedCopy')));
-  $('#btnRulePackPreview').addEventListener('click', openRulePreview);
+  $('#btnJailbreakReset').addEventListener('click', () => {
+    $('#jailbreakText').value = String(S.jailbreakDefault || '');
+    updateJailbreakCount();
+  });
+  $('#btnJailbreakClear').addEventListener('click', () => {
+    $('#jailbreakText').value = '';
+    updateJailbreakCount();
+  });
+  $('#jailbreakText').addEventListener('input', updateJailbreakCount);
+  $('#btnPromptPreview').addEventListener('click', openPromptPreview);
   $('#btnRulePreviewClose').addEventListener('click', () => $('#rulePreviewDialog').close());
   $('#btnRulePreviewCopy').addEventListener('click', () => copyText($('#rulePreviewText').value, $('#btnRulePreviewCopy')));
   $('#rulePreviewMode').addEventListener('change', () => {
@@ -7288,78 +7541,129 @@ async function testProfile(id, btn) {
   }
 }
 
-/* ---------- 内置破限层 ---------- */
-// 和规则包一样：表单状态以控件为准，读表单就是读界面。
-// 开关与范围会随「保存」写进 config.json，服务端每次请求重新拼装，
-// 所以开关改变后不需要重启，下一次生成就生效。
-function renderUnrestrictedSummary(cfg = S.config || {}) {
-  const on = $('#cfgUnrestrictedOn').checked;
-  const meta = cfg.unrestricted || {};
-  $('#unrestrictedBadge').textContent = meta.version
-    ? `${meta.name || 'dsh-unrestricted'} ${meta.version} · ${meta.license || 'MIT'}`
-    : 'dsh-unrestricted · MIT';
-  $('#unrestrictedBox').classList.toggle('on', on);
-  const chars = Number(cfg.unrestrictedChars) || 0;
+/* ---------- 破限词 ---------- */
+// 发送方式是「一条独立的置顶 system 消息（messages[0]）」：服务端在真正发请求那一层
+// 用 withJailbreak() 插进去，所以改完保存、下一次生成就生效，不用重启。
+// 开关与正文都随「保存」写进 config.json；正文留空 = 用内置默认（不是关闭）。
+function renderJailbreakSummary(cfg = S.config || {}) {
+  const on = $('#cfgJailbreakOn').checked;
+  const meta = cfg.jailbreak || {};
+  $('#jailbreakBadge').textContent = meta.name
+    ? `${meta.name} ${meta.version || ''}`.trim()
+    : 'FORGE 内核 1.0';
+  $('#jailbreakBox').classList.toggle('on', on);
+  const chars = Number(cfg.jailbreakChars) || Number(cfg.jailbreakDefaultChars) || 0;
+  const custom = cfg.jailbreakCustom === true;
   const size = chars > 0 ? `约 ${Math.round(chars / 100) * 100} 字` : '';
-  $('#unrestrictedSummary').textContent = on
+  $('#jailbreakSummary').textContent = on
     ? `· 已开启${size ? ' · ' + size : ''}`
     : '· 已关闭，不会发送';
-  $('#unrestrictedHint').textContent = on
-    ? '每次请求都会在任务规则之后带上完整的破限层（上游正文逐字移植 + 本工具附加约定），'
-      + '随后才是规则包，最后是输出格式确认。改完点「保存」即生效，不用重启。'
-    : '关闭后 system prompt 里不会出现破限层；规则包仍按自己的总开关发送。';
+  $('#jailbreakHint').textContent = on
+    ? (custom
+      ? '当前用的是你自定义的破限词：每次请求作为第一条 system 消息发出，排在任务规则之前。'
+      : '当前用的是内置默认破限词：每次请求作为第一条 system 消息发出，排在任务规则之前。点「编辑破限词」可以改成自己的。')
+    : '关闭后每条请求里都不会出现破限词。';
 }
 
-function syncUnrestrictedForm(cfg) {
-  $('#cfgUnrestrictedOn').checked = cfg.unrestrictedOn === true;
-  renderUnrestrictedSummary(cfg);
+function syncJailbreakForm(cfg) {
+  $('#cfgJailbreakOn').checked = cfg.jailbreakOn !== false;
+  renderJailbreakSummary(cfg);
 }
 
-async function openUnrestrictedDialog() {
-  const dlg = $('#unrestrictedDialog');
+async function openJailbreakDialog() {
+  const dlg = $('#jailbreakDialog');
   if (!dlg.open) dlg.showModal();
-  const err = $('#unrestrictedErr');
-  const out = $('#unrestrictedText');
+  S.jailbreakDraft = undefined;
+  const err = $('#jailbreakErr');
+  const out = $('#jailbreakText');
   err.hidden = true;
-  out.value = '正在读取…';
+  out.value = '';
+  out.placeholder = '正在读取…';
+  $('#jailbreakCount').textContent = '';
   try {
-    const r = await fetch('/api/unrestricted');
+    const r = await fetch('/api/jailbreak');
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-    out.value = j.block || '';
-    const name = j.upstream?.name || 'dsh-unrestricted';
-    const ver = j.upstream?.version || '';
-    const verbatim = j.upstream?.verbatim ? '上游正文逐字移植' : '';
-    $('#unrestrictedMeta').textContent = `${name} ${ver} · ${verbatim} · 全文 ${j.chars} 字 · `
-      + (j.on ? '当前已开启' : '当前未开启，打开开关并保存后才会随请求发送');
+    // 已自定义 → 载入用户原文；没自定义 → 预填内置默认，方便直接在模板上改
+    out.value = j.custom ? String(j.text || '') : String(j.defaultText || '');
+    out.placeholder = '留空则使用内置默认破限词';
+    S.jailbreakDefault = String(j.defaultText || '');
+    $('#jailbreakMeta').textContent = `${j.meta?.name || 'FORGE 内核'} ${j.meta?.version || ''} · `
+      + `全文 ${j.chars} 字 · ` + (j.on ? '当前已开启' : '当前未开启，保存后才会随请求发送');
+    updateJailbreakCount();
   } catch (e) {
     out.value = '';
+    out.placeholder = '留空则使用内置默认破限词';
     err.textContent = `读取失败：${e.message}${e.message.includes('HTTP 404') ? '（服务端可能还是旧进程，重启一下）' : ''}`;
     err.hidden = false;
   }
 }
 
+function updateJailbreakCount() {
+  const el = $('#jailbreakCount');
+  if (!el) return;
+  const text = $('#jailbreakText').value;
+  // 弹窗开着且内容与已保存的不同 → 记成草稿，供「预览最终提示词」按草稿拼装
+  const dlg = $('#jailbreakDialog');
+  if (dlg?.open) S.jailbreakDraft = text;
+  const n = text.trim().length;
+  const def = String(S.jailbreakDefault || '');
+  const same = !!def && text.trim() === def.trim();
+  const parts = [`${text.length} 字`];
+  if (!n) parts.push('空内容 = 用内置默认');
+  else if (same) parts.push('与内置默认一致，保存后会存成「默认」');
+  else if (def) parts.push(`内置默认 ${def.length} 字`);
+  el.textContent = `· ${parts.join(' · ')}`;
+}
+
+async function saveJailbreak() {
+  const btn = $('#btnJailbreakSave');
+  const err = $('#jailbreakErr');
+  const raw = $('#jailbreakText').value;
+  const text = raw.trim();
+  const def = String(S.jailbreakDefault || '').trim();
+  // 与内置默认逐字相同就存空串：设置里显示「默认」，以后内置文本更新也能跟着变
+  const next = text && text !== def ? raw : '';
+  btn.disabled = true;
+  err.hidden = true;
+  try {
+    await saveConfigPatch({ jailbreakPrompt: next });
+    S.jailbreakDraft = undefined;
+    syncJailbreakForm(S.config || {});
+    $('#jailbreakDialog').close();
+    toast(next ? '破限词已保存' : '破限词已恢复为内置默认');
+  } catch (e) {
+    err.textContent = e.message;
+    err.hidden = false;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // 自检：真的发一次生成请求，看模型是照做、敷衍还是拒答。
-// 只测这一件事——破限层有没有压过模型自己的倾向；接口通不通由「测试连接」负责。
-async function checkUnrestricted() {
-  const btn = $('#btnUnrestrictedCheck');
-  const out = $('#unrestrictedCheckResult');
+// 只测这一件事——破限词有没有压过模型自己的倾向；接口通不通由「测试连接」负责。
+async function checkJailbreak() {
+  const btn = $('#btnJailbreakCheck');
+  const out = $('#jailbreakCheckResult');
   btn.disabled = true;
   out.hidden = false;
   out.className = 'field-hint';
   out.textContent = tr('正在发一次真实请求测试…（约 1～2k tokens）');
   try {
-    const r = await fetch('/api/unrestricted/check', {
+    const r = await fetch('/api/jailbreak/check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ style: 'sd' }),
+      body: JSON.stringify({ style: NAI_STYLE }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
     const ok = j.verdict === 'ok';
     const warn = j.verdict === 'thin' || j.verdict === 'unknown';
     out.className = ok ? 'field-hint hint-ok' : warn ? 'field-hint hint-warn' : 'field-hint hint-err';
-    const head = `${tr(j.verdictText)}（${j.model || '模型'} · ${j.latencyMs} ms）`;
+    const state = j.layer?.on
+      ? ` · 破限词开（${j.layer.chars} 字${j.layer.custom ? ' · 自定义' : ''}）`
+      : ' · 破限词关';
+    const head = `${tr(j.verdictText)}（${j.model || '模型'} · ${j.latencyMs} ms${state}）`;
     const tail = j.message ? `\n${tr(j.message)}` : '';
     const sample = j.sample ? `\n${tr('示例：')}${j.sample.slice(0, 140)}` : '';
     out.textContent = `${head}${tail}${sample}`;
@@ -7371,217 +7675,31 @@ async function checkUnrestricted() {
   }
 }
 
-/* ---------- 规则包 ---------- */
-// 规则包列表以 DOM 为准：读表单就是读界面，避免状态和界面各存一份再对不上。
-let rulePackSeq = 0;
-
-function makeRulePack(raw = {}) {
-  rulePackSeq += 1;
-  return {
-    id: String(raw.id || `rp-local-${Date.now().toString(36)}-${rulePackSeq}`),
-    name: String(raw.name || ''),
-    text: String(raw.text || ''),
-    enabled: raw.enabled !== false,
-  };
-}
-
-function rulePackRows() {
-  return [...$('#rulePackList').querySelectorAll('.rule-pack')];
-}
-
-function updateRulePackFoot(row) {
-  const n = String(row.querySelector('.rule-pack-text')?.value || '').trim().length;
-  const foot = row.querySelector('.rule-pack-foot');
-  if (foot) foot.textContent = n ? `${n} 字` : '空内容不会发送';
-}
-
-function updateRulePackSummary() {
-  const packs = collectRulePacks();
-  const active = packs.filter((p) => p.enabled && p.text.trim());
-  const chars = active.reduce((n, p) => n + p.text.trim().length, 0);
-  const el = $('#rulePackSummary');
-  if (!el) return;
-  if (!packs.length) {
-    el.textContent = '';
-    el.style.color = '';
-    return;
-  }
-  if (!$('#cfgRulePacksOn').checked) {
-    el.textContent = '· 已停用，不会发送';
-    el.style.color = 'var(--dim)';
-    return;
-  }
-  el.textContent = chars
-    ? `· ${active.length} 套生效，每次请求多带 ${chars} 字`
-    : '· 没有勾选任何有内容的规则包';
-  el.style.color = chars > 4000 ? 'var(--warn)' : '';
-}
-
-function rulePackRow(pack) {
-  const wrap = document.createElement('div');
-  wrap.className = 'rule-pack';
-  wrap.dataset.id = pack.id;
-
-  const head = document.createElement('div');
-  head.className = 'rule-pack-head';
-
-  const on = document.createElement('input');
-  on.type = 'checkbox';
-  on.className = 'rule-pack-on';
-  on.checked = pack.enabled !== false;
-  on.title = '勾选后随每次请求发送';
-  on.setAttribute('aria-label', '启用这条规则包');
-  on.addEventListener('change', updateRulePackSummary);
-
-  const name = document.createElement('input');
-  name.type = 'text';
-  name.className = 'rule-pack-name';
-  name.maxLength = 60;
-  name.value = pack.name;
-  name.autocomplete = 'off';
-  name.placeholder = '规则包名称，如「画风固定」「不要免责声明」';
-  name.addEventListener('input', updateRulePackSummary);
-
-  const del = document.createElement('button');
-  del.type = 'button';
-  del.className = 'btn tiny ghost';
-  del.textContent = '删除';
-  del.addEventListener('click', () => {
-    wrap.remove();
-    if (!rulePackRows().length) showRulePacksEmpty();
-    updateRulePackSummary();
-  });
-
-  head.append(on, name, del);
-
-  const text = document.createElement('textarea');
-  text.className = 'rule-pack-text';
-  text.rows = 4;
-  text.spellcheck = false;
-  text.value = pack.text;
-  text.placeholder = '规则正文，会原样追加到 system prompt 末尾';
-  text.addEventListener('input', () => {
-    updateRulePackFoot(wrap);
-    updateRulePackSummary();
-  });
-
-  const foot = document.createElement('p');
-  foot.className = 'rule-pack-foot';
-
-  wrap.append(head, text, foot);
-  updateRulePackFoot(wrap);
-  return wrap;
-}
-
-function showRulePacksEmpty() {
-  const list = $('#rulePackList');
-  if (!list || rulePackRows().length) return;
-  list.querySelector('.rule-packs-empty')?.remove();
-  const p = document.createElement('p');
-  p.className = 'rule-packs-empty';
-  p.textContent = '还没有规则包。点「+ 新增规则包」写一条，或者导入一份 JSON。';
-  list.appendChild(p);
-}
-
-function renderRulePacks(packs) {
-  const list = $('#rulePackList');
-  if (!list) return;
-  list.textContent = '';
-  const arr = Array.isArray(packs) ? packs : [];
-  for (const pack of arr) list.appendChild(rulePackRow(makeRulePack(pack)));
-  if (!arr.length) showRulePacksEmpty();
-  updateRulePackSummary();
-}
-
-function addRulePack(pack) {
-  const list = $('#rulePackList');
-  if (!list) return null;
-  list.querySelector('.rule-packs-empty')?.remove();
-  const row = rulePackRow(makeRulePack(pack || { name: `规则包 ${rulePackRows().length + 1}` }));
-  list.appendChild(row);
-  updateRulePackSummary();
-  if (!pack) row.querySelector('.rule-pack-name')?.select();
-  return row;
-}
-
-function collectRulePacks() {
-  return rulePackRows()
-    .map((row) => ({
-      id: row.dataset.id || '',
-      name: String(row.querySelector('.rule-pack-name')?.value || '').trim(),
-      text: String(row.querySelector('.rule-pack-text')?.value || ''),
-      enabled: !!row.querySelector('.rule-pack-on')?.checked,
-    }))
-    .filter((p) => p.name || p.text.trim());
-}
-
-function exportRulePacks() {
-  const packs = collectRulePacks();
-  if (!packs.length) {
-    toast('没有可导出的规则包', true);
-    return;
-  }
-  const pkg = { app: 'prompt-forge', kind: 'rule-packs', version: 1, packs };
-  const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `promptforge-rules-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  toast(`已导出 ${packs.length} 套规则包`);
-}
-
-async function importRulePacksFile(file) {
-  try {
-    const text = await file.text();
-    const parsed = JSON.parse(text);
-    const raw = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.packs) ? parsed.packs : null;
-    if (!raw) throw new Error('文件里没有 packs 数组');
-    let added = 0;
-    for (const item of raw.slice(0, 60)) {
-      if (!item || typeof item !== 'object') continue;
-      const name = String(item.name || '').trim();
-      const body = String(item.text || '');
-      if (!name && !body.trim()) continue;
-      addRulePack({ name: name || `导入 ${added + 1}`, text: body, enabled: item.enabled !== false });
-      added += 1;
-    }
-    if (!added) throw new Error('没有可导入的规则包');
-    updateRulePackSummary();
-    toast(`已导入 ${added} 套规则包，记得点「保存」`);
-  } catch (err) {
-    toast(`导入失败：${err.message}`, true);
-  }
-}
-
 async function loadRulePreview() {
   const err = $('#rulePreviewErr');
   const out = $('#rulePreviewText');
   err.hidden = true;
   out.value = '正在拼装…';
   try {
-    const r = await fetch('/api/rule-preview', {
+    const r = await fetch('/api/prompt-preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         mode: $('#rulePreviewMode').value,
-        rulePacks: collectRulePacks(),
-        rulePacksOn: $('#cfgRulePacksOn').checked,
-        unrestrictedOn: $('#cfgUnrestrictedOn').checked,
+        jailbreakOn: $('#cfgJailbreakOn').checked,
+        // 弹窗里的草稿可能还没保存；有草稿就按草稿预览，才能「先看再存」
+        jailbreakPrompt: S.jailbreakDraft !== undefined
+          ? S.jailbreakDraft
+          : String(S.config?.jailbreakPrompt || ''),
       }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
     out.value = j.system || '';
-    const layer = j.unrestrictedOn
-      ? `破限层开（${j.unrestrictedLength} 字）`
-      : '破限层关';
-    $('#rulePreviewMeta').textContent = `${j.modeLabel} · 全文 ${j.length} 字 · ${layer} · 生效规则包 ${j.packCount} 套${j.rulePacksOn ? '' : '（总开关已关闭）'}`;
+    const layer = j.jailbreakOn
+      ? `破限词开（${j.jailbreakChars} 字${j.jailbreakCustom ? ' · 自定义' : ''}）`
+      : '破限词关';
+    $('#rulePreviewMeta').textContent = `${j.modeLabel} · 全文 ${j.length} 字 · ${j.messages} 条消息 · ${layer}`;
   } catch (e) {
     out.value = '';
     err.textContent = `预览失败：${e.message}${e.message.includes('HTTP 404') ? '（服务端可能还是旧进程，重启一下）' : ''}`;
@@ -7589,7 +7707,7 @@ async function loadRulePreview() {
   }
 }
 
-async function openRulePreview() {
+async function openPromptPreview() {
   const dlg = $('#rulePreviewDialog');
   if (!dlg.open) dlg.showModal();
   await loadRulePreview();
@@ -7608,9 +7726,7 @@ function populateSettings(cfg) {
   $('#topPVal').textContent = Number(cfg.topP ?? 1).toFixed(2);
   $('#cfgStream').checked = cfg.stream !== false;
   $('#cfgJsonMode').checked = !!cfg.jsonMode;
-  $('#cfgRulePacksOn').checked = cfg.rulePacksOn !== false;
-  renderRulePacks(cfg.rulePacks || []);
-  syncUnrestrictedForm(cfg);
+  syncJailbreakForm(cfg);
   $('#keyHint').textContent = cfg.hasKey
     ? `已保存：${cfg.keyMask}（${cfg.keyEncrypted ? '系统凭据加密' : '明文'}；留空即保持原样）`
     : '还没有保存 Key';
@@ -7651,9 +7767,8 @@ async function saveSettings() {
       topP: Number($('#cfgTopP').value),
       stream: $('#cfgStream').checked,
       jsonMode: $('#cfgJsonMode').checked,
-      rulePacks: collectRulePacks(),
-      rulePacksOn: $('#cfgRulePacksOn').checked,
-      unrestrictedOn: $('#cfgUnrestrictedOn').checked,
+      // 破限词正文在它自己的弹窗里保存；这里只带开关，免得旧回包把刚改的正文冲掉
+      jailbreakOn: $('#cfgJailbreakOn').checked,
     };
     const key = $('#cfgKey').value.trim();
     if (key) patch.apiKey = key;
@@ -7922,15 +8037,6 @@ function initCombos() {
     onPick: (m) => {
       $('#modelHint').textContent = `已选择：${m}`;
     },
-  });
-
-  S.combos.target = createCombo({
-    input: '#targetModel',
-    list: '#targetModelList',
-    toggle: '#btnToggleTarget',
-    source: () => TARGET_PRESETS,
-    labelAll: (n) => `常用目标 ${n} 个`,
-    emptyText: '没有匹配项，直接手填就行（如 SDXL / Flux.1）',
   });
 
   // 点别处收起

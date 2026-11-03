@@ -85,14 +85,18 @@ const MOCK_IDEAS = [
   '雪后的寺庙屋檐下，一只狐狸踩着脚印慢慢走过',
 ];
 
-// 从系统提示词里把「追加指令」抽出来（回显用，验证它确实发给了模型）。
-// 追加层里可能同时有内置破限层和规则包，两者之间用 --- 分隔，
-// 所以这里一直取到最后的「输出格式确认」之前，避免只回显第一层。
-function extractApiPinned(sys) {
-  const text = String(sys);
-  const m = text.match(/# 追加指令（内置执行契约与自定义规则）\n([\s\S]*?)\n\n---\n\n# 输出格式确认/)
-    || text.match(/# 追加指令（内置执行契约与自定义规则）\n([\s\S]*?)\n\n---/);
-  return m ? m[1].trim() : '';
+/**
+ * 破限词是 messages[0] 的独立 system（置顶口径），任务规则退到它后面。
+ * 这里把两者拆开：sys 只留任务规则（用来判断「这是哪个任务」），
+ * jailbreak 单独拿出来，供 /__mock-stats 断言「破限词确实发出去了」。
+ */
+function splitRequest(payload) {
+  const list = Array.isArray(payload?.messages) ? payload.messages : [];
+  const systems = list.filter((m) => m && m.role === 'system').map((m) => String(m.content || ''));
+  const jailbreak = systems[0] && systems[0].includes('<forge_kernel') ? systems[0] : '';
+  const taskSys = jailbreak ? systems.slice(1).join('\n\n') : systems.join('\n\n');
+  const userMsg = list.find((m) => m && m.role === 'user');
+  return { list, systems, jailbreak, sys: taskSys, user: String(userMsg?.content || '') };
 }
 
 // 测试用的上游状态：按 MOCK-xxx 标记计数，用来验证重试/不重试
@@ -114,10 +118,7 @@ function section(text, name) {
 }
 
 function pickSample(payload) {
-  const messages = payload?.messages || [];
-  const sys = String(messages[0]?.content || '');
-  const user = String(messages[1]?.content || '');
-  const pinned = extractApiPinned(sys);
+  const { sys, user } = splitRequest(payload);
 
   // 细分标签：微调优先于首次生成
   if (sys.includes('细分标签修改器')) return SEG_REFINED;
@@ -127,7 +128,7 @@ function pickSample(payload) {
   if (sys.includes('改写已有提示词')) return IMPORT_SAMPLE;
 
   // 角色提示词的微调（注意要排在角色设定之前，前者的系统提示词里也含「多角色同框」）
-  if (sys.includes('角色提示词修改器')) {
+  if (sys.includes('标签流修改器')) {
     const instruction = section(user, '用户的修改要求');
     return {
       ...CHAR_REFINED,
@@ -136,18 +137,10 @@ function pickSample(payload) {
   }
 
   // 角色设定
-  if (sys.includes('多角色同框')) {
-    return pinned
-      ? { ...CHAR_SAMPLE, prompt_zh: `【置顶要求已收到】${pinned}｜${CHAR_SAMPLE.prompt_zh}` }
-      : CHAR_SAMPLE;
-  }
+  if (sys.includes('多角色同框')) return CHAR_SAMPLE;
 
   // 普通生成
-  if (!sys.includes('修改器')) {
-    return pinned
-      ? { ...SAMPLE, translation: `【置顶要求已收到】${pinned}｜${SAMPLE.translation}` }
-      : SAMPLE;
-  }
+  if (!sys.includes('修改器')) return SAMPLE;
 
   // 微调
   const instruction = section(user, '用户的修改要求');
@@ -194,8 +187,7 @@ const MOCK_WORLD_EXPAND = {
 };
 
 function pickMockContent(payload) {
-  const sys = String(payload?.messages?.[0]?.content || '');
-  const user = String(payload?.messages?.[1]?.content || '');
+  const { sys, user } = splitRequest(payload);
   if (sys.includes('创意搭档')) return JSON.stringify(MOCK_IDEAS);
   if (user.includes('"directions"')) return JSON.stringify(MOCK_WORLD_DIRECTIONS);
   if (user.includes('扩写后的中文描述')) {
@@ -234,6 +226,7 @@ const server = http.createServer((req, res) => {
       } catch { /* 忽略 */ }
 
       const marker = bumpMarker(body);
+      const split = splitRequest(payload);
       lastPayload = {
         marker,
         model: payload?.model,
@@ -241,6 +234,12 @@ const server = http.createServer((req, res) => {
         top_p: payload?.top_p ?? null,
         stream: payload?.stream,
         response_format: payload?.response_format || null,
+        // 破限词置顶断言用：是否带了、是不是第一条、多长
+        jailbreak: !!split.jailbreak,
+        jailbreakFirst: split.list[0]?.role === 'system' && split.list[0]?.content === split.jailbreak,
+        jailbreakChars: split.jailbreak.length,
+        messageCount: split.list.length,
+        firstSystemHead: String(split.systems[0] || '').slice(0, 40),
       };
       if (marker === 'MOCK-401') {
         res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -251,7 +250,7 @@ const server = http.createServer((req, res) => {
         return res.end(JSON.stringify({ error: { message: 'mock rate limited once' } }));
       }
 
-      const sys = String(payload?.messages?.[0]?.content || '');
+      const sys = splitRequest(payload).sys;
 
       // 非流式请求（灵感走这条路）
       if (!payload?.stream) {

@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Prompt Forge · 一句话生成生图提示词</title>
+  <title>Prompt Forge · 一句话生成 NovelAI 提示词</title>
   <script>
     // 尽早套上皮肤，避免刷新时先闪一下默认配色
     try {
@@ -59,46 +59,6 @@
       <button class="tab" data-view="worlds" type="button">设定集</button>
     </nav>
 
-    <!-- ============ 通用设置（三栏之外） ============ -->
-    <section class="global-opts" id="globalOpts" aria-label="通用生成设置">
-      <div class="global-head">
-        <span class="global-title">通用设置</span>
-        <span class="dim small">三种模式共用</span>
-      </div>
-      <div class="global-grid">
-        <div class="opt">
-          <label for="styleSelect">提示词风格</label>
-          <select id="styleSelect"></select>
-        </div>
-        <div class="opt">
-          <label for="targetModel">目标模型</label>
-          <div class="combo compact" id="targetCombo">
-            <input id="targetModel" placeholder="通用" autocomplete="off" role="combobox"
-              aria-expanded="false" aria-controls="targetModelList" aria-autocomplete="list" spellcheck="false" />
-            <button class="combo-toggle" type="button" id="btnToggleTarget" aria-label="展开目标模型列表"
-              tabindex="-1">▾</button>
-            <div class="combo-list" id="targetModelList" role="listbox" hidden></div>
-          </div>
-        </div>
-        <div class="opt">
-          <label for="language">提示词语言</label>
-          <select id="language">
-            <option value="en">英文（推荐）</option>
-            <option value="zh">中文</option>
-          </select>
-        </div>
-        <div class="opt">
-          <label for="detail">详细程度</label>
-          <select id="detail">
-            <option value="short">精简</option>
-            <option value="standard" selected>标准</option>
-            <option value="rich">丰富</option>
-          </select>
-        </div>
-      </div>
-      <p class="global-note">提示词语言只影响提示词工坊；角色设定固定「英文提示词 + 中文对照」，细分标签固定英文 tag。</p>
-    </section>
-
     <!-- ============ 提示词工坊 ============ -->
     <main class="grid" id="viewPrompt">
       <section class="panel composer">
@@ -134,6 +94,17 @@
           autocomplete="off" />
 
         <div class="prompt-quick">
+          <label for="format">表述方式</label>
+          <select id="format" title="标签流：原子 danbooru 标签；半自然语言：逗号分隔的描述性短语">
+            <option value="tags" selected>标签流</option>
+            <option value="mixed">半自然语言</option>
+          </select>
+          <label for="detail">详细程度</label>
+          <select id="detail" title="标签数量：精简 12-20 / 标准 25-40 / 丰富 40-70">
+            <option value="short">精简</option>
+            <option value="standard" selected>标准</option>
+            <option value="rich">丰富</option>
+          </select>
           <label for="promptAspect">画幅</label>
           <select id="promptAspect">
             <option value="auto">自动</option>
@@ -197,10 +168,9 @@
             <select class="mini-select" id="copyFormat" aria-label="复制格式">
               <option value="all">全部（带标签）</option>
               <option value="positive">仅正向</option>
-              <option value="negative">仅负向</option>
+              <option value="negative">仅负向 UC</option>
               <option value="plain">正向 + 负向</option>
               <option value="json">JSON</option>
-              <option value="mj">Midjourney 参数</option>
             </select>
             <button class="btn tiny" id="btnCopyAll" disabled>复制</button>
             <button class="btn tiny" id="btnSavePrompt" disabled>💾 保存</button>
@@ -265,6 +235,35 @@
               <div class="card-body mono" id="outExtra"></div>
             </div>
 
+            <div class="card" id="cardNai" data-kind="nai" hidden>
+              <div class="card-head">
+                <span>NAI 整理版 <em class="tag" id="naiSceneBadge" hidden></em></span>
+                <button class="btn tiny" id="btnNaiApply" type="button" title="用整理版替换上面的正向与负向">应用到结果</button>
+              </div>
+              <div class="nai-notes" id="naiNotes"></div>
+              <div class="nai-block">
+                <div class="nai-block-head">
+                  <span class="dim small">正向（已按 danbooru 顺序重排、去重、补画质词）</span>
+                  <button class="btn tiny copy" data-copy="nai-positive">复制</button>
+                </div>
+                <div class="card-body mono" id="naiPositive"></div>
+              </div>
+              <div class="nai-block">
+                <div class="nai-block-head">
+                  <span class="dim small">负向 UC（按人数 / 分级 / 年龄自动组装）</span>
+                  <button class="btn tiny copy" data-copy="nai-negative">复制</button>
+                </div>
+                <div class="card-body mono" id="naiNegative"></div>
+              </div>
+            </div>
+
+            <div class="card" id="cardIssues" data-kind="issues" hidden>
+              <div class="card-head">
+                <span>体检 <em class="tag" id="issueCount" hidden></em></span>
+              </div>
+              <ul class="issue-list" id="issueList"></ul>
+            </div>
+
             <div class="keywords" id="outKeywords"></div>
           </div>
 
@@ -314,7 +313,7 @@
           <div class="idea-chips" id="charIdeaChips"></div>
         </div>
 
-        <div class="opts two">
+        <div class="opts">
           <div class="opt">
             <label for="charCount">角色数量</label>
             <select id="charCount">
@@ -334,6 +333,21 @@
               <option value="2:3">2:3 竖构图</option>
               <option value="16:9">16:9 横构图</option>
               <option value="9:16">9:16 竖屏</option>
+            </select>
+          </div>
+          <div class="opt">
+            <label for="charDetail">详细程度</label>
+            <select id="charDetail" title="标签数量：精简 30-50 / 标准 50-80 / 丰富 80-120">
+              <option value="short">精简</option>
+              <option value="standard" selected>标准</option>
+              <option value="rich">丰富</option>
+            </select>
+          </div>
+          <div class="opt">
+            <label for="charFormat">表述方式</label>
+            <select id="charFormat" title="标签流：原子 danbooru 标签；半自然语言：逗号分隔的描述性短语">
+              <option value="tags" selected>标签流</option>
+              <option value="mixed">半自然语言</option>
             </select>
           </div>
         </div>
@@ -424,6 +438,15 @@
 
         <input id="segExtra" class="extra-input"
           placeholder="附加要求（可选）：比如 只写秋冬、不要配饰、偏赛博朋克" autocomplete="off" />
+
+        <div class="prompt-quick">
+          <label for="segDetail">详细程度</label>
+          <select id="segDetail" title="标签数量：精简 8-12 / 标准 12-20 / 丰富 20-32">
+            <option value="short">精简</option>
+            <option value="standard" selected>标准</option>
+            <option value="rich">丰富</option>
+          </select>
+        </div>
 
         <button class="btn primary big" id="btnSegGenerate">
           <span id="btnSegGenerateText">生成标签组合</span>
@@ -562,9 +585,8 @@
               <div class="world-gen-entries" id="worldGenEntries"></div>
               <label for="worldGenSentence">写一句画面</label>
               <textarea id="worldGenSentence" rows="4" placeholder="雪夜里，她拔刀指向远处的旧神残影"></textarea>
+              <input type="hidden" id="worldGenStyle" value="nai" />
               <div class="prompt-quick">
-                <label for="worldGenStyle">风格</label>
-                <select id="worldGenStyle"></select>
                 <label for="worldGenAspect">画幅</label>
                 <select id="worldGenAspect">
                   <option value="auto">自动</option>
@@ -600,6 +622,13 @@
                 <div class="variant-text" id="worldGenPositive"></div>
                 <h4>负向提示词</h4>
                 <div class="variant-text" id="worldGenNegative"></div>
+                <div class="world-gen-mutex" id="worldGenMutexRow" hidden>
+                  <div class="world-gen-mutex-head">
+                    <span class="dim small">多人互斥 UC <em class="tag" id="worldGenMutexCount" hidden></em></span>
+                    <button class="btn tiny" type="button" id="btnWorldCopyMutex">复制互斥</button>
+                  </div>
+                  <div class="variant-text mono" id="worldGenMutex"></div>
+                </div>
                 <h4>画面解读</h4>
                 <div class="variant-translation" id="worldGenTranslation"></div>
                 <div class="world-gen-result-actions">
@@ -909,46 +938,27 @@
         <span>JSON 模式（仅部分接口支持，开启后要求模型返回 JSON）</span>
       </label>
 
-      <div class="layer-box" id="unrestrictedBox">
+      <div class="layer-box" id="jailbreakBox">
         <div class="layer-head">
-          <span class="layer-title">内置破限层</span>
-          <span class="layer-badge" id="unrestrictedBadge">dsh-unrestricted · MIT</span>
+          <span class="layer-title">破限词</span>
+          <span class="layer-badge" id="jailbreakBadge">FORGE 内核 1.0 · 原创</span>
         </div>
         <p class="field-hint">
-          <a href="https://github.com/yexi-by/dsh-unrestricted" target="_blank" rel="noopener noreferrer">dsh-unrestricted</a>
-          <span>· MIT · 上游正文逐字移植，不改一个字；本工具只在其后追加生图标签与 JSON 结构的要求。九条任务链路全部生效。</span>
+          <span>作为一条独立的置顶 system 消息（messages[0]）发送，排在任务规则之前，九条任务链路全部生效；正文原创，也可以自己改。</span>
         </p>
-        <label class="check-row" for="cfgUnrestrictedOn">
-          <input type="checkbox" id="cfgUnrestrictedOn" />
-          <span>启用内置破限层（关闭后回到模型默认尺度）</span>
+        <label class="check-row" for="cfgJailbreakOn">
+          <input type="checkbox" id="cfgJailbreakOn" checked />
+          <span>启用破限词（关闭后每条请求里都不再出现这一条）</span>
         </label>
-        <p class="field-hint" id="unrestrictedSummary"></p>
-        <p class="field-hint" id="unrestrictedHint"></p>
-        <div class="rule-pack-actions">
-          <button class="btn tiny ghost" type="button" id="btnUnrestrictedView">查看破限层全文</button>
-          <button class="btn tiny ghost" type="button" id="btnUnrestrictedCheck">测试破限是否生效</button>
+        <p class="field-hint" id="jailbreakSummary"></p>
+        <p class="field-hint" id="jailbreakHint"></p>
+        <div class="layer-actions">
+          <button class="btn tiny ghost" type="button" id="btnJailbreakEdit">编辑破限词</button>
+          <button class="btn tiny ghost" type="button" id="btnPromptPreview">预览最终提示词</button>
+          <button class="btn tiny ghost" type="button" id="btnJailbreakCheck">测试破限是否生效</button>
         </div>
-        <p class="field-hint" id="unrestrictedCheckResult" hidden></p>
+        <p class="field-hint" id="jailbreakCheckResult" hidden></p>
       </div>
-
-      <label>规则包<span class="dim small" id="rulePackSummary"></span></label>
-      <p class="field-hint">
-        多套可以单独开关的规则，按顺序拼在一起。勾选的每一套都会追加到 system prompt 末尾，
-        生成、微调、角色设定、细分标签、设定集和随机灵感都会带上；内容由你自己填写。
-      </p>
-      <label class="check-row" for="cfgRulePacksOn">
-        <input type="checkbox" id="cfgRulePacksOn" checked />
-        <span>启用规则包（关掉后内容保留，但不再发送）</span>
-      </label>
-      <div class="rule-packs" id="rulePackList"></div>
-      <div class="rule-pack-actions">
-        <button class="btn tiny ghost" type="button" id="btnRulePackAdd">+ 新增规则包</button>
-        <span class="grow"></span>
-        <button class="btn tiny ghost" type="button" id="btnRulePackImport">导入</button>
-        <button class="btn tiny ghost" type="button" id="btnRulePackExport">导出</button>
-        <button class="btn tiny ghost" type="button" id="btnRulePackPreview">预览最终提示词</button>
-      </div>
-      <input type="file" id="rulePackFile" accept="application/json,.json" hidden />
 
       <label>本机草稿</label>
       <p class="field-hint">三个模式的输入和当前结果会自动保存在本机，刷新或崩溃后可恢复；不包含 API Key。</p>
@@ -1099,30 +1109,33 @@
     </form>
   </dialog>
 
-  <!-- ============ 内置破限层：全文 ============ -->
-  <dialog class="settings rule-preview" id="unrestrictedDialog">
+  <!-- ============ 破限词：编辑 ============ -->
+  <dialog class="settings rule-preview" id="jailbreakDialog">
     <form method="dialog">
-      <h3>内置破限层全文</h3>
+      <h3>破限词</h3>
       <p class="dim small">
-        这段文字原样附在每次请求的 system prompt 里，位置在本任务规则之后、规则包与输出格式确认之前。
-        换范围或开关后重新打开就会看到对应版本。
+        这段文字会作为<b>第一条</b> system 消息发出去，排在任务规则之前。
+        留空 = 使用内置默认；点「填入内置默认」把模板放进框里改，改完点「保存」立即生效，不用重启。
       </p>
-      <p class="field-hint" id="unrestrictedMeta"></p>
-      <textarea id="unrestrictedText" rows="18" readonly spellcheck="false"></textarea>
-      <div class="err" id="unrestrictedErr" hidden></div>
+      <p class="field-hint" id="jailbreakMeta"></p>
+      <textarea id="jailbreakText" rows="18" spellcheck="false" placeholder="留空则使用内置默认破限词"></textarea>
+      <p class="field-hint" id="jailbreakCount"></p>
+      <div class="err" id="jailbreakErr" hidden></div>
       <div class="dialog-actions">
-        <button class="btn tiny ghost" type="button" id="btnUnrestrictedCopy">复制全文</button>
+        <button class="btn tiny ghost" type="button" id="btnJailbreakReset">填入内置默认</button>
+        <button class="btn tiny ghost" type="button" id="btnJailbreakClear">清空（用默认）</button>
         <span class="grow"></span>
-        <button class="btn primary" type="button" id="btnUnrestrictedClose">关闭</button>
+        <button class="btn ghost" type="button" id="btnJailbreakCancel">取消</button>
+        <button class="btn primary" type="button" id="btnJailbreakSave">保存</button>
       </div>
     </form>
   </dialog>
 
-  <!-- ============ 规则包：最终系统提示词预览 ============ -->
+  <!-- ============ 最终提示词预览 ============ -->
   <dialog class="settings rule-preview" id="rulePreviewDialog">
     <form method="dialog">
       <h3>最终系统提示词预览</h3>
-      <p class="dim small">按当前表单里的规则包内容拼装，不调用模型。保存之后实际发出去的 system 消息就是这一份。</p>
+      <p class="dim small">按当前表单里的破限词拼装，不调用模型。保存之后实际发出去的就是这几条消息，顺序与这里一致。</p>
       <label for="rulePreviewMode">模式</label>
       <select id="rulePreviewMode">
         <option value="generate">提示词生成</option>

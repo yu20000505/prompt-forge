@@ -1,5 +1,5 @@
-import { fileURLToPath } from 'node:url';
-// 通过 CDP 驱动无头 Chrome 验证前端，包括置顶词拼接行为。开发期工具。
+﻿import { fileURLToPath } from 'node:url';
+// 通过 CDP 驱动无头 Chrome 验证前端，包括破限词置顶与置顶词拼接行为。开发期工具。
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -140,7 +140,7 @@ async function main() {
 
   // 等页面脚本就绪
   for (let i = 0; i < 60; i++) {
-    const ready = await evalJs(`!!document.querySelector('#styleSelect option')`).catch(() => false);
+    const ready = await evalJs(`!!document.querySelector('#btnGenerate')`).catch(() => false);
     if (ready) break;
     await sleep(200);
   }
@@ -149,7 +149,7 @@ async function main() {
   await evalJs(`localStorage.removeItem('prompt-forge-history-v1'); clearDrafts(); location.reload(); true`);
   await sleep(1400);
   for (let i = 0; i < 60; i++) {
-    if (await evalJs(`!!document.querySelector('#styleSelect option')`)) break;
+    if (await evalJs(`!!document.querySelector('#btnGenerate')`)) break;
     await sleep(200);
   }
   for (let i = 0; i < 60; i++) {
@@ -159,9 +159,10 @@ async function main() {
   await evalJs(`try { localStorage.removeItem('prompt-forge-history-v1'); } catch {} S.history = []; S.histFilter = 'all'; saveHistory(); true`);
 
   // ---------- 1. 基础结构 ----------
-  const styleOptions = await evalJs(`[...document.querySelectorAll('#styleSelect option')].map(o => o.value)`);
-  check('风格下拉有 5 个选项',
-    styleOptions.length === 5 && styleOptions.includes('anime'), JSON.stringify(styleOptions));
+  const detailIds = await evalJs(`['#detail','#charDetail','#segDetail'].map((x) => document.querySelector(x) ? x : null)`);
+  check('详细程度在三个视图各有一个入口', detailIds.every(Boolean), JSON.stringify(detailIds));
+  check('风格选择控件已移除',
+    (await evalJs(`document.querySelector('#styleSelect')`)) === null);
   const tabLabels = await evalJs(`[...document.querySelectorAll('#mainTabs .tab')].map(t => t.textContent)`);
   check('页签包含提示词 / 角色 / 细分 / 设定集',
     tabLabels.length === 4 && tabLabels.some((t) => t.includes('细分提示词'))
@@ -213,17 +214,14 @@ async function main() {
   check('没有额外的侧栏容器（回到两栏）', noSidePanel === true);
 
   const inComposer = await evalJs(`(() => {
-    const ids = ['styleSelect','targetModel','language','detail'];
-    const bar = document.querySelector('#globalOpts');
-    const inBar = ids.every((id) => !!bar && !!bar.querySelector('#' + id));
-    const outsideViews = ids.every((id) => !document.querySelector('#viewPrompt #' + id)
-      && !document.querySelector('#viewCharacter #' + id)
-      && !document.querySelector('#viewSegment #' + id));
+    const noGlobalBar = document.querySelector('#globalOpts') === null;
+    const detailInEach = ['#viewPrompt #detail', '#viewCharacter #charDetail', '#viewSegment #segDetail']
+      .every((sel) => !!document.querySelector(sel));
     const local = ['extra','pinbox'].every((id) => !!document.querySelector('#viewPrompt .composer #' + id));
-    return { inBar, outsideViews, local };
+    return { noGlobalBar, detailInEach, local };
   })()`);
-  check('四个通用设置在三栏之外共用，附加要求/置顶词仍在输入卡里',
-    inComposer.inBar && inComposer.outsideViews && inComposer.local, JSON.stringify(inComposer));
+  check('通用设置条已取消，详细程度并进各视图输入卡',
+    inComposer.noGlobalBar && inComposer.detailInEach && inComposer.local, JSON.stringify(inComposer));
 
   const gridCols = await evalJs(`getComputedStyle(document.querySelector('#viewPrompt')).gridTemplateColumns`);
   check('输入卡与结果卡左右分栏', gridCols.split(' ').length === 2, gridCols);
@@ -232,21 +230,47 @@ async function main() {
     (await evalJs(`document.querySelector('#btnCharSave').disabled`)) === true);
   check('页面里已经没有原生 datalist', (await evalJs(`document.querySelectorAll('datalist').length`)) === 0);
 
-  // ---------- 1.6 主页「目标模型」下拉框 ----------
-  await evalJs(`document.querySelector('#btnToggleTarget').click(); true`);
-  await sleep(250);
-  check('目标模型下拉框能展开', (await visible('#targetModelList')) === true);
-  const targetCount = await evalJs(`document.querySelectorAll('#targetModelList .combo-item').length`);
-  check('目标模型下拉框有选项', targetCount > 0, `实际 ${targetCount} 个`);
+  // ---------- 1.6 详细程度：三个入口共享一份状态 ----------
+  // 表述方式：工坊 / 角色设定两个入口共享一份状态
   await evalJs(`(() => {
-    const it = document.querySelectorAll('#targetModelList .combo-item')[0];
-    it.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true}));
+    const s = document.querySelector('#charFormat');
+    s.value = 'mixed';
+    s.dispatchEvent(new Event('change', {bubbles:true}));
     return true;
   })()`);
-  await sleep(250);
-  const targetPicked = await evalJs(`document.querySelector('#targetModel').value`);
-  check('目标模型能点选并回填', targetPicked === 'SDXL', targetPicked);
-  check('选中后目标模型列表收起', (await visible('#targetModelList')) === false);
+  await sleep(200);
+  const fmtSync = await evalJs(`({ state: S.format, prompt: document.querySelector('#format').value })`);
+  check('角色页改表述方式，工坊同步', fmtSync.state === 'mixed' && fmtSync.prompt === 'mixed', JSON.stringify(fmtSync));
+  await evalJs(`(() => {
+    const s = document.querySelector('#format');
+    s.value = 'tags';
+    s.dispatchEvent(new Event('change', {bubbles:true}));
+    return true;
+  })()`);
+  await sleep(150);
+
+  check('目标模型下拉框已移除',
+    (await evalJs(`document.querySelector('#targetModel')`)) === null);
+  await evalJs(`(() => {
+    const s = document.querySelector('#charDetail');
+    s.value = 'rich';
+    s.dispatchEvent(new Event('change', {bubbles:true}));
+    return true;
+  })()`);
+  await sleep(200);
+  const detailSync = await evalJs(`({ state: S.detail,
+    prompt: document.querySelector('#detail').value,
+    seg: document.querySelector('#segDetail').value })`);
+  check('角色页改详细程度，工坊与细分页同步',
+    detailSync.state === 'rich' && detailSync.prompt === 'rich' && detailSync.seg === 'rich',
+    JSON.stringify(detailSync));
+  await evalJs(`(() => {
+    const s = document.querySelector('#detail');
+    s.value = 'standard';
+    s.dispatchEvent(new Event('change', {bubbles:true}));
+    return true;
+  })()`);
+  await sleep(150);
 
   // ---------- 1.7 随机灵感（走模型） ----------
   check('灵感条初始隐藏', (await visible('#ideaBar')) === false);
@@ -282,8 +306,10 @@ async function main() {
 
   const statusText = await evalJs(`document.querySelector('#statusText').textContent`);
   check('状态栏显示已配置 Key', /已配置|deepseek|mock/i.test(statusText), statusText);
-  check('界面显示 2.4 版本号',
-    (await evalJs(`document.querySelector('#appVersion').textContent`)) === 'v2.4.0');
+  // 版本号跟服务端自报的一致即可，别写死：每次发版都要改测试太脆
+  const serverVersion = await evalJs(`fetch('/api/config').then(r=>r.json()).then(j=>j.version)`);
+  check(`界面显示 ${serverVersion} 版本号`,
+    (await evalJs(`document.querySelector('#appVersion').textContent`)) === `v${serverVersion}`);
 
   const serverFeatures = await evalJs(`fetch('/api/config').then(r=>r.json()).then(j=>j.features)`);
   check('服务端声明细分接口可用', serverFeatures?.segment === true, JSON.stringify(serverFeatures));
@@ -311,7 +337,6 @@ async function main() {
     const cb = document.querySelector('#pinEnabled');
     cb.checked = true;
     cb.dispatchEvent(new Event('change', {bubbles:true}));
-    document.querySelector('#targetModel').value = 'SDXL';
     s(document.querySelector('#sentence'), '雨夜的霓虹街头，一位赛博朋克女剑客回头看向镜头');
     return true;
   })()`);
@@ -339,9 +364,12 @@ async function main() {
   const title = await evalJs(`document.querySelector('#outTitle').textContent`);
   const parsedOk = await evalJs(`document.querySelector('#outPositive').textContent.length`);
   check('生成结果卡片真的可见了', await visible('#cards'), `正向文本 ${parsedOk} 字`);
-  const transInitial = await evalJs(`document.querySelector('#outTranslation').textContent`);
-  check('置顶提示词确实随请求发给了模型',
-    transInitial.includes('MARKER-固定画风-ABC123'), transInitial.slice(0, 62));
+  const MOCK_STATS = `http://127.0.0.1:${process.env.PF_MOCK_PORT || 43199}/__mock-stats`;
+  const genStats = await (await fetch(MOCK_STATS)).json();
+  check('破限词作为第一条 system 随请求发出',
+    genStats.lastPayload?.jailbreak === true
+      && String(genStats.lastPayload?.firstSystemHead || '').startsWith('<forge_kernel'),
+    String(genStats.lastPayload?.firstSystemHead || '').slice(0, 40));
 
   // ---------- 3.1 直接编辑结果（不重新请求模型） ----------
   await evalJs(`document.querySelector('#btnEditPrompt').click(); true`);
@@ -447,15 +475,55 @@ async function main() {
   check('参数徽章渲染 >= 3', badgeCount >= 3, `实际 ${badgeCount}`);
   check('参数建议卡片显示', extraShown === true);
 
+  // ---------- NAI 整理版：本地规则，不调模型 ----------
+  await sleep(900);  // 等 /api/compile 回来
+  const nai = await evalJs(`(() => {
+    const card = document.querySelector('#cardNai');
+    return {
+      visible: !!card && !card.hidden,
+      positive: document.querySelector('#naiPositive')?.textContent || '',
+      negative: document.querySelector('#naiNegative')?.textContent || '',
+      notes: [...document.querySelectorAll('#naiNotes .nai-note')].map((n) => n.textContent),
+      issueShown: !document.querySelector('#cardIssues').hidden,
+      scene: document.querySelector('#naiSceneBadge')?.textContent || '',
+    };
+  })()`);
+  check('生成后出现 NAI 整理卡', nai.visible === true, JSON.stringify(nai).slice(0, 120));
+  check('整理版正向不含画质词（它们属于画质串）',
+    !/^(masterpiece|best quality|very aesthetic|absurdres)\b/.test(nai.positive)
+      && !/\b(absurdres|very aesthetic)\b/.test(nai.positive),
+    nai.positive.slice(0, 60));
+  check('整理版负向含 UC 基础词', /lowres/.test(nai.negative) && /bad anatomy/.test(nai.negative), nai.negative.slice(0, 60));
+  check('整理版负向不含身份词', !/(^|[,\s:])1girl([,\s:]|$)/.test(nai.negative), nai.negative.slice(0, 80));
+  check('整理版标出人数与分级', /人/.test(nai.scene) && /级/.test(nai.scene), nai.scene);
+  check('整理版列出了改动说明', Array.isArray(nai.notes) && nai.notes.length >= 1, JSON.stringify(nai.notes).slice(0, 80));
+
+  // 应用整理版：结果区被替换，且置顶词不会重复拼
+  const beforeApply = await evalJs(`document.querySelector('#outPositive').textContent`);
+  await evalJs(`document.querySelector('#btnNaiApply').click(); true`);
+  await sleep(300);
+  const afterApply = await evalJs(`document.querySelector('#outPositive').textContent`);
+  check('应用到结果后正向被替换，且画质词已被剥掉',
+    afterApply !== beforeApply && !/^masterpiece/.test(afterApply), afterApply.slice(0, 40));
+  check('应用后判定为已手改',
+    (await evalJs(`S.current.edited`)) === true);
+
+  // 体检卡：故意塞一个坏负向，验证 error 会被报出来
+  const lintHit = await evalJs(`fetch('/api/lint', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ positive: '1girl, solo, duo, 2people, masterpiece', negative: 'lowres, 1girl' }),
+  }).then((r) => r.json())`);
+  const lintCodes = (lintHit.report?.issues || []).map((i) => i.code);
+  check('体检能抓到负向里的身份词', lintCodes.includes('uc-identity'), JSON.stringify(lintCodes));
+  check('体检能抓到人数词冲突', lintCodes.includes('count-tag'), JSON.stringify(lintCodes));
+
   // 徽章要记住生成时的语言：生成完再改下拉框，旧结果不能跟着变
   const langBadgeFix = await evalJs(`(() => {
     const read = () => [...document.querySelectorAll('#outBadges .badge')]
       .map(e => e.textContent).find(t => t === '中文' || t === '英文');
     const before = read();
-    document.querySelector('#language').value = 'zh';
     renderResult(S.current.parsed, { sentence: S.current.sentence });
     const after = read();
-    document.querySelector('#language').value = 'en';
     renderResult(S.current.parsed, { sentence: S.current.sentence });
     return { before, after };
   })()`);
@@ -528,15 +596,19 @@ async function main() {
     out.positive = promptCopyText();
     sel.value = 'json';
     out.json = JSON.parse(promptCopyText());
-    sel.value = 'mj';
-    out.mj = promptCopyText();
+
     sel.value = 'all';
     return out;
   })()`);
   check('复制格式：仅正向', copyModes.positive === (await evalJs(`S.rendered.positive`)));
   check('复制格式：JSON 可解析且含正负向',
     !!copyModes.json.positive && !!copyModes.json.negative && !!copyModes.json.params);
-  check('复制格式：Midjourney 带 --ar 参数', /--ar\s+\d+:\d+/.test(copyModes.mj), copyModes.mj.slice(-40));
+  const plainCopy = await evalJs(`(() => { document.querySelector('#copyFormat').value = 'plain'; return promptCopyText(); })()`);
+  check('复制格式：正向 + 负向（NAI 粘贴格式）',
+    plainCopy.startsWith((await evalJs(`S.rendered.positive`)).slice(0, 30))
+      && plainCopy.includes((await evalJs(`S.rendered.negative`)).slice(0, 20)));
+  check('复制格式：没有 Midjourney 选项',
+    (await evalJs(`[...document.querySelectorAll('#copyFormat option')].map(o => o.value)`)).every((v) => v !== 'mj'));
 
   // 保存后要能带回完整的微调版本
   const savedBeforeVersions = savedFiles().length;
@@ -635,7 +707,7 @@ async function main() {
   await cdp.send('Page.reload', { ignoreCache: false });
   await sleep(1500);
   for (let i = 0; i < 40; i++) {
-    const ok = await evalJs(`!!document.querySelector('#styleSelect option')`).catch(() => false);
+    const ok = await evalJs(`!!document.querySelector('#btnGenerate')`).catch(() => false);
     if (ok) break;
     await sleep(200);
   }
@@ -649,15 +721,16 @@ async function main() {
     posAfterReload.includes('cinematic portrait') && (await visible('#cards')) === true,
     posAfterReload.slice(0, 60));
 
-  // ---------- 6. 风格切换 ----------
-  await evalJs(`(() => {
-    const s = document.querySelector('#styleSelect');
-    s.value = 'anime';
-    s.dispatchEvent(new Event('change', {bubbles:true}));
-    return true;
-  })()`);
-  const activeStyle = await evalJs(`document.querySelector('#styleSelect').value`);
-  check('可以切换到 NovelAI 风格', activeStyle === 'anime', activeStyle);
+  // ---------- 6. 风格概念已下线 ----------
+  const styleState = await evalJs(`({
+    noControl: document.querySelector('#styleSelect') === null,
+    value: S.style,
+    submitted: S.current && S.current.style,
+  })`);
+  check('没有任何风格切换入口，S.style 恒为 nai',
+    styleState.noControl === true && styleState.value === 'nai', JSON.stringify(styleState));
+  check('提交时带的 style 也是 nai',
+    styleState.submitted === 'nai', JSON.stringify(styleState));
 
   // ---------- 7. 设置弹窗 ----------
   await evalJs(`document.querySelector('#btnSettings').click(); true`);
@@ -665,16 +738,6 @@ async function main() {
   const dialogOpen = await evalJs(`document.querySelector('#settings').open`);
   check('设置弹窗能打开', dialogOpen === true);
   check('设置弹窗真的可见', (await visible('#settings')) === true);
-  const packCountShown = await evalJs(`document.querySelectorAll('#rulePackList .rule-pack').length`);
-  check('设置里只剩「规则包」这一个自定义规则入口', packCountShown === 1
-    && (await visible('#rulePackList')) === true, `规则包 ${packCountShown} 套`);
-  const packNameShown = await evalJs(`document.querySelector('#rulePackList .rule-pack-name').value`);
-  const packTextShown = await evalJs(`document.querySelector('#rulePackList .rule-pack-text').value`);
-  check('已保存的规则包能回显到设置里',
-    packNameShown === '固定画风' && packTextShown === 'MARKER-固定画风-ABC123',
-    `${packNameShown} / ${packTextShown}`);
-  check('规则包总开关默认开启',
-    (await evalJs(`document.querySelector('#cfgRulePacksOn').checked`)) === true);
   const keyPlaceholder = await evalJs(`document.querySelector('#cfgKey').placeholder`);
   check('设置里 Key 显示为已保存占位', /已保存/.test(keyPlaceholder), keyPlaceholder);
 
@@ -861,8 +924,7 @@ async function main() {
   check('Ctrl+3 切到细分提示词视图',
     (await visible('#viewSegment')) === true
       && (await visible('#viewPrompt')) === false
-      && (await visible('#viewCharacter')) === false
-      && (await visible('#globalOpts')) === true);
+      && (await visible('#viewCharacter')) === false);
   const segTypeCount = await evalJs(`document.querySelectorAll('#segTypeChips .chip').length`);
   check('细分页有 7 类标签可选', segTypeCount === 7, `实际 ${segTypeCount}`);
   const segDefaultType = await evalJs(`document.querySelector('#segTypeChips .chip.active b').textContent`);
@@ -905,8 +967,6 @@ async function main() {
     /[\u4e00-\u9fa5]/.test(charZh) && charZh.length > 80, `${charZh.length} 字`);
   check('中文对照里没有大段英文', (charZh.match(/[a-zA-Z]{6,}/g) || []).length <= 3,
     JSON.stringify((charZh.match(/[a-zA-Z]{6,}/g) || []).slice(0, 5)));
-  check('角色界面也带上了置顶提示词', charZh.includes('MARKER-固定画风-ABC123'), charZh.slice(0, 40));
-
   const charBadges = await evalJs(`[...document.querySelectorAll('#charCards .badges .badge')].map(e=>e.textContent)`);
   check('顶部显示词数与画幅',
     charBadges.some((b) => /词/.test(b)) && charBadges.some((b) => /16:9/.test(b)), JSON.stringify(charBadges));
@@ -1370,7 +1430,6 @@ async function main() {
       pinNeg: r('#pinNegative'),
       genBtn: r('#btnGenerate'),
       sentence: r('#sentence'),
-      styleSel: r('#styleSelect'),
       overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     };
   })()`;
@@ -1391,7 +1450,6 @@ async function main() {
     m.genBtn.x >= m.composer.x - 1 && m.genBtn.r <= m.composer.r + 1,
     `btn.x=` + Math.round(m.genBtn.x) + ` composer=` + Math.round(m.composer.x) + `..` + Math.round(m.composer.r));
   check('生成按钮宽度撑满输入卡', Math.abs(m.genBtn.w - m.composer.w) < 45, `btn=${Math.round(m.genBtn.w)} panel=${Math.round(m.composer.w)}`);
-  check('风格下拉宽度正常', m.styleSel.w > 120, `w=${Math.round(m.styleSel.w)}`);
 
   // 窄屏溢出
   // 样式表冒烟：几个关键规则真的生效了
@@ -1400,8 +1458,6 @@ async function main() {
     return {
       panelRadius: g('.panel', 'borderRadius'),
       primaryBg: g('.btn.primary', 'backgroundImage'),
-      styleBorder: g('#styleSelect', 'borderTopWidth'),
-      styleBg: g('#styleSelect', 'backgroundColor'),
       drawerW: g('#libDrawer', 'width'),
       cardBorder: g('.card', 'borderTopWidth'),
       toastPad: g('#toast', 'paddingTop'),
@@ -1410,9 +1466,8 @@ async function main() {
   })()`);
   check('面板圆角生效', cssSmoke.panelRadius === '14px', cssSmoke.panelRadius);
   check('主按钮渐变生效', /gradient/.test(cssSmoke.primaryBg), cssSmoke.primaryBg.slice(0, 30));
-  check('风格下拉使用主题样式',
-    cssSmoke.styleBorder === '1px' && cssSmoke.styleBg !== 'rgba(0, 0, 0, 0)',
-    `${cssSmoke.styleBorder} / ${cssSmoke.styleBg}`);
+  check('详细程度下拉使用主题样式',
+    (await evalJs(`getComputedStyle(document.querySelector('#detail')).borderTopWidth`)) === '1px');
   check('抽屉宽度生效', /px$/.test(cssSmoke.drawerW) && cssSmoke.drawerW !== '0px', cssSmoke.drawerW);
   check('卡片有描边', cssSmoke.cardBorder === '1px', cssSmoke.cardBorder);
   check('提示条有内边距', cssSmoke.toastPad === '10px', cssSmoke.toastPad);
@@ -1424,161 +1479,115 @@ async function main() {
   check('窄屏下输入与结果上下堆叠', m2.result.y >= m2.composer.b - 20, `composer.bottom=${Math.round(m2.composer.b)} result.y=${Math.round(m2.result.y)}`);
   check('窄屏下置顶词改为上下排列', m2.pinNeg.y >= m2.pinPos.b - 2, `pos.bottom=${Math.round(m2.pinPos.b)} neg.y=${Math.round(m2.pinNeg.y)}`);
 
-  // ---------- 11. 规则包的编辑与持久化 ----------
+  // ---------- 11. 最终提示词预览 ----------
   await evalJs(`document.querySelector('#btnSettings').click(); true`);
   await sleep(400);
-  await evalJs(`(() => {
-    const text = document.querySelector('#rulePackList .rule-pack-text');
-    text.value = 'EDITED-PIN-999';
-    text.dispatchEvent(new Event('input', { bubbles: true }));
-    return true;
-  })()`);
-  await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
-  await sleep(1000);
-  const cfgEdited = await evalJs(`fetch('/api/config').then(r=>r.json())`);
-  check('规则包改完能保存',
-    Array.isArray(cfgEdited.rulePacks) && cfgEdited.rulePacks.length === 1
-      && cfgEdited.rulePacks[0].text === 'EDITED-PIN-999',
-    JSON.stringify(cfgEdited.rulePacks));
-
-  await evalJs(`document.querySelector('#btnSettings').click(); true`);
-  await sleep(400);
-  await evalJs(`(() => {
-    const text = document.querySelector('#rulePackList .rule-pack-text');
-    text.value = 'MARKER-固定画风-ABC123';
-    text.dispatchEvent(new Event('input', { bubbles: true }));
-    return true;
-  })()`);
-  await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
-  await sleep(1000);
-  const cfgBack = await evalJs(`fetch('/api/config').then(r=>r.json())`);
-  check('规则包能改回原值',
-    cfgBack.rulePacks[0].text === 'MARKER-固定画风-ABC123', JSON.stringify(cfgBack.rulePacks));
-  check('保存规则包不会动到 Key', cfgBack.hasKey === true);
-
-  // ---------- 11.5 新增、预览、删除规则包 ----------
-  await evalJs(`document.querySelector('#btnSettings').click(); true`);
-  await sleep(400);
-  await evalJs(`document.querySelector('#btnRulePackAdd').click(); true`);
-  await sleep(150);
-  await evalJs(`(() => {
-    const rows = document.querySelectorAll('#rulePackList .rule-pack');
-    const row = rows[rows.length - 1];
-    const name = row.querySelector('.rule-pack-name');
-    name.value = '测试规则包';
-    name.dispatchEvent(new Event('input', { bubbles: true }));
-    const text = row.querySelector('.rule-pack-text');
-    text.value = 'RULE-PACK-MARKER-777';
-    text.dispatchEvent(new Event('input', { bubbles: true }));
-    return true;
-  })()`);
-  await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
-  await sleep(1000);
-  const cfgPack = await evalJs(`fetch('/api/config').then(r=>r.json())`);
-  check('规则包能新增并保存',
-    Array.isArray(cfgPack.rulePacks) && cfgPack.rulePacks.length === 2
-      && cfgPack.rulePacks[1].name === '测试规则包'
-      && cfgPack.rulePacks[1].text === 'RULE-PACK-MARKER-777'
-      && cfgPack.rulePacks[1].enabled === true,
-    JSON.stringify(cfgPack.rulePacks));
-  check('规则包总开关默认开启', cfgPack.rulePacksOn === true);
-
-  await evalJs(`document.querySelector('#btnSettings').click(); true`);
-  await sleep(400);
-  const shownName = await evalJs(`[...document.querySelectorAll('#rulePackList .rule-pack-name')].pop().value`);
-  const shownText = await evalJs(`[...document.querySelectorAll('#rulePackList .rule-pack-text')].pop().value`);
-  check('规则包能回显到设置里',
-    shownName === '测试规则包' && shownText === 'RULE-PACK-MARKER-777', `${shownName} / ${shownText}`);
-
-  // 预览走的是「保存后会发出去的那一版」，所以正文和标题都该在里面
-  await evalJs(`document.querySelector('#btnRulePackPreview').click(); true`);
+  await evalJs(`document.querySelector('#btnPromptPreview').click(); true`);
   await sleep(1000);
   const previewText = await evalJs(`document.querySelector('#rulePreviewText').value`);
-  check('预览里能看到规则包正文', previewText.includes('RULE-PACK-MARKER-777'), previewText.slice(0, 60));
-  check('预览里规则包带自己的标题', previewText.includes('## 规则包：测试规则包'));
-  check('预览仍以格式锁收尾', previewText.trimEnd().endsWith('不要用 markdown 代码块包裹。'));
+  check('预览标出每条消息的角色', /【messages\[0\] · system/.test(previewText) && /· user】/.test(previewText));
+  check('预览里包含输出格式契约', previewText.includes('# 输出格式（强制）'));
+  check('预览里的任务 system 在 user 之前',
+    previewText.indexOf('# 输出格式（强制）') < previewText.indexOf('· user】'));
   await evalJs(`document.querySelector('#btnRulePreviewClose').click(); true`);
   await sleep(300);
 
-  // 收尾：删掉刚加的那套，留下一开始的，别影响后面的断言
-  await evalJs(`(() => {
-    const rows = document.querySelectorAll('#rulePackList .rule-pack');
-    rows[rows.length - 1].querySelector('.btn.ghost').click();
-    return true;
-  })()`);
-  await sleep(150);
-  await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
-  await sleep(1000);
-  const cfgPackGone = await evalJs(`fetch('/api/config').then(r=>r.json())`);
-  check('规则包能删除',
-    Array.isArray(cfgPackGone.rulePacks) && cfgPackGone.rulePacks.length === 1
-      && cfgPackGone.rulePacks[0].name === '固定画风',
-    JSON.stringify(cfgPackGone.rulePacks));
-
-  // ---------- 11.6 内置破限层 ----------
-  // 默认关闭；打开后 system prompt 里必须有这段，且 JSON 锁仍然最后。
+  // ---------- 11.6 破限词（置顶 system） ----------
+  // 发送方式：不再是追加在任务规则后面的一大段，而是独立的 messages[0]。
+  // 这里把三件事都验一遍：编辑弹窗、真发一次请求、预览里的顺序。
   await evalJs(`document.querySelector('#btnSettings').click(); true`);
   await sleep(400);
-  check('设置里有破限层开关且默认关闭',
-    (await evalJs(`!!document.querySelector('#cfgUnrestrictedOn')`)) === true
-      && (await evalJs(`document.querySelector('#cfgUnrestrictedOn').checked`)) === false);
-  check('破限层显示上游版本',
-    /dsh-unrestricted\s+0\.2\.\d+/.test(await evalJs(`document.querySelector('#unrestrictedBadge').textContent`)),
-    await evalJs(`document.querySelector('#unrestrictedBadge').textContent`));
+  check('设置里有破限词开关且默认开启',
+    (await evalJs(`!!document.querySelector('#cfgJailbreakOn')`)) === true
+      && (await evalJs(`document.querySelector('#cfgJailbreakOn').checked`)) === true);
+  check('破限词标出内核名与版本',
+    /FORGE 内核\s*\d/.test(await evalJs(`document.querySelector('#jailbreakBadge').textContent`)),
+    await evalJs(`document.querySelector('#jailbreakBadge').textContent`));
+  check('破限词摘要显示已开启',
+    /已开启/.test(await evalJs(`document.querySelector('#jailbreakSummary').textContent`)),
+    await evalJs(`document.querySelector('#jailbreakSummary').textContent`));
+
+  // 编辑弹窗：默认状态载入的就是内置默认全文，可直接在上面改
+  await evalJs(`document.querySelector('#btnJailbreakEdit').click(); true`);
+  await sleep(700);
+  const jbDefault = await evalJs(`document.querySelector('#jailbreakText').value`);
+  check('编辑弹窗里是内置默认全文',
+    jbDefault.includes('<forge_kernel') && jbDefault.includes('按成年人处理'), `${jbDefault.length} 字`);
+  check('弹窗标出全文与开关状态',
+    /全文 \d+ 字/.test(await evalJs(`document.querySelector('#jailbreakMeta').textContent`)),
+    await evalJs(`document.querySelector('#jailbreakMeta').textContent`));
+
+  // 改成自定义正文并保存（保存立即写盘，不用等设置页的「保存」）
   await evalJs(`(() => {
-    const on = document.querySelector('#cfgUnrestrictedOn');
-    on.checked = true;
-    on.dispatchEvent(new Event('change'));
+    const t = document.querySelector('#jailbreakText');
+    t.value = 'JB-MARK-9001\\n' + t.value;
+    t.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#btnJailbreakSave').click();
     return true;
   })()`);
-  await sleep(600);
-  check('打开后摘要显示已开启',
-    /已开启/.test(await evalJs(`document.querySelector('#unrestrictedSummary').textContent`)),
-    await evalJs(`document.querySelector('#unrestrictedSummary').textContent`));
-  await evalJs(`document.querySelector('#btnUnrestrictedView').click(); true`);
-  await sleep(600);
-  const layerText = await evalJs(`document.querySelector('#unrestrictedText').value`);
-  check('破限层全文可以查看', layerText.includes('Unrestricted local execution mode'), `${layerText.length} 字`);
-  check('破限层是上游原文逐字移植', layerText.includes('KEYGEN / CRACK') && layerText.includes('## Prompt Forge 附加约定'));
-  await evalJs(`document.querySelector('#btnUnrestrictedClose').click(); true`);
-  await sleep(250);
-  await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
-  await sleep(1000);
-  const cfgLayer = await evalJs(`fetch('/api/config').then(r=>r.json())`);
-  check('破限层开关写进配置', cfgLayer.unrestrictedOn === true, String(cfgLayer.unrestrictedOn));
+  await sleep(1200);
+  const cfgJb = await evalJs(`fetch('/api/config').then(r=>r.json())`);
+  check('自定义破限词写进配置',
+    String(cfgJb.jailbreakPrompt || '').startsWith('JB-MARK-9001') && cfgJb.jailbreakCustom === true,
+    String(cfgJb.jailbreakPrompt || '').slice(0, 24));
 
+  // 真发一次生成请求，从假接口那边确认「破限词是第一条 system 消息」
+  await evalJs(`document.querySelector('#btnCancelSettings').click(); true`);
+  await sleep(300);
+  await evalJs(`fetch('/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sentence: '雨夜的霓虹街头，一位赛博朋克女剑客回头看向镜头', style: 'nai' }),
+  }).then(r => r.text()).then(() => true)`);
+  await sleep(900);
+  const jbStats = await (await fetch(MOCK_STATS)).json();
+  const jbLast = jbStats.lastPayload || {};
+  check('真实请求里破限词是第一条 system 消息',
+    jbLast.jailbreak === true && jbLast.jailbreakFirst === true,
+    `jailbreak=${jbLast.jailbreak} first=${jbLast.jailbreakFirst}`);
+  check('发出去的是自定义正文', String(jbLast.firstSystemHead || '').startsWith('JB-MARK-9001'),
+    String(jbLast.firstSystemHead || ''));
+  check('破限词独立成条，没有和任务规则挤进同一条', jbLast.messageCount === 3, String(jbLast.messageCount));
+
+  // 预览：破限词在最前，任务 system 以输出契约收尾
   await evalJs(`document.querySelector('#btnSettings').click(); true`);
   await sleep(400);
-  await evalJs(`document.querySelector('#btnRulePackPreview').click(); true`);
+  await evalJs(`document.querySelector('#btnPromptPreview').click(); true`);
   await sleep(1000);
-  const previewLayer = await evalJs(`document.querySelector('#rulePreviewText').value`);
-  check('预览里能看到破限层', previewLayer.includes('<!-- unrestricted:execution-mode -->'));
-  check('破限层在规则包之前', previewLayer.indexOf('<!-- unrestricted:execution-mode -->') < previewLayer.indexOf('## 规则包：固定画风'));
-  check('打开破限层后仍然只有一次格式锁',
-    previewLayer.split('# 输出格式确认').length === 2
-      && previewLayer.trimEnd().endsWith('不要用 markdown 代码块包裹。'));
-  check('预览元信息标出破限层', /破限层开/.test(await evalJs(`document.querySelector('#rulePreviewMeta').textContent`)));
+  const previewJb = await evalJs(`document.querySelector('#rulePreviewText').value`);
+  check('预览里破限词排在最前',
+    previewJb.indexOf('JB-MARK-9001') > 0
+      && previewJb.indexOf('JB-MARK-9001') < previewJb.indexOf('【messages[1]'),
+    previewJb.slice(0, 40).replace(/\n/g, ' '));
+  check('破限词没有顶掉输出契约（只出现一次）', previewJb.split('# 输出格式（强制）').length === 2);
+  check('预览元信息标出破限词开',
+    /破限词开/.test(await evalJs(`document.querySelector('#rulePreviewMeta').textContent`)),
+    await evalJs(`document.querySelector('#rulePreviewMeta').textContent`));
   await evalJs(`document.querySelector('#btnRulePreviewClose').click(); true`);
   await sleep(250);
+
   // 自检会真发一次请求；假接口返回合格 JSON，预期判定「通过」
-  await evalJs(`document.querySelector('#btnUnrestrictedCheck').click(); true`);
+  await evalJs(`document.querySelector('#btnJailbreakCheck').click(); true`);
   await sleep(2500);
-  const probeText = await evalJs(`document.querySelector('#unrestrictedCheckResult').textContent`);
+  const probeText = await evalJs(`document.querySelector('#jailbreakCheckResult').textContent`);
   check('破限自检能跑通并给出结论', /通过/.test(probeText), probeText.slice(0, 90));
-  await sleep(200);
-  // 收尾：关掉破限层，后面的断言按默认配置跑
+
+  // 收尾：清空 = 回落内置默认（不是关闭），后面的断言按默认破限词跑
+  await evalJs(`document.querySelector('#btnJailbreakEdit').click(); true`);
+  await sleep(600);
   await evalJs(`(() => {
-    const on = document.querySelector('#cfgUnrestrictedOn');
-    on.checked = false;
-    on.dispatchEvent(new Event('change'));
+    document.querySelector('#btnJailbreakClear').click();
+    document.querySelector('#btnJailbreakSave').click();
     return true;
   })()`);
-  await sleep(150);
-  await evalJs(`document.querySelector('#btnSaveSettings').click(); true`);
-  await sleep(1000);
-  const cfgLayerOff = await evalJs(`fetch('/api/config').then(r=>r.json())`);
-  check('破限层关闭后配置回到关',
-    cfgLayerOff.unrestrictedOn === false, String(cfgLayerOff.unrestrictedOn));
+  await sleep(1200);
+  const cfgJbReset = await evalJs(`fetch('/api/config').then(r=>r.json())`);
+  check('清空后回落内置默认（不是关闭）',
+    cfgJbReset.jailbreakPrompt === '' && cfgJbReset.jailbreakCustom === false
+      && cfgJbReset.jailbreakChars === cfgJbReset.jailbreakDefaultChars,
+    String(cfgJbReset.jailbreakChars));
+  await evalJs(`document.querySelector('#btnCancelSettings').click(); true`);
+  await sleep(300);
 
   // ---------- 12. 细分提示词 ----------
   await evalJs(`document.querySelector('#mainTabs .tab[data-view="segment"]').click(); true`);
@@ -1592,8 +1601,6 @@ async function main() {
     const s = document.querySelector('#segSentence');
     s.value = '银发吸血鬼贵族少女，穿黑色蕾丝长裙';
     s.dispatchEvent(new Event('input', {bubbles:true}));
-    document.querySelector('#targetModel').value = 'SDXL';
-    document.querySelector('#detail').value = 'standard';
     return true;
   })()`);
 
@@ -2144,7 +2151,6 @@ async function main() {
   await sleep(300);
 
   // ---------- 12.10 失败自动重试 ----------
-  const MOCK_STATS = `http://127.0.0.1:${process.env.PF_MOCK_PORT || 43199}/__mock-stats`;
   const histBeforeRetry = Number(await evalJs(`document.querySelector('#historyCount').textContent`));
   await evalJs(`(() => {
     const s = document.querySelector('#sentence');
@@ -2424,7 +2430,7 @@ async function main() {
   await evalJs(`localStorage.setItem('pf-lang', 'en'); location.reload(); true`);
   await sleep(1600);
   for (let i = 0; i < 40; i++) {
-    if (await evalJs(`!!document.querySelector('#styleSelect option')`)) break;
+    if (await evalJs(`!!document.querySelector('#btnGenerate')`)) break;
     await sleep(200);
   }
   check('切换到英文后 html lang 正确',
@@ -2439,10 +2445,10 @@ async function main() {
       && /Settings/.test(await evalJs(`document.querySelector('#btnSettings').textContent`)));
   check('英文界面生成按钮已翻译',
     (await evalJs(`document.querySelector('#btnGenerateText').textContent`)) === 'Generate prompt');
-  check('英文界面通用设置已翻译',
-    /Prompt style/.test(await evalJs(`document.querySelector('#globalOpts').textContent`))
-      && /Target model/.test(await evalJs(`document.querySelector('#globalOpts').textContent`))
-      && !/提示词风格|目标模型/.test(await evalJs(`document.querySelector('#globalOpts').textContent`)));
+  const composerTextEn = await evalJs(`document.querySelector('#viewPrompt .composer').textContent`);
+  check('英文界面输入卡参数行已翻译',
+    /Detail level/.test(composerTextEn) && !/详细程度/.test(composerTextEn),
+    composerTextEn.slice(0, 80));
 
   await evalJs(`document.querySelector('#btnSettings').click(); true`);
   await sleep(400);
@@ -2462,7 +2468,7 @@ async function main() {
   await evalJs(`localStorage.setItem('pf-lang', 'zh'); location.reload(); true`);
   await sleep(1600);
   for (let i = 0; i < 40; i++) {
-    if (await evalJs(`!!document.querySelector('#styleSelect option')`)) break;
+    if (await evalJs(`!!document.querySelector('#btnGenerate')`)) break;
     await sleep(200);
   }
   check('切回中文后界面恢复',
@@ -2483,7 +2489,7 @@ async function main() {
   await evalJs(`localStorage.removeItem('prompt-forge-history-v1'); localStorage.removeItem('pf-board-v1'); location.reload(); true`);
   await sleep(1500);
   for (let i = 0; i < 40; i++) {
-    if (await evalJs(`!!document.querySelector('#styleSelect option')`)) break;
+    if (await evalJs(`!!document.querySelector('#btnGenerate')`)) break;
     await sleep(200);
   }
   check('清空 localStorage 后历史能从服务端恢复',
@@ -2587,7 +2593,7 @@ async function main() {
   await sleep(350);
   check('应用模板会填入句子和风格',
     (await evalJs(`document.querySelector('#sentence').value.length`)) > 10
-      && (await evalJs(`document.querySelector('#styleSelect').value`)) === 'sd');
+      && (await evalJs(`document.querySelector('#detail').value`)) === 'standard');
   check('应用模板会带上画幅和镜头',
     (await evalJs(`document.querySelector('#promptAspect').value`)) === '2:3'
       && (await evalJs(`document.querySelector('#promptShot').value`)) === 'medium shot');
@@ -2657,7 +2663,7 @@ async function main() {
   await evalJs(`location.reload(); true`);
   await sleep(1600);
   for (let i = 0; i < 60; i++) {
-    if (await evalJs(`!!document.querySelector('#styleSelect option')`)) break;
+    if (await evalJs(`!!document.querySelector('#btnGenerate')`)) break;
     await sleep(200);
   }
   check('刷新后提示词草稿恢复',
@@ -2682,7 +2688,7 @@ async function main() {
   await evalJs(`location.reload(); true`);
   await sleep(1500);
   for (let i = 0; i < 60; i++) {
-    if (await evalJs(`!!document.querySelector('#styleSelect option')`)) break;
+    if (await evalJs(`!!document.querySelector('#btnGenerate')`)) break;
     await sleep(200);
   }
   check('清空草稿后刷新不再恢复当前结果',
@@ -2766,7 +2772,8 @@ async function main() {
     !JSON.stringify(diagnostics).includes('sk-test-1234')
       && diagnostics.activeProfile?.hasKey === true);
   check('诊断信息包含版本和路径',
-    diagnostics.version === '2.4.0' && !!diagnostics.paths?.saved && !!diagnostics.keyStorage);
+    diagnostics.version === serverVersion && !!diagnostics.paths?.saved && !!diagnostics.keyStorage,
+    `version=${diagnostics.version} 期望=${serverVersion}`);
 
   // 顶部一键切换：关掉设置，从顶栏切到第二预设
   await evalJs(`document.querySelector('#btnCancelSettings').click(); true`);
@@ -2899,6 +2906,13 @@ async function main() {
     if (await evalJs(`document.querySelector('#worldName').textContent === '九霄残卷'`)) break;
     await sleep(200);
   }
+  // 点「用这个方向」的瞬间必须立刻有加载态，否则 20-30 秒空白看起来像没反应
+  const busyOnClick = await evalJs(`(() => {
+    const cards = [...document.querySelectorAll('#worldAiResults .world-ai-card')];
+    return { cards: cards.length };
+  })()`);
+  check('方向上生成后卡片数量正确', busyOnClick.cards >= 1, JSON.stringify(busyOnClick));
+
   check('选择方向后生成世界核心',
     (await evalJs(`document.querySelector('#worldName').textContent`)) === '九霄残卷'
       && (await evalJs(`document.querySelector('#worldCore').textContent.includes('旧神残卷')`)) === true);
@@ -2952,8 +2966,32 @@ async function main() {
   const histBeforeWorldGen = Number(await evalJs(`document.querySelector('#historyCount').textContent`));
   await evalJs(`document.querySelector('#worldSubtabs .subtab[data-world-tab="generate"]').click(); true`);
   await sleep(300);
+  // 多人互斥要有 2 个以上条目才成立：不够就先补一个
+  await evalJs(`(async () => {
+    const w = S.currentWorld;
+    if ((w.entries || []).length >= 2) return true;
+    const extra = {
+      name: '裴无咎', category: 'character', status: 'canon',
+      summary: '红衣剑客，短发，腰挂断刃',
+      facts: [{ label: '身份', value: '游侠' }],
+      visualAnchors: 'red hair, amber eyes, black coat, tall build',
+      taboos: '', refPrompt: '',
+    };
+    const r = await fetch('/api/worlds/' + w.id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entries: [...w.entries, extra] }),
+    });
+    const j = await r.json();
+    S.currentWorld = j.world;
+    renderWorldGenerate();
+    return true;
+  })()`);
+  await sleep(400);
   await evalJs(`(() => {
-    document.querySelector('#worldGenEntries .world-gen-entry-chip').click();
+    // 选两个条目：既走正常的单词条流程，也让「多人互斥」有东西可算
+    const chips = [...document.querySelectorAll('#worldGenEntries .world-gen-entry-chip')];
+    chips.slice(0, 2).forEach((c) => { if (!c.classList.contains('active')) c.click(); });
     document.querySelector('#worldGenSentence').value = '雪夜，她拔刀';
     document.querySelector('#btnExpandWorld').click();
     return true;
@@ -2978,6 +3016,26 @@ async function main() {
       && (await evalJs(`document.querySelector('#worldGenBased').textContent.includes('九霄残卷')`)) === true);
   check('设定集生成不污染首页历史',
     Number(await evalJs(`document.querySelector('#historyCount').textContent`)) === histBeforeWorldGen);
+
+  // 勾了两个以上条目时，应出现「多人互斥 UC」并给出排斥串
+  const mutexState = await evalJs(`(async () => {
+    const row = document.querySelector('#worldGenMutexRow');
+    const ids = S.worldGenEntryIds || [];
+    if (ids.length < 2) return { skipped: true, ids: ids.length };
+    for (let i = 0; i < 40; i++) {
+      if (!row.hidden) break;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return { skipped: false, ids: ids.length, hidden: row.hidden,
+      text: document.querySelector('#worldGenMutex').textContent || '' };
+  })()`);
+  if (mutexState.skipped) {
+    check('多人互斥 UC 只在 2 个以上条目时出现', true, `本次只选了 ${mutexState.ids} 个条目，跳过`);
+  } else {
+    check('多条目同框时生成互斥 UC',
+      mutexState.hidden === false && /-?\d\.\d::/.test(mutexState.text),
+      JSON.stringify(mutexState).slice(0, 120));
+  }
   check('设定集结果有直接复制正向按钮',
     (await visible('#btnWorldCopyPositive')) === true
       && (await evalJs(`document.querySelector('#btnWorldCopyPositive').textContent`)) === '复制正向');
@@ -2994,6 +3052,35 @@ async function main() {
   check('设定集结果框不内部滚动',
     (await evalJs(`getComputedStyle(document.querySelector('#worldGenPositive')).overflowY`)) === 'visible'
       && (await evalJs(`getComputedStyle(document.querySelector('#worldGenPositive')).maxHeight`)) === 'none');
+
+  // 生成页刷新不该把用户选好的「写入条目」重置掉（先测，它不改状态）
+  const keepRef = await evalJs(`(() => {
+    const sel = document.querySelector('#worldRefEntry');
+    const opts = [...sel.options];
+    if (opts.length < 2) return { skipped: true };
+    sel.value = opts[1].value;
+    document.querySelector('#worldGenEntries .world-gen-entry-chip')?.click();
+    return { skipped: false, before: opts[1].value, after: sel.value };
+  })()`);
+  if (keepRef.skipped) {
+    check('刷新生成页保留「写入条目」选择', true, '条目不足 2 个，跳过');
+  } else {
+    check('刷新生成页保留「写入条目」选择',
+      keepRef.after === keepRef.before, JSON.stringify(keepRef));
+  }
+
+  // 切换世界必须清掉上一个世界的生成结果（会改状态，所以放最后）
+  const staleCheck = await evalJs(`(() => {
+    const before = { hasGen: !!S.worldGen, visible: !document.querySelector('#worldGenResult').hidden };
+    const w = S.currentWorld;
+    enterWorld({ ...w, entries: w.entries || [] });
+    const after = { hasGen: !!S.worldGen, hidden: document.querySelector('#worldGenResult').hidden,
+      ids: (S.worldGenEntryIds || []).length };
+    return { before, after };
+  })()`);
+  check('进入世界时清空上一世界的生成结果',
+    staleCheck.after.hasGen === false && staleCheck.after.hidden === true && staleCheck.after.ids === 0,
+    JSON.stringify(staleCheck));
 
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------

@@ -375,52 +375,6 @@ body {
   font-weight: 600;
 }
 
-/* ---------- 通用设置（三个模式共用，位于三栏之外） ---------- */
-.global-opts {
-  margin: 0 4px 16px;
-  padding: 12px 14px;
-  background: linear-gradient(180deg, var(--panel), var(--panel-3));
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: 0 8px 24px var(--shadow-sm);
-}
-
-.global-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.global-title {
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: .05em;
-  color: var(--text-2);
-}
-
-.global-grid {
-  display: grid;
-  grid-template-columns: 1.1fr 1.25fr .9fr .9fr;
-  gap: 10px;
-}
-
-.global-grid>.opt {
-  min-width: 0;
-}
-
-.global-grid select {
-  max-width: 100%;
-}
-
-.global-note {
-  margin: 8px 0 0;
-  font-size: 10.5px;
-  line-height: 1.5;
-  color: var(--dim);
-}
-
 /* ---------- 布局：左右两栏 ---------- */
 .grid {
   display: grid;
@@ -628,10 +582,6 @@ select {
   grid-template-columns: 1.2fr 1fr 1fr;
   gap: 10px;
   margin-top: 4px;
-}
-
-.opts.two {
-  grid-template-columns: 1fr 1fr;
 }
 
 .seg-note {
@@ -3252,7 +3202,7 @@ mark {
   color: var(--dim);
 }
 
-/* ---------- 内置破限层 ---------- */
+/* ---------- 破限词（置顶 system） ---------- */
 .layer-box {
   display: flex;
   flex-direction: column;
@@ -3295,80 +3245,30 @@ mark {
   padding: 5px 8px;
 }
 
-.layer-box .rule-pack-actions {
+.layer-box .layer-actions {
   margin-top: 2px;
 }
 
-#unrestrictedCheckResult {
+#jailbreakCheckResult {
   white-space: pre-line;
   border-left: 2px solid var(--line-strong);
   padding-left: 8px;
 }
 
-#unrestrictedCheckResult.hint-ok { color: var(--ok); border-left-color: var(--ok); }
-#unrestrictedCheckResult.hint-warn { color: var(--warn); border-left-color: var(--warn); }
-#unrestrictedCheckResult.hint-err { color: var(--danger); border-left-color: var(--danger); }
+#jailbreakCheckResult.hint-ok { color: var(--ok); border-left-color: var(--ok); }
+#jailbreakCheckResult.hint-warn { color: var(--warn); border-left-color: var(--warn); }
+#jailbreakCheckResult.hint-err { color: var(--danger); border-left-color: var(--danger); }
 
-/* ---------- 规则包 ---------- */
-.rule-packs {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.rule-packs-empty {
-  padding: 8px 0;
-  font-size: 11px;
-  color: var(--dim);
-  line-height: 1.6;
-}
-
-.rule-pack {
-  padding: 8px 10px 10px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel-2);
-}
-
-.rule-pack-head {
+/* 破限词卡片底部的按钮行 */
+.layer-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.rule-pack-head input[type="text"] {
-  flex: 1;
-  min-width: 0;
-  padding: 5px 8px;
-  font-size: 12px;
-}
-
-.rule-pack-head .btn {
-  flex: none;
-}
-
-.rule-pack textarea {
-  min-height: 74px;
-  margin-top: 6px;
-  font-size: 12px;
-  resize: vertical;
-}
-
-.rule-pack-foot {
-  margin-top: 5px;
-  font-size: 10.5px;
-  color: var(--dim);
-}
-
-.rule-pack-actions {
-  display: flex;
-  align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
 }
 
-.rule-pack-actions .grow {
+.layer-actions .grow {
   flex: 1;
 }
 
@@ -3513,4 +3413,137 @@ mark {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--line-strong);
+}
+
+/* ---------- NAI 整理版 / 体检 ---------- */
+
+.nai-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--line);
+}
+
+.nai-note {
+  font-size: 10.5px;
+  line-height: 1.5;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(var(--accent-rgb), .12);
+  color: var(--accent-soft);
+  border: 1px solid rgba(var(--accent-rgb), .26);
+}
+
+.nai-block + .nai-block {
+  border-top: 1px dashed var(--line);
+}
+
+.nai-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 11px 0;
+}
+
+.issue-list {
+  list-style: none;
+  margin: 0;
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.issue {
+  font-size: 12px;
+  line-height: 1.6;
+  padding-left: 16px;
+  position: relative;
+  color: var(--text-2);
+}
+
+.issue::before {
+  content: '·';
+  position: absolute;
+  left: 4px;
+  opacity: .6;
+}
+
+.issue-error {
+  color: var(--danger-soft);
+}
+
+.issue-error::before {
+  content: '✗';
+  color: var(--danger-soft);
+  opacity: 1;
+}
+
+.issue-warn::before {
+  content: '!';
+  color: var(--warn-soft);
+  opacity: 1;
+  font-weight: 700;
+}
+
+.issue-info {
+  opacity: .78;
+}
+
+@media (max-width: 720px) {
+  .nai-notes {
+    padding: 8px 9px;
+  }
+  .nai-note {
+    font-size: 10px;
+  }
+}
+
+/* ---------- 设定集：多人互斥 UC ---------- */
+
+.world-gen-mutex {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px dashed rgba(var(--accent-rgb), .34);
+  border-radius: 10px;
+  background: rgba(var(--accent-rgb), .07);
+}
+
+.world-gen-mutex-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.world-gen-mutex .variant-text {
+  margin: 0;
+}
+
+/* AI 起草世界的错误提示：一直留在弹窗里 */
+.world-ai-error {
+  margin: 8px 0 0;
+  padding: 9px 11px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--danger-soft);
+  background: rgba(var(--danger-rgb), .1);
+  border: 1px solid rgba(var(--danger-rgb), .3);
+  border-radius: 10px;
+  word-break: break-word;
+}
+
+/* AI 弹窗里的进度提示 */
+.world-ai-status {
+  margin: 10px 0 0;
+  padding: 8px 11px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--accent-soft);
+  background: rgba(var(--accent-rgb), .1);
+  border: 1px solid rgba(var(--accent-rgb), .28);
+  border-radius: 10px;
 }

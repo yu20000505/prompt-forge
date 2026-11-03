@@ -12,6 +12,7 @@ const {
   parseMetaComment,
   publicConfig,
   migrateLegacyPinnedPromptObject,
+  parseJsonContent,
 } = await import('../src/server.mjs');
 const { buildMessages } = await import('../src/styles.mjs');
 
@@ -93,40 +94,25 @@ test('buildMetaComment / parseMetaComment: 往返一致，且不会被 --> 提�
   assert.equal(parseMetaComment('没有元数据'), null);
 });
 
-test('publicConfig: 规则包会规整并丢掉空包，不把整段规则漏给前端以外的用途', () => {
-  const cfg = publicConfig({
-    apiKey: 'sk-x',
-    model: 'demo',
-    rulePacks: [
-      { id: 'a', name: '画风', text: '固定水彩', enabled: false },
-      { name: '', text: '   ' },
-      { name: 'B', text: '正文' },
-    ],
-    rulePacksOn: false,
-  });
-  assert.equal(cfg.rulePacks.length, 2);
-  assert.equal(cfg.rulePacks[0].id, 'a');
-  assert.equal(cfg.rulePacks[0].enabled, false);
-  assert.equal(cfg.rulePacks[1].name, 'B');
-  assert.equal(cfg.rulePacks[1].enabled, true);
-  assert.equal(cfg.rulePacksOn, false);
-  assert.equal(cfg.features.rulePacks, true);
-});
-
-test('publicConfig: 没有规则包时给空数组，前端不用判 undefined', () => {
-  const cfg = publicConfig({ apiKey: '', model: '' });
-  assert.deepEqual(cfg.rulePacks, []);
-  assert.equal(cfg.rulePacksOn, true);
-});
-
-test('publicConfig: 破限层默认关闭，关闭时也带上来源与字数', () => {
+test('publicConfig: 破限词默认开启，留空即内置默认', () => {
   const cfg = publicConfig({});
-  assert.equal(cfg.unrestrictedOn, false);
-  assert.ok(cfg.unrestrictedChars > 10000);
-  assert.equal(cfg.unrestricted.version, '0.2.6');
-  assert.equal(cfg.unrestricted.license, 'MIT');
-  assert.equal(cfg.unrestricted.verbatim, true);
-  assert.equal(cfg.features.unrestricted, true);
+  assert.equal(cfg.jailbreakOn, true);
+  assert.equal(cfg.jailbreakCustom, false);
+  assert.equal(cfg.jailbreakPrompt, '');
+  assert.equal(cfg.jailbreakChars, cfg.jailbreakDefaultChars);
+  assert.ok(cfg.jailbreakChars > 800);
+  assert.equal(cfg.jailbreak.name, 'FORGE 内核');
+  assert.match(cfg.jailbreak.origin, /原创/);
+  assert.equal(cfg.features.jailbreak, true);
+});
+
+test('publicConfig: 自定义破限词按原文字数计入，并标记为已自定义', () => {
+  const cfg = publicConfig({ jailbreakPrompt: '  我的规则  ' });
+  assert.equal(cfg.jailbreakCustom, true);
+  assert.equal(cfg.jailbreakChars, '我的规则'.length);
+  assert.equal(cfg.jailbreakOn, true);
+  // 关掉开关不影响正文留存：用户重新打开时内容还在
+  assert.equal(publicConfig({ jailbreakPrompt: 'x', jailbreakOn: false }).jailbreakPrompt, 'x');
 });
 
 test('迁移：旧配置里的范围字段会被清掉（逐字移植后不再分档）', () => {
@@ -135,32 +121,32 @@ test('迁移：旧配置里的范围字段会被清掉（逐字移植后不再�
   assert.equal('unrestrictedScope' in next, false);
 });
 
-test('迁移：旧 apiPinnedPrompt 变成停用规则包，并打开破限层', () => {
+test('迁移：旧 apiPinnedPrompt 搬进破限词，并清掉规则包字段', () => {
   const source = {
     model: 'm',
     apiPinnedPrompt: '旧版那段文本',
     rulePacks: [{ id: 'keep', name: '保留', text: 'x', enabled: true }],
+    rulePacksOn: false,
   };
   const next = migrateLegacyPinnedPromptObject(source);
   assert.ok(next);
   assert.equal('apiPinnedPrompt' in next, false);
-  assert.equal(next.unrestrictedOn, true);
-  assert.equal(next.rulePacks.length, 2);
-  assert.equal(next.rulePacks[0].id, 'legacy-api-pinned');
-  assert.equal(next.rulePacks[0].enabled, false);
-  assert.match(next.rulePacks[0].text, /旧版那段文本/);
-  assert.equal(next.rulePacks[1].id, 'keep');
+  assert.equal('unrestrictedOn' in next, false);
+  assert.equal('rulePacks' in next, false);
+  assert.equal('rulePacksOn' in next, false);
+  assert.match(next.jailbreakPrompt, /旧版那段文本/);
   // 原对象不被改动
   assert.equal(source.apiPinnedPrompt, '旧版那段文本');
   assert.equal(source.rulePacks.length, 1);
 });
 
-test('迁移：已经迁移过不重复加包，用户显式关闭就保持关闭', () => {
-  const once = migrateLegacyPinnedPromptObject({ apiPinnedPrompt: 'a' });
-  const again = migrateLegacyPinnedPromptObject({ apiPinnedPrompt: 'a', rulePacks: once.rulePacks });
-  assert.equal(again.rulePacks.length, 1);
-  const off = migrateLegacyPinnedPromptObject({ apiPinnedPrompt: 'a', unrestrictedOn: false });
-  assert.equal(off.unrestrictedOn, false);
+test('迁移：已经设置过破限词就不覆盖', () => {
+  const next = migrateLegacyPinnedPromptObject({
+    apiPinnedPrompt: '旧文本',
+    jailbreakPrompt: '我的新破限词',
+  });
+  assert.equal(next.jailbreakPrompt, '我的新破限词');
+  assert.equal('apiPinnedPrompt' in next, false);
 });
 
 test('迁移：没有旧字段时返回 null，不写盘', () => {
@@ -169,3 +155,34 @@ test('迁移：没有旧字段时返回 null，不写盘', () => {
   assert.equal(migrateLegacyPinnedPromptObject(null), null);
 });
 
+
+
+// ---------- 模型返回的 JSON 解析（世界 AI 最常见的一处失败） ----------
+test('parseJsonContent: 纯 JSON 原样解析', () => {
+  assert.deepEqual(parseJsonContent('{"a":1}'), { a: 1 });
+});
+
+test('parseJsonContent: 剥掉 ```json 围栏和前后解释', () => {
+  const t = '好的，这是结果：\n```json\n{"directions":[{"name":"九霄"}]}\n```\n希望有帮助';
+  assert.equal(parseJsonContent(t).directions[0].name, '九霄');
+});
+
+test('parseJsonContent: 容忍对象里的尾逗号', () => {
+  assert.deepEqual(parseJsonContent('{"a":1,"b":[1,2,],}'), { a: 1, b: [1, 2] });
+});
+
+test('parseJsonContent: 字符串里的花括号不干扰配对', () => {
+  assert.equal(parseJsonContent('前言 {"s":"a}b{c","n":2} 后缀').s, 'a}b{c');
+});
+
+test('parseJsonContent: 顶层数组也能解析', () => {
+  assert.deepEqual(parseJsonContent('[{"a":1},{"b":2}]').length, 2);
+});
+
+test('parseJsonContent: 被截断的 JSON 抛错（不能当成成功）', () => {
+  assert.throws(() => parseJsonContent('{"directions":[{"name":"九霄","genre":"东方玄幻"}'), /./);
+});
+
+test('parseJsonContent: 空内容抛错', () => {
+  assert.throws(() => parseJsonContent('   '), /./);
+});

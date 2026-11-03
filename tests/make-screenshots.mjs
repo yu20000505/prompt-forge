@@ -201,6 +201,16 @@ async function main() {
   await sleep(600);
   await shoot('04-settings.png');
 
+  // 7) 破限词卡片与编辑弹窗（README 的「破限词」一节用图）
+  await js(`document.querySelector('#jailbreakBox').scrollIntoView({block:'center'}); true`);
+  await sleep(500);
+  await shoot('07-jailbreak-card.png');
+  await js(`document.querySelector('#btnJailbreakEdit').click(); true`);
+  await sleep(900);
+  await shoot('08-jailbreak-edit.png');
+  await js(`document.querySelector('#jailbreakDialog').close(); true`);
+  await sleep(200);
+
   cdp.close();
   console.log('完成');
 }
