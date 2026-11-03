@@ -1527,8 +1527,87 @@ async function loadWorlds() {
     const j = await worldApi('');
     S.worlds = j.items || [];
     renderWorlds();
+    await loadWorldArchive();
   } catch (err) {
     toast(`设定集读取失败：${err.message}`, true);
+  }
+}
+
+/* ============ 设定集的提示词存档（只属于设定集页，按世界分组） ============ */
+async function loadWorldArchive() {
+  const box = $('#worldArchiveList');
+  if (!box) return;
+  try {
+    const r = await fetch('/api/saved?scope=worlds');
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    S.worldArchive = Array.isArray(j.items) ? j.items : [];
+    renderWorldArchive();
+  } catch (err) {
+    box.innerHTML = '';
+    const p = document.createElement('p');
+    p.className = 'dim small';
+    p.textContent = `存档读取失败：${err.message}`;
+    box.appendChild(p);
+  }
+}
+
+function renderWorldArchive() {
+  const box = $('#worldArchiveList');
+  if (!box) return;
+  const items = S.worldArchive || [];
+  const count = $('#worldArchiveCount');
+  if (count) count.textContent = items.length ? `${items.length} 条` : '';
+  box.innerHTML = '';
+  if (!items.length) {
+    const p = document.createElement('p');
+    p.className = 'dim small world-archive-empty';
+    p.textContent = '还没有存档。生成结果后点右上角的「💾 保存到设定集」。';
+    box.appendChild(p);
+    return;
+  }
+
+  // 按世界名分组；没记下世界名的（手写文件）落到最后一组
+  const groups = new Map();
+  for (const it of items) {
+    const w = String(it.meta?.world || '').trim() || '未归属设定集';
+    if (!groups.has(w)) groups.set(w, []);
+    groups.get(w).push(it);
+  }
+
+  for (const [world, list] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh'))) {
+    const det = document.createElement('details');
+    det.className = 'world-archive-group';
+    det.open = true;
+
+    const sum = document.createElement('summary');
+    const name = document.createElement('span');
+    name.className = 'wa-group-name';
+    name.textContent = world;
+    const num = document.createElement('span');
+    num.className = 'dim small';
+    num.textContent = `${list.length} 条`;
+    sum.appendChild(name);
+    sum.appendChild(num);
+    det.appendChild(sum);
+
+    for (const it of list) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'world-archive-item';
+      b.title = it.name;
+      const title = document.createElement('span');
+      title.className = 'wa-title';
+      title.textContent = it.title || it.name.replace(/\.md$/, '');
+      const time = document.createElement('span');
+      time.className = 'dim small wa-time';
+      time.textContent = fmtTime(it.mtime);
+      b.appendChild(title);
+      b.appendChild(time);
+      b.addEventListener('click', () => openSavedEntry(it));
+      det.appendChild(b);
+    }
+    box.appendChild(det);
   }
 }
 
@@ -2361,7 +2440,8 @@ async function saveWorldResult(btn) {
   const w = S.currentWorld || {};
   const names = (w.entries || []).filter((e) => worldSelectedEntryIds().includes(e.id)).map((e) => e.name);
   const sentence = String(S.worldGen.sentence || '').trim();
-  const title = [w.name, sentence.slice(0, 18) || names[0] || '设定集提示词'].filter(Boolean).join(' · ');
+  // 命名直接取角色 / 生物的名字（多选就按「、」连起来）；没选条目时退回世界名
+  const title = names.length ? names.join('、') : (w.name || sentence.slice(0, 18) || '设定集提示词');
   await saveToLocal('world', title, worldGenMarkdown(), {
     positive: S.worldGen.positive || '',
     negative: S.worldGen.negative || '',
@@ -2374,6 +2454,7 @@ async function saveWorldResult(btn) {
     sentence,
     mutex: S.worldMutex || '',
   }, btn);
+  await loadWorldArchive();
 }
 
 async function writeWorldRef() {
@@ -2986,9 +3067,13 @@ async function saveToLocal(kind, title, content, meta, btn) {
   }
 }
 
-async function openSavedDir() {
+async function openSavedDir(sub = '') {
   try {
-    const r = await fetch('/api/saved/open', { method: 'POST' });
+    const r = await fetch('/api/saved/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sub ? { dir: sub } : {}),
+    });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
     toast(`已打开：${j.dir}`);
@@ -3067,7 +3152,8 @@ async function loadLibrary() {
   box.innerHTML = '<p class="dim small" style="text-align:center;padding:24px 0">读取中…</p>';
   try {
     const q = $('#libFilter').value.trim();
-    const r = await fetch(q ? `/api/saved?q=${encodeURIComponent(q)}` : '/api/saved');
+    // scope=library：通用保存库只看工坊/角色/细分，设定集存档有自己的面板
+    const r = await fetch(`/api/saved?scope=library${q ? `&q=${encodeURIComponent(q)}` : ''}`);
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
     S.lib = Array.isArray(j.items) ? j.items : [];
@@ -3174,7 +3260,7 @@ function renderLibrary() {
   }
 
   // 收藏单独置顶；其余按三个大分类固定顺序，未知类型排最后
-  const groups = new Map([['收藏', []], ['提示词', []], ['角色设定', []], ['细分提示词', []], ['设定集', []]]);
+  const groups = new Map([['收藏', []], ['提示词', []], ['角色设定', []], ['细分提示词', []]]);
   for (const it of list) {
     if (it.favorite) {
       groups.get('收藏').push(it);
@@ -6824,6 +6910,8 @@ function bind() {
   $('#btnWorldGenCancel').addEventListener('click', () => {
     if (S.worldGenAbort) S.worldGenAbort.abort();
   });
+  $('#btnWorldArchiveRefresh').addEventListener('click', () => loadWorldArchive());
+  $('#btnWorldArchiveFolder').addEventListener('click', () => openSavedDir('worlds'));
   $('#btnWorldWriteRef').addEventListener('click', writeWorldRef);
   $('#btnWorldSave').addEventListener('click', (e) => saveWorldResult(e.currentTarget));
   $('#btnWorldCopyPositive').addEventListener('click', (e) => {
@@ -7081,9 +7169,9 @@ function bind() {
   $('#btnLibTrash').addEventListener('click', openTrash);
   $('#btnTrashClose').addEventListener('click', () => $('#trashDialog').close());
   $('#btnTrashEmpty').addEventListener('click', emptyTrash);
-  $('#btnLibFolder').addEventListener('click', openSavedDir);
+  $('#btnLibFolder').addEventListener('click', () => openSavedDir());
 
-  $('#btnOpenSaved').addEventListener('click', openSavedDir);
+  $('#btnOpenSaved').addEventListener('click', () => openSavedDir());
 
   /* 置顶词 */
   const persistPins = debounce(() => {

@@ -1615,8 +1615,12 @@ async function handleListSaved(req, res) {
     await fsp.mkdir(SAVED_DIR, { recursive: true });
     const url = new URL(req.url, `http://${HOST}`);
     const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
+    const scope = String(url.searchParams.get('scope') || '');
     const names = [];
     for (const dir of [SAVED_DIR, WORLD_SAVED_DIR]) {
+      // scope=library：通用保存库不混入设定集存档；scope=worlds：只看设定集存档
+      if (scope === 'library' && dir === WORLD_SAVED_DIR) continue;
+      if (scope === 'worlds' && dir !== WORLD_SAVED_DIR) continue;
       try {
         const list = (await fsp.readdir(dir)).filter((f) => f.endsWith('.md'));
         names.push(...list);
@@ -2570,9 +2574,17 @@ function openInFileManager(target) {
 
 async function handleOpenSaved(req, res) {
   try {
-    await fsp.mkdir(SAVED_DIR, { recursive: true });
-    openInFileManager(SAVED_DIR);
-    return json(res, 200, { ok: true, dir: SAVED_DIR });
+    // 前端可以指定打开哪个子目录（目前只有设定集存档）
+    let target = SAVED_DIR;
+    try {
+      const body = JSON.parse((await readBody(req)) || '{}');
+      if (body && body.dir === 'worlds') target = WORLD_SAVED_DIR;
+    } catch {
+      /* 没带 body 就开根目录 */
+    }
+    await fsp.mkdir(target, { recursive: true });
+    openInFileManager(target);
+    return json(res, 200, { ok: true, dir: target });
   } catch (err) {
     return json(res, 500, { error: String(err?.message || err) });
   }

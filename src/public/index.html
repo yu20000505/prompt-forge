@@ -530,6 +530,19 @@
         <input id="worldSearch" class="world-search" placeholder="搜索设定集…" autocomplete="off" />
         <div class="world-grid" id="worldGrid"></div>
         <p class="world-empty" id="worldEmpty" hidden>还没有设定集。新建一个，或用 AI 从种子词起草。</p>
+
+        <!-- 设定集的提示词存档：只在这里出现，按世界分组；点一条会切到对应世界并载入 -->
+        <section class="panel world-archive" id="worldArchive">
+          <div class="panel-title">
+            <h3>提示词存档 <span class="dim small" id="worldArchiveCount"></span></h3>
+            <div class="result-tools">
+              <button class="btn tiny ghost" type="button" id="btnWorldArchiveRefresh">↻ 刷新</button>
+              <button class="btn tiny ghost" type="button" id="btnWorldArchiveFolder">打开目录</button>
+            </div>
+          </div>
+          <p class="field-hint">按设定集分组，文件名就是角色 / 生物的名字。点一条会切到对应世界的「生成」页并载入这条结果。</p>
+          <div id="worldArchiveList" class="world-archive-list"></div>
+        </section>
       </section>
 
       <section id="worldDetailView" hidden>

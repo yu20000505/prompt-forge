@@ -3048,7 +3048,7 @@ async function main() {
   check('结果能写入条目参考提示词',
     (await evalJs(`S.currentWorld.entries[0].refPrompt.includes('Positive prompt')`)) === true);
 
-  // 设定集结果要能单独保存：落到 saved/worlds/，保存库里自成一类，且能载回来
+  // 设定集结果要能单独保存：落到 saved/worlds/，命名取角色 / 生物的名字
   await evalJs(`document.querySelector('#btnWorldSave').click(); true`);
   await sleep(1300);
   const worldSavedList = await evalJs(`fetch('/api/saved').then(r=>r.json())`);
@@ -3057,10 +3057,9 @@ async function main() {
   check('设定集结果存到单独的目录（文件名带 _设定集_）',
     !!worldSavedItem && worldSavedItem.name.includes('_设定集_'),
     worldSavedItem ? worldSavedItem.name : '');
-  await evalJs(`document.querySelector('#btnLibrary').click(); true`);
-  await sleep(600);
-  const libGroupKinds = await evalJs(`[...document.querySelectorAll('#libList .lib-group')].map(g => g.dataset.kind)`);
-  check('保存库里出现「设定集」分组', (libGroupKinds || []).includes('设定集'), JSON.stringify(libGroupKinds));
+  check('存档按角色 / 生物的名字命名',
+    !!worldSavedItem && /沈照雪/.test(String(worldSavedItem.title || worldSavedItem.name)),
+    worldSavedItem ? `${worldSavedItem.title} ／ ${worldSavedItem.name}` : '');
   const worldLoaded = await evalJs(`(async () => {
     const r = await fetch('/api/saved');
     const j = await r.json();
@@ -3070,6 +3069,11 @@ async function main() {
     return !!(full.meta && full.meta.world && full.meta.positive);
   })()`);
   check('设定集存档带得回世界名与正向提示词', worldLoaded === true);
+  // 通用保存库不再混入设定集——它有自己的面板
+  await evalJs(`document.querySelector('#btnLibrary').click(); true`);
+  await sleep(700);
+  const libGroupKinds = await evalJs(`[...document.querySelectorAll('#libList .lib-group')].map(g => g.dataset.kind)`);
+  check('通用保存库不再混入设定集', !(libGroupKinds || []).includes('设定集'), JSON.stringify(libGroupKinds));
   await evalJs(`document.querySelector('#btnLibClose').click(); true`);
   await sleep(300);
   check('所有弹窗都有右上角关闭按钮',
@@ -3110,6 +3114,20 @@ async function main() {
   check('进入世界时清空上一世界的生成结果',
     staleCheck.after.hasGen === false && staleCheck.after.hidden === true && staleCheck.after.ids === 0,
     JSON.stringify(staleCheck));
+
+  // 设定集页自己的存档面板：按世界分组，点一条能载回生成页
+  await evalJs(`document.querySelector('#btnWorldBack').click(); true`);
+  await sleep(900);
+  const archiveGroups = await evalJs(`[...document.querySelectorAll('#worldArchiveList .world-archive-group .wa-group-name')].map(n => n.textContent)`);
+  check('设定集页里有存档面板，按世界分组',
+    (archiveGroups || []).some((g) => String(g).includes('九霄残卷')), JSON.stringify(archiveGroups));
+  const archiveTitles = await evalJs(`[...document.querySelectorAll('#worldArchiveList .wa-title')].map(n => n.textContent)`);
+  check('存档条目显示角色名', (archiveTitles || []).some((t) => /沈照雪/.test(String(t))), JSON.stringify(archiveTitles));
+  await evalJs(`document.querySelector('#worldArchiveList .world-archive-item').click(); true`);
+  await sleep(1400);
+  check('点存档能载回设定集生成页',
+    (await evalJs(`!!S.worldGen && String(S.worldGen.positive).length > 0`)) === true
+      && (await evalJs(`!document.querySelector('#worldGenResult').hidden`)) === true);
 
   // ---------- 13. 控制台错误 ----------
   // ---------- 控制台错误 ----------

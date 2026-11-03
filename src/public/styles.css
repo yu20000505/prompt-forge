@@ -2318,6 +2318,80 @@ mark {
   padding: 0 18px 40px;
 }
 
+/* ---------- 设定集：提示词存档（按世界分组） ---------- */
+.world-archive {
+  margin-top: 22px;
+  padding: 14px;
+}
+
+.world-archive-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.world-archive-group {
+  padding: 4px 10px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+
+.world-archive-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.wa-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.world-archive-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 2px;
+  border: 0;
+  border-top: 1px dashed var(--line);
+  background: none;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.world-archive-item:hover {
+  color: var(--accent);
+}
+
+.wa-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wa-time {
+  flex: none;
+}
+
+.world-archive-empty {
+  padding: 6px 0;
+}
+
 .worlds-head,
 .world-title-row,
 .world-detail-head {
